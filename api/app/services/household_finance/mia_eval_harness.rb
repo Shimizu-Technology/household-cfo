@@ -11,18 +11,45 @@ module HouseholdFinance
       :passed,
       :missing_phrases,
       :forbidden_matches,
+      :missing_amounts,
+      :unexpected_amounts,
+      :rule_violations,
+      :known_gap,
+      :gap_reason,
       :metadata,
       :error,
       keyword_init: true
-    )
+    ) do
+      # Every check that failed, in words, for reports.
+      def problems
+        [
+          ("error: #{error}" if error),
+          ("missing phrases: #{missing_phrases.inspect}" if missing_phrases.present?),
+          ("forbidden phrases: #{forbidden_matches.inspect}" if forbidden_matches.present?),
+          ("missing amounts: #{missing_amounts.join('; ')}" if missing_amounts.present?),
+          ("unexpected amounts: #{unexpected_amounts.join(', ')}" if unexpected_amounts.present?),
+          *Array(rule_violations).map { |violation| "rule #{violation['rule']}: #{violation['detail']}" }
+        ].compact
+      end
+    end
 
+    # A known gap is a case the app can't answer correctly yet. It reports but
+    # never fails the run; one that starts passing is listed as a closed gap.
     Result = Struct.new(:case_results, keyword_init: true) do
       def passed?
-        case_results.all?(&:passed)
+        failures.empty?
       end
 
       def failures
-        case_results.reject(&:passed)
+        case_results.reject { |result| result.passed || result.known_gap }
+      end
+
+      def known_gaps
+        case_results.select { |result| result.known_gap && !result.passed }
+      end
+
+      def closed_gaps
+        case_results.select { |result| result.known_gap && result.passed }
       end
 
       def total_count
@@ -35,23 +62,42 @@ module HouseholdFinance
     end
 
     DEFAULT_CASE_PATH = Rails.root.join("test/evals/mia_eval_cases.yml")
+    CFO_QUESTION_SET_PATH = Rails.root.join("test/evals/mia_cfo_question_set.yml")
+    CASE_SETS = { "default" => DEFAULT_CASE_PATH, "cfo" => CFO_QUESTION_SET_PATH }.freeze
 
+    # A file-level household (for example "cfo") applies to each of its cases.
     def self.load_cases(path = DEFAULT_CASE_PATH)
       payload = YAML.safe_load_file(path)
-      Array(payload.fetch("cases"))
+      household = payload["household"]
+      Array(payload.fetch("cases")).map { |eval_case| household ? { "household" => household }.merge(eval_case) : eval_case }
+    end
+
+    def self.validate_case!(eval_case)
+      id = eval_case["id"] || "unknown"
+      raise ArgumentError, "#{id}: a known_gap needs a gap_reason" if eval_case["known_gap"] && eval_case["gap_reason"].to_s.strip.empty?
+
+      skips = eval_case["skip_rules"] || {}
+      raise ArgumentError, "#{id}: skip_rules maps each rule to the reason it does not apply" unless skips.is_a?(Hash)
+
+      skips.each do |rule, reason|
+        raise ArgumentError, "#{id}: unknown rule #{rule.inspect}; rules are #{MiaEvalRules::RULES.join(', ')}" unless MiaEvalRules::RULES.include?(rule.to_s)
+        raise ArgumentError, "#{id}: skipping #{rule} needs a reason" if reason.to_s.strip.empty?
+      end
     end
 
     # mode :live checks live_expected (when a case defines it) instead of
     # expected_phrases, and adds live_forbidden to forbidden_phrases. Live
     # wording varies, so live expectations are looser than deterministic ones.
+    # A runner returns the reply, or { response:, metadata:, ledger: } where ledger
+    # is MiaEvalLedger.snapshot of the household the case talked to.
     def initialize(cases: self.class.load_cases, runner:, mode: :deterministic)
-      @cases = cases
+      @cases = cases.map(&:deep_stringify_keys).each { |eval_case| self.class.validate_case!(eval_case) }
       @runner = runner
       @mode = mode.to_sym
     end
 
     def call
-      Result.new(case_results: cases.map { |eval_case| run_case(eval_case.deep_stringify_keys) })
+      Result.new(case_results: cases.map { |eval_case| run_case(eval_case) })
     end
 
     private
@@ -62,31 +108,32 @@ module HouseholdFinance
       output = runner.call(eval_case)
       response = response_from(output)
       metadata = metadata_from(output)
-      expected_phrases = expected_phrases_for(eval_case)
-      forbidden_phrases = forbidden_phrases_for(eval_case)
-      missing_phrases = missing_phrases(response, expected_phrases)
-      forbidden_matches = matching_phrases(response, forbidden_phrases)
+      ledger = payload_value(output, :ledger)
+      missing_phrases = missing_phrases(response, expected_phrases_for(eval_case))
+      forbidden_matches = matching_phrases(response, forbidden_phrases_for(eval_case))
+      amounts = MiaEvalAmounts.check(eval_case, response, ledger)
+      violations = MiaEvalRules.violations(prompt: prompt_for(eval_case), response: response, ledger: ledger, skip: eval_case.fetch("skip_rules", {}).keys.map(&:to_s))
 
-      CaseResult.new(
-        id: eval_case.fetch("id"),
-        prompt: prompt_for(eval_case),
+      case_result(
+        eval_case,
         response: response,
-        passed: response.present? && missing_phrases.empty? && forbidden_matches.empty?,
+        passed: response.present? && [ missing_phrases, forbidden_matches, amounts["missing"], amounts["unexpected"], violations ].all?(&:empty?),
         missing_phrases: missing_phrases,
         forbidden_matches: forbidden_matches,
-        metadata: metadata,
-        error: nil
+        missing_amounts: amounts["missing"],
+        unexpected_amounts: amounts["unexpected"],
+        rule_violations: violations,
+        metadata: metadata
       )
     rescue StandardError => e
+      case_result(eval_case, response: "", passed: false, missing_phrases: expected_phrases_for(eval_case), error: "#{e.class}: #{e.message}")
+    end
+
+    def case_result(eval_case, **attributes)
       CaseResult.new(
-        id: eval_case.fetch("id", "unknown"),
-        prompt: prompt_for(eval_case),
-        response: "",
-        passed: false,
-        missing_phrases: expected_phrases_for(eval_case),
-        forbidden_matches: [],
-        metadata: {},
-        error: "#{e.class}: #{e.message}"
+        id: eval_case.fetch("id", "unknown"), prompt: prompt_for(eval_case),
+        forbidden_matches: [], missing_amounts: [], unexpected_amounts: [], rule_violations: [], metadata: {}, error: nil,
+        known_gap: eval_case["known_gap"] == true, gap_reason: eval_case["gap_reason"], **attributes
       )
     end
 
@@ -98,10 +145,14 @@ module HouseholdFinance
     end
 
     def metadata_from(output)
-      return {} if output.is_a?(String)
+      payload_value(output, :metadata) || {}
+    end
+
+    def payload_value(output, key)
+      return if output.is_a?(String)
 
       payload = output.respond_to?(:to_h) ? output.to_h : {}
-      payload[:metadata] || payload["metadata"] || {}
+      payload[key] || payload[key.to_s]
     end
 
     def prompt_for(eval_case)

@@ -5,7 +5,7 @@ require Rails.root.join("lib/tasks/mia_evals/live_runner").to_s
 class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
   include WorkosAuthTestSupport
 
-  RUNNER_ENV_KEYS = %w[MIA_LIVE_EVALS CI OPENROUTER_API_KEY DATABASE_URL].freeze
+  RUNNER_ENV_KEYS = %w[MIA_LIVE_EVALS CI OPENROUTER_API_KEY DATABASE_URL MIA_LIVE_EVALS_NIGHTLY_WORKFLOW GITHUB_WORKFLOW SET].freeze
 
   setup do
     @previous_env = (RUNNER_ENV_KEYS + WORKOS_ENV_KEYS).to_h { |key| [ key, ENV[key] ] }
@@ -55,6 +55,36 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     ENV.delete("CI")
     ENV.delete("MIA_LIVE_EVALS")
     assert_preflight false, /MIA_LIVE_EVALS=1/
+  end
+
+  test "in CI only the nightly live-eval workflow may run, and only with its own opt-in" do
+    ENV["CI"] = "true"
+    ENV["GITHUB_WORKFLOW"] = MiaEvals::LiveRunner::NIGHTLY_WORKFLOW
+    assert_preflight false, /do not run in CI, except in the nightly/
+
+    ENV["MIA_LIVE_EVALS_NIGHTLY_WORKFLOW"] = "1"
+    assert_preflight true
+
+    ENV["GITHUB_WORKFLOW"] = "CI"
+    assert_preflight false, /do not run in CI/
+
+    ENV["GITHUB_WORKFLOW"] = MiaEvals::LiveRunner::NIGHTLY_WORKFLOW
+    ENV.delete("MIA_LIVE_EVALS")
+    assert_preflight false, /MIA_LIVE_EVALS=1/
+  end
+
+  test "SET picks a known case set" do
+    ENV["SET"] = "cfo"
+    assert_preflight true
+    assert_equal "cfo", @runner.send(:case_set)
+    ENV["SET"] = "everything"
+    assert_preflight false, /SET must be one of default, cfo/
+  end
+
+  test "the nightly workflow's name matches the runner's opt-in" do
+    workflow = YAML.safe_load_file(Rails.root.join("../.github/workflows/mia-live-evals.yml"))
+    assert_equal MiaEvals::LiveRunner::NIGHTLY_WORKFLOW, workflow.fetch("name")
+    assert_equal "1", workflow.dig("jobs", "live", "env", MiaEvals::LiveRunner::NIGHTLY_OPT_IN).to_s
   end
 
   test "test database names must carry the test suffix" do

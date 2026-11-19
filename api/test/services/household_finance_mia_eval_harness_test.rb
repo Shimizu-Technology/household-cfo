@@ -16,6 +16,21 @@ class HouseholdFinanceMiaEvalHarnessTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "CFO question set answers with the ledger's numbers and keeps the rules" do
+    travel_to HouseholdFinance::MiaEvalHousehold.eval_time do
+      cases = HouseholdFinance::MiaEvalHarness.load_cases(HouseholdFinance::MiaEvalHarness::CFO_QUESTION_SET_PATH)
+      result = HouseholdFinance::MiaEvalHarness.new(cases: cases, runner: method(:run_controller_case)).call
+
+      assert result.passed?, failure_summary(result)
+      assert_operator cases.length, :>=, 25
+      assert cases.all? { |eval_case| eval_case["household"] == "cfo" }
+      # Gaps report without failing; a closed gap means its known_gap can come off.
+      puts "\nCFO question set: #{result.passed_count}/#{result.total_count} pass; known gaps: #{result.known_gaps.map(&:id).join(', ')}"
+      puts "Closed gaps (remove known_gap): #{result.closed_gaps.map(&:id).join(', ')}" if result.closed_gaps.any?
+      result.known_gaps.each { |gap| puts "  #{gap.id}: #{gap.problems.join(' | ')}" } if ENV["MIA_EVAL_VERBOSE"].present?
+    end
+  end
+
   test "harness reports missing expected phrases and forbidden matches" do
     cases = [
       {
@@ -60,7 +75,7 @@ class HouseholdFinanceMiaEvalHarnessTest < ActionDispatch::IntegrationTest
   private
 
   def run_controller_case(eval_case)
-    user, household = HouseholdFinance::MiaEvalHousehold.create!
+    user, household = HouseholdFinance::MiaEvalHousehold.for_case(eval_case).create!
     messages = Array(eval_case["messages"]).presence || [ eval_case.fetch("prompt") ]
     final_content = nil
 
@@ -80,14 +95,17 @@ class HouseholdFinanceMiaEvalHarnessTest < ActionDispatch::IntegrationTest
       metadata: {
         pending_draft_count: household.transaction_drafts.pending.count,
         confirmed_transaction_count: household.household_transactions.where(status: "confirmed").count
-      }
+      },
+      ledger: HouseholdFinance::MiaEvalLedger.snapshot(household, eval_case)
     }
   end
 
   def failure_summary(result)
     result.failures.map do |failure|
       <<~SUMMARY.squish
-        #{failure.id}: missing=#{failure.missing_phrases.inspect} forbidden=#{failure.forbidden_matches.inspect} error=#{failure.error.inspect} response=#{failure.response.inspect}
+        #{failure.id}: missing=#{failure.missing_phrases.inspect} forbidden=#{failure.forbidden_matches.inspect}
+        missing_amounts=#{failure.missing_amounts.inspect} unexpected_amounts=#{failure.unexpected_amounts.inspect}
+        rules=#{failure.rule_violations.inspect} error=#{failure.error.inspect} response=#{failure.response.inspect}
       SUMMARY
     end.join("\n")
   end

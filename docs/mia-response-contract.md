@@ -126,6 +126,7 @@ Eval harness:
 - Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`.
 - Multi-turn intent/reference cases live in `api/test/evals/mia_intent_cases.yml`, including pronouns, confirmations, recall, pending-card reuse, and clarification.
 - `HouseholdFinance::MiaEvalHarness` and intent resolver tests protect pending-vs-actual, month, draft, coaching, context, and structured-action guardrails without requiring frontend AI calls.
+- The CFO question set (`api/test/evals/mia_cfo_question_set.yml`) checks figures against the eval household's ledger and every reply against the global rules; see `docs/testing/mia-evals.md`.
 
 ## What this means in practice
 

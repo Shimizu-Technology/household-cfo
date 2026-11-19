@@ -7,9 +7,10 @@ require "active_support/testing/time_helpers"
 require "action_dispatch/testing/integration"
 
 module MiaEvals
-  # Drives every case in test/evals/mia_eval_cases.yml through POST
-  # /api/v1/mia/messages with a live OpenRouter model, then writes a JSON result
-  # and a readable markdown transcript to tmp/evals/.
+  # Drives every case in test/evals/mia_eval_cases.yml (or, with SET=cfo, the
+  # CFO question set) through POST /api/v1/mia/messages with a live OpenRouter
+  # model, then writes a JSON result and a readable markdown transcript to
+  # tmp/evals/. Amounts and the global rules are checked as in CI.
   #
   # Runs in the test environment on purpose: the synthetic participant signs in
   # with a test token, and each case runs inside a transaction that is rolled
@@ -18,6 +19,10 @@ module MiaEvals
     include ActiveSupport::Testing::TimeHelpers
 
     PROVIDER_HOST = "openrouter.ai"
+    # The only CI context allowed to spend on a live run: the scheduled workflow
+    # in .github/workflows/mia-live-evals.yml, which sets this and runs under this name.
+    NIGHTLY_OPT_IN = "MIA_LIVE_EVALS_NIGHTLY_WORKFLOW"
+    NIGHTLY_WORKFLOW = "Mia live evals (nightly)"
     LOG_NOTE_PATTERN = /(Mia|MiaProviderAdmission).*(reject|fallback|invalid|capacity|denied)/i
 
     # Records each OpenRouter call (title, model, status, tokens, cost) made
@@ -121,7 +126,7 @@ module MiaEvals
       HouseholdFinance::MiaNarrator.prepend(RejectedNarrationRecorder) unless HouseholdFinance::MiaNarrator < RejectedNarrationRecorder
       model = AiModels.text
       cases = selected_cases
-      puts "Running #{cases.length} Mia eval cases live with #{model}..."
+      puts "Running #{cases.length} Mia eval cases (#{case_set}) live with #{model}..."
       started_at = Time.now
       result = HouseholdFinance::MiaEvalHarness.new(cases: cases, runner: method(:run_case), mode: :live).call
       report = build_report(model, cases, result, started_at)
@@ -152,8 +157,12 @@ module MiaEvals
         $stderr.puts "Set MIA_LIVE_EVALS=1 to run live Mia evals. They call a paid model and are never part of CI."
         return false
       end
-      if ENV["CI"].present?
-        $stderr.puts "Live Mia evals do not run in CI."
+      if ENV["CI"].present? && !nightly_workflow?
+        $stderr.puts "Live Mia evals do not run in CI, except in the nightly live-eval workflow."
+        return false
+      end
+      unless HouseholdFinance::MiaEvalHarness::CASE_SETS.key?(case_set)
+        $stderr.puts "SET must be one of #{HouseholdFinance::MiaEvalHarness::CASE_SETS.keys.join(', ')}."
         return false
       end
       if ENV["OPENROUTER_API_KEY"].to_s.strip.blank?
@@ -184,13 +193,21 @@ module MiaEvals
       true
     end
 
+    def nightly_workflow?
+      ENV[NIGHTLY_OPT_IN] == "1" && ENV["GITHUB_WORKFLOW"] == NIGHTLY_WORKFLOW
+    end
+
+    def case_set
+      ENV.fetch("SET", "default").to_s.strip.presence || "default"
+    end
+
     def test_database_name?(name)
       # Parallel test workers add a "-N" suffix.
       name.to_s.match?(/_test(?:[_-]|\z)/)
     end
 
     def selected_cases
-      cases = HouseholdFinance::MiaEvalHarness.load_cases
+      cases = HouseholdFinance::MiaEvalHarness.load_cases(HouseholdFinance::MiaEvalHarness::CASE_SETS.fetch(case_set))
       ids = ENV["CASES"].to_s.split(",").map(&:strip).reject(&:blank?)
       ids.any? ? cases.select { |eval_case| ids.include?(eval_case.fetch("id")) } : cases
     end
@@ -199,11 +216,13 @@ module MiaEvals
       output = nil
       travel_to(HouseholdFinance::MiaEvalHousehold.eval_time) do
         ActiveRecord::Base.transaction do
-          user, _household = HouseholdFinance::MiaEvalHousehold.create!(with_history: true)
+          user, household = HouseholdFinance::MiaEvalHousehold.for_case(eval_case).create!(with_history: true)
           session = ActionDispatch::Integration::Session.new(Rails.application)
           turns = Array(eval_case["messages"]).presence || [ eval_case.fetch("prompt") ]
           transcript = turns.map { |message| run_turn(session, user, message) }
-          output = { response: transcript.last.fetch(:reply), metadata: { turns: transcript } }
+          # Read before the rollback below removes the household.
+          ledger = HouseholdFinance::MiaEvalLedger.snapshot(household, eval_case)
+          output = { response: transcript.last.fetch(:reply), metadata: { turns: transcript }, ledger: ledger }
           raise ActiveRecord::Rollback
         end
       end
@@ -241,10 +260,13 @@ module MiaEvals
       replies = result.case_results.map(&:response).reject(&:blank?)
       {
         model: model,
+        case_set: case_set,
         started_at: started_at.iso8601,
         eval_time: HouseholdFinance::MiaEvalHousehold.eval_time.iso8601,
         passed: result.passed_count,
         total: result.total_count,
+        known_gaps: result.known_gaps.length,
+        closed_gaps: result.closed_gaps.map(&:id),
         turns: turns.length,
         latency_ms: latency_summary(turns.map { |turn| turn[:latency_ms] }),
         provider_calls: calls.length,
@@ -263,8 +285,14 @@ module MiaEvals
           {
             id: case_result.id,
             passed: case_result.passed,
+            known_gap: case_result.known_gap,
+            gap_reason: case_result.gap_reason,
             missing: case_result.missing_phrases,
             forbidden: case_result.forbidden_matches,
+            missing_amounts: case_result.missing_amounts,
+            unexpected_amounts: case_result.unexpected_amounts,
+            rule_violations: case_result.rule_violations,
+            problems: case_result.problems,
             error: case_result.error,
             live_expectations: eval_case&.key?("live_expected") ? "live" : "deterministic phrases",
             turns: case_result.metadata.to_h[:turns]
@@ -299,10 +327,11 @@ module MiaEvals
 
     def markdown(report)
       lines = []
-      lines << "# Mia live evals: #{report[:model]}"
+      lines << "# Mia live evals: #{report[:model]} (#{report[:case_set]} cases)"
       lines << ""
       lines << "- Run: #{report[:started_at]} (household clock frozen at #{report[:eval_time]})"
-      lines << "- Passed: #{report[:passed]}/#{report[:total]} cases"
+      lines << "- Passed: #{report[:passed]}/#{report[:total]} cases (#{report[:known_gaps]} known gaps still failing)"
+      lines << "- Known gaps now passing (check, then remove known_gap): #{report[:closed_gaps].join(', ')}" if report[:closed_gaps].any?
       lines << "- Latency per message (ms): mean #{report.dig(:latency_ms, :mean)}, p50 #{report.dig(:latency_ms, :p50)}, max #{report.dig(:latency_ms, :max)}"
       lines << "- Provider calls: #{report[:provider_calls]} (errors #{report[:provider_errors]}, truncated #{report[:truncated]})"
       lines << "- Tokens: #{report[:prompt_tokens]} in / #{report[:completion_tokens]} out (#{report[:reasoning_tokens]} reasoning)"
@@ -310,16 +339,19 @@ module MiaEvals
       lines << "- Model replies rejected by guardrails (canned answer used): #{report[:guardrail_fallback_turns]}/#{report[:turns]} messages"
       lines << "- \"chelu\" used in #{report[:chelu_replies]}/#{report[:replies]} final replies"
       lines << ""
-      lines << "| Case | Result | Checked against | Guardrail fallback | Missing | Forbidden hit |"
-      lines << "|---|---|---|---|---|---|"
+      lines << "| Case | Result | Checked against | Guardrail fallback | Missing | Forbidden hit | Amounts and rules |"
+      lines << "|---|---|---|---|---|---|---|"
       report[:cases].each do |eval_case|
         fallback = Array(eval_case[:turns]).any? { |turn| guardrail_fallback?(turn) } ? "yes" : ""
-        lines << "| #{eval_case[:id]} | #{eval_case[:passed] ? 'pass' : 'FAIL'} | #{eval_case[:live_expectations]} | #{fallback} | #{table_text(eval_case[:missing])} | #{table_text(eval_case[:forbidden])} |"
+        checks = Array(eval_case[:missing_amounts]).map { |amount| "missing #{amount}" } + Array(eval_case[:unexpected_amounts]).map { |amount| "unexpected #{amount}" } +
+          Array(eval_case[:rule_violations]).map { |violation| violation["rule"] }
+        lines << "| #{eval_case[:id]} | #{result_label(eval_case)} | #{eval_case[:live_expectations]} | #{fallback} | #{table_text(eval_case[:missing])} | #{table_text(eval_case[:forbidden])} | #{table_text(checks.uniq)} |"
       end
       report[:cases].each do |eval_case|
         lines << ""
-        lines << "## #{eval_case[:id]} (#{eval_case[:passed] ? 'pass' : 'FAIL'})"
-        lines << "Error: #{eval_case[:error]}" if eval_case[:error]
+        lines << "## #{eval_case[:id]} (#{result_label(eval_case)})"
+        lines << "Known gap: #{eval_case[:gap_reason]}" if eval_case[:known_gap]
+        Array(eval_case[:problems]).each { |problem| lines << "- #{problem.gsub('|', '/')}" }
         Array(eval_case[:turns]).each do |turn|
           calls = turn[:provider_calls].map { |call| "#{call[:title]} #{call[:status]} #{call[:elapsed_ms]}ms #{call[:completion_tokens]}tok" }
           lines << ""
@@ -334,13 +366,19 @@ module MiaEvals
       lines.join("\n") + "\n"
     end
 
+    def result_label(eval_case)
+      return eval_case[:passed] ? "pass (gap closed)" : "known gap" if eval_case[:known_gap]
+
+      eval_case[:passed] ? "pass" : "FAIL"
+    end
+
     def table_text(values)
       Array(values).map { |value| value.is_a?(Array) ? "any of #{value.first(3).join(' / ')}…" : value.to_s }.join("; ").gsub("|", "/")
     end
 
     def print_summary(report, paths)
       puts
-      puts "#{report[:model]}: #{report[:passed]}/#{report[:total]} passed, mean #{report.dig(:latency_ms, :mean)} ms/message, " \
+      puts "#{report[:model]} (#{report[:case_set]}): #{report[:passed]}/#{report[:total]} passed (#{report[:known_gaps]} known gaps), mean #{report.dig(:latency_ms, :mean)} ms/message, " \
         "$#{format('%.4f', report[:cost_usd])} total ($#{format('%.5f', report[:cost_per_message_usd])}/message), " \
         "#{report[:provider_errors]} provider errors, #{report[:guardrail_fallback_turns]} guardrail fallbacks"
       paths.each { |path| puts "  #{path}" }

@@ -19,6 +19,11 @@ module HouseholdFinance
       new(with_history: with_history).create!
     end
 
+    # Which synthetic household a case talks to: its "household" key, or the base one.
+    def self.for_case(eval_case)
+      eval_case.to_h.stringify_keys["household"].to_s == "cfo" ? MiaEvalCfoHousehold : self
+    end
+
     def initialize(with_history:)
       @with_history = with_history
     end
@@ -30,7 +35,8 @@ module HouseholdFinance
         role: "participant",
         invitation_status: "accepted"
       )
-      household = Household.create!(created_by_user: user, name: "Mia Eval Household", primary_goal: "Keep the household calm and honest.")
+      household = Household.create!(created_by_user: user, name: household_name, primary_goal: "Keep the household calm and honest.",
+        created_at: joined_at || Time.current)
       household.household_memberships.create!(user: user, role: "owner")
       seed!(household)
       [ user, household ]
@@ -39,6 +45,11 @@ module HouseholdFinance
     private
 
     attr_reader :with_history
+
+    def household_name = "Mia Eval Household"
+
+    # A plan starts the month the household joined.
+    def joined_at = nil
 
     def seed!(household)
       SetupUpdater.new(
