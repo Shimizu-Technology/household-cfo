@@ -36,6 +36,8 @@ bin/local-stack run bin/rails local_stack:household
 
 `bin/local-stack run <command…>` runs any command in `api/` with the same guarded settings, for example `bin/local-stack run bin/rails console`.
 
+`cd web && npm run test:local-stack` runs the browser checks that need a real API (no mocks) against this stack; see [regression-checklist.md](regression-checklist.md).
+
 A fresh database has no program. An admin creates one under Settings → Programs before creating groups.
 
 ## Files and logs
