@@ -150,13 +150,15 @@ wait_for() { # wait_for <url> <seconds> <log>
 }
 
 # start_background <dir> <pidfile> <log> <command…>: the recorded PID is the
-# server itself (a plain background command is exec'd), and none of its output
-# or input stays attached to this terminal.
+# server itself (the subshell execs it), and none of its output or input stays
+# attached to this terminal. Ignoring SIGHUP first is what nohup does, but
+# nohup exits 127 when there is no terminal (an agent's shell). Puma and Vite
+# install their own SIGHUP handlers either way.
 start_background() {
   local dir="$1" pidfile="$2" log="$3" pid
   shift 3
   cd "$dir"
-  nohup "$@" >"$log" 2>&1 </dev/null &
+  (trap '' HUP; exec "$@") >"$log" 2>&1 </dev/null &
   pid=$!
   cd "$ROOT"
   printf '%s %s\n' "$pid" "$(started_at "$pid")" >"$pidfile"
