@@ -343,8 +343,13 @@ module HouseholdFinance
     SETUP_MONTHLY_AFTER = %r{\A\s*(?:(?:a|per|each|every|/)\s*month\b|/\s*mo\b|monthly\b|(?:is|was)\s+(?:the|our|my)\s+(?:monthly\s+total|total\s+(?:for|each|every|per|a)\s+(?:the\s+)?month)\b)}i
     SETUP_MONTHLY_BEFORE = /\b(?:monthly\s+total|total\s+(?:for|each|every|per|a)\s+(?:the\s+)?month)\s*(?:is|of|was|:)?\s*(?:about|around|roughly)?\s*\$?\s*\z/i
 
+    # "two checks of $2,400 a month" counts paychecks, so the amount is one paycheck.
+    SETUP_PAYCHECK_COUNT_BEFORE = /\b(?:two|three|four|five|2|3|4|5)\s+(?:pay\s*)?(?:checks?|paychecks?|payments?|deposits?)\s+(?:of\s+)?(?:about\s+|around\s+)?\$?\s*\z|\b(?:checks?|paychecks?)\s+of\s+(?:about\s+|around\s+)?\$?\s*\z/i
+
     def setup_monthly_amount?(offset, amount)
       before, after = setup_amount_context(offset, amount)
+      return false if before.match?(SETUP_PAYCHECK_COUNT_BEFORE)
+
       after.match?(SETUP_MONTHLY_AFTER) || before.match?(SETUP_MONTHLY_BEFORE)
     end
 
@@ -488,13 +493,17 @@ module HouseholdFinance
       # A bare name is a debt she has only in a statement, never in a question.
       return if minimum.empty? && balance.nil? && (op != "add" || @question)
       # "A hospital bill of maybe $1,000-2,000" is a one-time bill coming, not a debt with a monthly minimum.
-      return if minimum["minimum_cents"].nil? && minimum["cadence"].in?([ nil, "unclear" ]) && balance.nil? && setup_one_time_bill?(name, part["source"])
+      return if balance.nil? && setup_one_time_bill?(name, part["source"])
       { "op" => op, "name" => name, "balance_cents" => balance }.merge(minimum)
     end
 
+    # Only a bill she says is one-time or still to come; "a credit card bill I'm paying down" stays a debt.
+    SETUP_ONE_TIME = /\bone[- ](?:time|off)\b|\b(?:is|are)\s+coming\b|\bcoming\s+(?:up|next|after|soon)\b|\b(?:bill|cost)\s+(?:is\s+|will\s+be\s+)?coming\b|\bnext\s+(?:week|month)\b|\bwill\s+(?:be|cost)\b|\bafter\s+(?:the|my|her|his)\s+(?:birth|surgery|procedure|visit|stay)\b|\bupcoming\b/i
+    SETUP_RECURRING_PAYMENT = /\b(?:a|per|each|every)\s+(?:month|week)\b|\b(?:bi)?monthly\b|\b(?:bi)?weekly\b|\bdaily\b|\bmin(?:imum)?\b|\bpayment\s+plan\b|\bpay(?:ing)?\s+(?:it\s+)?(?:off|down)\b|\bpay(?:ing)?\s+\$?\d|\bbehind\b/i
+
     def setup_one_time_bill?(name, source)
       text = "#{name} #{source}"
-      text.match?(/\b(?:bills?|one[- ]time|one[- ]off)\b/i) && !text.match?(/\b(?:a|per|each|every)\s+month\b|\bmonthly\b|\bmin(?:imum)?\b|\bpayment\s+plan\b|\bpay(?:ing)?\s+(?:it\s+off\s+)?\$?\d/i)
+      text.match?(SETUP_ONE_TIME) && !text.match?(SETUP_RECURRING_PAYMENT)
     end
 
     def setup_debt_balance(amount, source)

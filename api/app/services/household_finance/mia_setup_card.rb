@@ -459,7 +459,7 @@ module HouseholdFinance
     def paychecks_explain_total?(parts, total)
       return false unless total["cadence"] == "monthly" && parts.all? { |part| part["cadence"] == "per_paycheck" || part["needs_frequency"] }
 
-      counts = parts.map { |part| part["count"] || (parts.one? ? (2..5).find { |times| part["amount_cents"].to_i * times == total["amount_cents"] } : nil) }
+      counts = parts.map { |part| part["count"] }
       counts.all? && parts.zip(counts).sum { |part, count| part["amount_cents"].to_i * count } == total["amount_cents"]
     end
 

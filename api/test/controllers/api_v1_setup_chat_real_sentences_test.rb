@@ -64,9 +64,9 @@ class ApiV1SetupChatRealSentencesTest < ActionDispatch::IntegrationTest
   end
 
   test "a one-time bill coming soon is not put in debts" do
-    message = "Main goal: stop running short every month and build a cushion. Mom needs surgery and there's a surgery bill of maybe $1,500-2,500."
+    message = "Main goal: stop running short every month and build a cushion. There's also a one-time surgery bill of maybe $1,500-2,500."
     body = say(message, read(setup: changes(primary_goal: "stop running short every month and build a cushion",
-      debt_payment: debts(parts: [ debt("add", "surgery bill", "$1,500", source: "a surgery bill of maybe $1,500-2,500") ]))))
+      debt_payment: debts(parts: [ debt("add", "surgery bill", "$1,500", source: "a one-time surgery bill of maybe $1,500-2,500") ]))))
     assert_empty debt_names(body)
     assert_includes text(body), "Your goal is on the card."
   end
@@ -84,6 +84,32 @@ class ApiV1SetupChatRealSentencesTest < ActionDispatch::IntegrationTest
       parts: [ { op: "add", label: "Lina", amount: "2,000", cadence: "per_paycheck", count: "2", source: "Lina gets two checks of $2,000" },
         { op: "add", label: "Mateo", amount: "2,000", cadence: "per_paycheck", count: "2", source: "Mateo gets two checks of $2,000" } ]))))
     assert_includes text(body), "those numbers don't add up"
+  end
+
+  test "distress beside a debt amount keeps the care reply" do
+    [ "They laid me off Friday. Visa minimum is $75 a month.", "I was let go last week. Visa minimum is $75 a month.",
+      "I've been out of work since August. Visa minimum is $75 a month.", "They cut my hours. Visa minimum is $75 a month.",
+      "My husband left. I pay the Visa $75 a month.", "The bank is going to repo my car. Visa minimum is $75 a month.",
+      "They're going to cut off our power on Friday. Visa minimum is $75 a month.", "Collections is garnishing my wages. Visa minimum is $75 a month.",
+      "We're 2 months behind on rent, about $2,400. Visa minimum is $75 a month.", "My son is in the ICU. Visa minimum is $75 a month.",
+      "We lost my dad last month. Visa minimum is $75 a month.", "I'm drowning in debt. Visa minimum is $75 a month.",
+      "I pay the Visa $75 a month. My husband hasn't been home in three days.", "I pay the Visa $75 a month. What happens if they take us to court?" ].each do |message|
+      body = say(message, read(care: "hardship", question: message.end_with?("?"), setup: changes(debt_payment: debts(parts: [ debt("add", "Visa", "$75", source: "$75 a month") ]))))
+      refute_includes text(body), "Added Visa", message
+    end
+  end
+
+  test "a paycheck count before the amount keeps it per paycheck" do
+    message = "I get two checks of $2,400 a month."
+    body = say(message, read(setup: changes(primary_income: money(total_amount: "2,400", total_cadence: "per_paycheck", total_count: "two", total_source: message))))
+    assert_equal 480_000, row(body, "primary_income")["total_cents"]
+  end
+
+  test "only a bill she says is one-time or still to come leaves debts" do
+    body = say("I also have a credit card bill I'm paying down.", read(setup: changes(debt_payment: debts(parts: [ debt("add", "credit card bill", "", source: "a credit card bill I'm paying down") ]))))
+    assert_equal [ "Credit card bill" ], debt_names(body)
+    body = say("There's a surgery bill coming next month, about $2,000.", read(setup: changes(debt_payment: debts(parts: [ debt("add", "surgery bill", "$2,000", source: "There's a surgery bill coming next month, about $2,000.") ]))))
+    refute_includes debt_names(body), "Surgery bill"
   end
 
   test "an employer letting her go keeps the care reply" do

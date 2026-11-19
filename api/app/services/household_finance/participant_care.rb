@@ -70,21 +70,27 @@ module HouseholdFinance
       reading.care == "hardship" && Array(reading.setup_changes.to_h["skips"]).any? && message.to_s.match?(PLAIN_SKIP) && !current_hardship_sign?(message) && !::Mia::SensitiveMoment.grief?(message)
     end
 
-    # Debts stated plainly ("I pay $500 a month and I'm about $1,500 behind", "not
+    # Debts stated plainly ("I pay $300 a month and I'm about $900 behind", "not
     # sure of the full balance") are facts for the card, even when the reader
-    # hears hardship. Anything else in the message, a feeling, a life event or
-    # present hardship keeps the care reply.
-    FEELING = /\b(?:stress\w*|scared|scary|afraid|worr\w*|anxi\w*|panic\w*|overwhelm\w*|terrif\w*|desperate|hopeless|helpless|ashamed|embarrass\w*|cry\w*|heavy|hard\s+(?:time|week|month)|struggl\w*|can['’]?t\s+sleep|losing\s+sleep|freak\w*)\b/i
-    LIFE_EVENT = /\b(?:lost|losing|lose)\s+(?:my|his|her|our|their|the)\s+jobs?\b|\blet\s+(?:me|us|him|her|them)\s+go\b|\blaid\s+off\b|\bfired\b|\bhours\s+(?:got\s+|were\s+)?cut\b|\bevict\w*|\bdue\s+(?:today|tonight|tomorrow|(?:this\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\bin\s+(?:the\s+)?hospital\b|\bhospitalized\b|\b(?:sick|died|passed\s+away|divorc\w*|left\s+(?:me|us))\b/i
+    # hears hardship. This is an allowlist: every sentence must be a debt fact,
+    # and any feeling, life event, question, other news or present hardship
+    # keeps the care reply.
+    FEELING = /\b(?:stress\w*|scared|scary|afraid|worr\w*|anxi\w*|panic\w*|overwhelm\w*|terrif\w*|desperate|hopeless|helpless|ashamed|embarrass\w*|cry\w*|heavy|hard\s+(?:time|week|month)|struggl\w*|can['’]?t\s+sleep|losing\s+sleep|freak\w*|drown\w*|depress\w*|upset|exhaust\w*|can['’]?t\s+keep\s+up|don['’]?t\s+know\s+what\s+to\s+do)\b/i
+    LIFE_EVENT = /\b(?:lost|losing|lose)\s+(?:my|his|her|our|their|the)\s+(?:jobs?|dad|mom|father|mother|husband|wife|son|daughter|baby|house|home|car|truck)\b|\blet\s+(?:me|us|him|her|them)?\s*go\b|\blaid\s+(?:me|us|him|her|them\s+)?off\b|\bout\s+of\s+work\b|\bfired\b|\bcut\s+(?:my|his|her|our)\s+hours\b|\bhours\s+(?:got\s+|were\s+)?cut\b|\bevict\w*|\blandlord\b|\b(?:behind|late)\s+on\s+(?:the\s+|our\s+|my\s+)?rent\b|\brepo(?:ssess\w*)?\b|\bgarnish\w*|\bbankrupt\w*|\bcollections?\b|\b(?:cut(?:ting)?|shut(?:ting)?|turn(?:ing|ed)?)\s+(?:off\s+(?:our|my|the)\s+(?:power|water|electric\w*|lights|phone|service)|(?:our|my|the)\s+(?:power|water|electric\w*|lights|phone|service)\s+off)\b|\bshut\s*off\b|\bdisconnect\w*|\bcourt\b|\bsued\b|\bdue\s+(?:today|tonight|tomorrow|(?:this\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\bin\s+(?:the\s+)?(?:hospital|icu)\b|\bhospitalized\b|\b(?:sick|cancer|chemo|diagnos\w*|terminal|died|passed(?:\s+away)?|funeral|divorc\w*|separated|left\s+(?:me|us)|walked\s+out|hasn['’]?t\s+been\s+home)\b/i
+    # A sentence that is a debt fact: it carries an amount, or one of these plain statements about debts.
+    DEBT_FACT = /\$\s?\d|\b\d[\d,]*(?:\.\d+)?\b|\bnot\s+sure\s+(?:of|about)\s+(?:the\s+)?(?:full\s+|total\s+)?balance\b|\bdon['’]?t\s+know\s+(?:the\s+)?(?:full\s+|total\s+)?balance\b|\b(?:isn['’]?t|is\s+not)\s+a\s+debt\b|\btake\s+(?:it|that|them|this)\s+off\s+(?:my\s+|the\s+)?debts?\b|\bremove\b.{0,40}\bdebts?\b/i
     SETUP_DEBT_ONLY_KEYS = %w[debt_payment skips help_topic work_out confirm_monthly].freeze
 
     def setup_facts_only?(message, reading)
       changes = reading.setup_changes.to_h
       return false unless reading.available && reading.care == "hardship" && changes["debt_payment"].present?
       return false unless changes.except(*SETUP_DEBT_ONLY_KEYS).values.all?(&:blank?)
+      return false if reading.question || reading.facts.any?
 
       text = message.to_s
-      setup_content?(text, reading) && !text.match?(FEELING) && !text.match?(LIFE_EVENT)
+      return false if text.match?(FEELING) || text.match?(LIFE_EVENT) || MiaCoachAnswerer.essential_hardship?(text) || certain_kind(text)
+      sentences = text.split(/(?<=[.!?;])\s+/).map(&:strip).reject(&:empty?)
+      setup_content?(text, reading) && sentences.all? { |sentence| sentence.match?(DEBT_FACT) }
     end
 
     def brush_off?(message)
