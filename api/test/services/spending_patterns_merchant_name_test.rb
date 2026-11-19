@@ -19,6 +19,7 @@ class SpendingPatternsMerchantNameTest < ActiveSupport::TestCase
       "Paypal *Hotels.com" => "Paypal *Hotels.com",
       "Acme acme.com.au CA" => "Acme",
       "Acme Shop.com Gum" => "Acme Shop.com",
+      "Acme Shopkeeper Shop.com Gum" => "Acme Shopkeeper Shop.com",
       "Expedia Hotels.com" => "Expedia Hotels.com",
       "Webshare* Rnw Prox Webshare.Io CA" => "Webshare* Rnw Prox",
       "SP * ALLBIRDS.COM" => "SP * ALLBIRDS.COM",

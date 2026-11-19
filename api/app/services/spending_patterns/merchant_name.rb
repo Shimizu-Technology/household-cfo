@@ -34,7 +34,7 @@ module SpendingPatterns
       rest = text.delete_suffix(tail).squish
       name = tail.strip.split(/[\s,]/).first.to_s.downcase.split(".").reject(&:empty?)
       label = (name.length > 2 && name[-2].length <= 3 ? name[-3] : name[-2]).to_s.sub(/\A[^a-z0-9]+/, "")
-      label.length >= 3 && !rest.end_with?("*") && rest.downcase.match?(/(?<![a-z0-9])#{Regexp.escape(label)}/)
+      label.length >= 3 && !rest.end_with?("*") && rest.downcase.match?(/(?<![a-z0-9])#{Regexp.escape(label)}(?![a-z0-9])/)
     end
 
     def self.call(value)
