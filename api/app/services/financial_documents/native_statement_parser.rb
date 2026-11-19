@@ -318,6 +318,7 @@ module FinancialDocuments
     end
 
     def wf_type(body, signed)
+      return "fee" if signed.negative? && body.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       return "cash_withdrawal" if body.match?(/\b(?:(?:ATM|Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && signed < 0 && !body.match?(/\bfee\b/i)
       return "fee" if body.match?(/\b(?:Overdraft Fee|Monthly Service Fee|ATM Fee|ATM Transaction Fee|Returned Item Fee)\b/i) && signed < 0
       return "transfer" if body.match?(/\b(?:Money Transfer|Online Transfer|Zelle|Transfer From|Transfer To)\b/i)

@@ -38,7 +38,26 @@ class CountCashWithdrawalsAsExpensesTest < ActiveSupport::TestCase
   end
 
   test "rollback does not erase expense history" do
+    event(expense_amount_cents: 8000)
     assert_raises(ActiveRecord::IrreversibleMigration) { CountCashWithdrawalsAsExpenses.new.migrate(:down) }
+  end
+
+  test "rollback restores the old validated constraint when no withdrawals carry expenses" do
+    migration = CountCashWithdrawalsAsExpenses.new
+    migration.migrate(:down)
+    event
+    assert_raises(ActiveRecord::StatementInvalid) do
+      ApplicationRecord.transaction(requires_new: true) { event(expense_amount_cents: 8000) }
+    end
+    migration.migrate(:up)
+    assert_equal 8000, event(expense_amount_cents: 8000).expense_amount_cents
+    assert ApplicationRecord.connection.check_constraints(:financial_source_events).find { |c| c.name == "source_event_expense_eligible" }.validated?
+  end
+
+  test "backfill spans multiple batches" do
+    rows = (CountCashWithdrawalsAsExpenses::BATCH_SIZE + 1).times.map { event }
+    CountCashWithdrawalsAsExpenses.new.migrate(:up)
+    assert_equal [ 8000 ] * rows.length, rows.map { |row| row.reload.expense_amount_cents }
   end
 
   private

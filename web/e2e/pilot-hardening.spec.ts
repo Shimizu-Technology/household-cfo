@@ -9119,6 +9119,40 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
   return page.getByRole('region', { name: 'Statement review', exact: true })
 }
 
+test('BOG UI legacy cash shows No category and can be reviewed into Cash', async ({ page }) => {
+  let saved = false
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    expect(route.request().postDataJSON().input).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: 'cash', category_id: 10, amount_cents: 8000 } }] })
+    saved = true
+    return route.fulfill({ json: { result: { approved: 1, left_out: 0, unchanged: 0, complete: true } } })
+  })
+  const review = await openTypedStatementReview(page, false, data => {
+    const event = { ...data.events[0], event_type: 'cash_withdrawal' as const, signed_amount_cents: -8000, evidence: { merchant: 'Tasi Demo ATM withdrawal' } }
+    data.events = [event]
+    data.counts.all = 1
+    data.pagination = { page: 1, per_page: 50, total_count: 1, total_pages: 1, has_previous: false, has_next: false }
+    const participant = data.participant_review!
+    participant.categories = [{ id: 10, name: 'Cash' }]
+    participant.rows[event.id] = { head: { id: 900, approved_version_id: saved ? 801 : 800, lock_version: saved ? 2 : 1 }, pending: null,
+      approved: { id: saved ? 801 : 800, digest: 'fictional-cash', version_number: saved ? 2 : 1, current: true, reason: 'Reviewed fictional cash', projection: { action: 'none' }, actual: null,
+        facts: { source_account_identity_version_id: 100, disposition: 'include', event_type: 'cash_withdrawal', signed_amount_cents: -8000,
+          purchase_amount_cents: saved ? 8000 : null, budget_category_id: saved ? 10 : null, posted_on: event.posted_on, merchant: 'Tasi Demo ATM withdrawal', overlap_disposition: 'distinct' } } }
+    participant.plan = { ...participant.plan, total: 1, done: 1, ready: [], ready_event_ids: [], attention: [], coverage: { question: null, answer: null } }
+    return data
+  })
+  await review.getByText('See all 1 line', { exact: true }).click()
+  const row = review.getByRole('row').filter({ hasText: 'Tasi Demo ATM withdrawal' })
+  await expect(row.getByRole('cell', { name: 'No category', exact: true })).toBeVisible()
+  await row.getByRole('button', { name: 'Tasi Demo ATM withdrawal', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Tasi Demo ATM withdrawal' })
+  await sheet.getByRole('combobox', { name: /^Category/ }).selectOption('10')
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(row.getByRole('cell', { name: 'Cash', exact: true })).toBeVisible()
+  expect(saved).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
 for (const kind of ['cash', 'moved'] as const) {
   test(`BOG UI cash withdrawal can be categorized or recorded as ${kind}`, async ({ page }) => {
     let saved: unknown = null

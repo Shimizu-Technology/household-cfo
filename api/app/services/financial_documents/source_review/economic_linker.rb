@@ -75,7 +75,7 @@ module FinancialDocuments
             purchases.first.first[:allocation_cents] == purchases.first.last.signed_amount_cents.abs
           raise ArgumentError, "Link exactly one full purchase to its reviewed local and bank funding legs" unless valid
         when "refund"
-          purchase = rows.select { |member, version| member[:role] == "original_purchase" && version.expense? }
+          purchase = rows.select { |member, version| member[:role] == "original_purchase" && version.expense? && version.event_type != "cash_withdrawal" }
           refund = rows.select { |member, version| member[:role] == "refund" && version.event_type == "refund" && version.signed_amount_cents.positive? }
           raise ArgumentError, "A refund link needs one purchase and one equal reviewed refund allocation" unless rows.length == 2 && purchase.one? && refund.one? && purchase.first.first[:allocation_cents] == refund.first.first[:allocation_cents]
         else raise ArgumentError, "Unsupported economic link kind"

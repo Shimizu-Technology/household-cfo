@@ -6,7 +6,7 @@ class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
     [ "Non-WF ATM Withdrawal authorized on 10/04 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch" ].each do |description|
       assert_equal "cash_withdrawal", parser.send(:wf_type, description, -32_000)
     end
-    [ "ATM Transaction Fee", "Non-WF ATM Fee" ].each do |description|
+    [ "ATM Transaction Fee", "Non-WF ATM Fee", "Non-WF ATM Withdrawal Fee", "Non-WF ATM Balance Inquiry Fee", "ATM Withdrawal Fee", "ATM Fees", "ATM Surcharge", "Branch Withdrawal Service Charge" ].each do |description|
       assert_equal "fee", parser.send(:wf_type, description, -300)
       assert_equal "unknown", parser.send(:wf_type, description, 300)
     end
@@ -21,12 +21,15 @@ class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
   test "normalization cannot demote a printed posted returned unpaid fee" do
     pages = wells_pages
     pages.first[:runs].find { |run| run[:text].start_with?("Purchase authorized") }[:text] = "Returned Unpaid Item Fee"
-    assert_rejected(pages)
     pages.each { |page| page.merge!(box: [ 0, 0, 612, 792 ], rotation: 0) }
     result = FinancialDocuments::NativeStatementParser.new(file_path: "unused", pages: pages).call
-    refute result.success?
-    assert_nil result.data
-    assert_equal "printed_arithmetic", result.error
+    assert result.success?, result.error
+    events = result.data[:source_accounting][:events]
+    fee = events.find { |event| event.dig(:evidence, :raw_description) == "Returned Unpaid Item Fee" }
+    assert_equal "fee", fee[:event_type]
+    assert_equal "posted", fee[:row_kind]
+    assert_equal 2500, fee[:expense_amount_cents]
+    assert events.any? { |event| event[:row_kind] == "informational" && event.dig(:evidence, :raw_description).to_s.start_with?("Items returned unpaid:") }
   end
 
   test "every native template rejects normalized amount and informational display drift" do

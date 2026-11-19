@@ -20,6 +20,9 @@ class SourceReviewVersion < SourceReviewImmutableRecord
   end
 
   def expense?
+    # Pre-spending-policy withdrawals remain movements until explicitly reviewed again.
+    return false if event_type == "cash_withdrawal" && purchase_amount_cents.nil?
+
     disposition == "include" && signed_amount_cents.to_i.negative? && event_type.in?(FinancialSourceEvent::EXPENSE_TYPES)
   end
 

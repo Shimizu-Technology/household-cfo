@@ -9,7 +9,7 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
   end.freeze
 
   test "withdrawals and ATM fees keep their separate types through reconciled statements" do
-    [ "Non-WF ATM Withdrawal authorized on 08/05 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee" ].each do |description|
+    [ "Non-WF ATM Withdrawal authorized on 08/05 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee", "Non-WF ATM Withdrawal Fee", "Non-WF ATM Balance Inquiry Fee", "ATM Withdrawal Fee", "ATM Surcharge", "ATM Fees", "Branch Withdrawal Service Charge", "ATM/POS Purchase Walmart", "Purchase with Cash Back $20" ].each do |description|
       pages = pages_for("bank-descriptors.pdf")
       run = pages.flat_map { |page| page[:runs] }.find { |item| item[:text] == "Rent - Talun family home" }
       assert run, "Synthetic fixture must contain the expected purchase description"
@@ -18,8 +18,29 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
       assert result.success?, result.error
       event = result.data[:source_accounting][:events].find { |row| row.dig(:evidence, :raw_description) == description }
       assert event, "Reconciled source row must retain the new description"
-      assert_equal description.include?("Fee") ? "fee" : "cash_withdrawal", event[:event_type]
+      expected = if description.match?(/fee|surcharge|service charge/i)
+        "fee"
+      elsif description.include?("Purchase")
+        "purchase"
+      else
+        "cash_withdrawal"
+      end
+      assert_equal expected, event[:event_type], description
       assert_equal event[:signed_amount_cents].abs, event[:expense_amount_cents]
+    end
+  end
+
+  test "positive ATM deposits import as income like other deposits" do
+    [ "Deposit", "ATM DEPOSIT" ].each do |description|
+      pages = pages_for("bank-descriptors.pdf")
+      run = pages.flat_map { |page| page[:runs] }.find { |item| item[:text].match?(/payroll/i) }
+      assert run
+      run[:text] = description
+      result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+      assert result.success?, result.error
+      event = result.data[:source_accounting][:events].find { |row| row.dig(:evidence, :raw_description) == description }
+      assert_equal "income", event[:event_type]
+      assert event[:signed_amount_cents].positive?
     end
   end
 
