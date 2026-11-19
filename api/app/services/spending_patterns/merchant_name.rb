@@ -3,10 +3,10 @@ module SpendingPatterns
   module MerchantName
     # Bank wording around the store name: "Purchase authorized on 10/14 …", "Recurring Payment: …".
     BANK_PREFIX = %r{\A(?:(?:recurring\s+payment|purchase(?:\s+with\s+cash\s+back\s+\$[\d.,]+)?|money\s+transfer|non-wf\s+atm\s+withdrawal)\s+authorized\s+on\s+\d{1,2}/\d{1,2}\s+|(?:purchase|recurring\s+payment|pos|purchase\s+return)\s*:\s*)}i
-    # Card and reference tails: " S*····5237 Card 1150", " on 09/10 Ref # Wfct22MR7Gpl".
+    # Card and reference tails: " S*····4410 Card 7302", " on 09/10 Ref # Demo1A2B3C4D".
     CARD_TAIL = /\s+[A-Z]\*\s*[·•*xX]*\d{2,}.*\z/
     REFERENCE_TAIL = %r{\s+on\s+\d{1,2}/\d{1,2}\s+ref\s*#.*\z}i
-    # Trailing place and phone words: "Tamuning Gum", "Hagatna GU", "650-····0000 CA", ", NY".
+    # Trailing place and phone words: "Tamuning Gum", "Hagatna GU", "650-····1111 CA", ", NY".
     # A state code counts as a place only with context: after a comma, a Guam town or a phone number.
     # "Northstar IT" and "Northstar CA" keep their letters.
     STATE = /(?-i:#{FinancialDocuments::MerchantNormalizer::REGION.source})/
