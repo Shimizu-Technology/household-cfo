@@ -8,9 +8,9 @@ The API refuses to boot in local-stack mode (`HCFO_LOCAL_STACK=1`) unless all of
 
 - `RAILS_ENV=test`, so sign-in uses test identities and never WorkOS.
 - Uploads use the local file store (`STORAGE_BACKEND=local`), in a folder outside the repository.
-- Every hosted-service variable is empty: AWS, Resend, SMTP and reminder email, ops alerts, Sentry, Plaid, WorkOS, Clerk, and the database URLs. `api/.env` can't sneak them back: dotenv refills a variable only when it's missing, the launcher exports each one empty, and the guard refuses any value that is still there.
-- The database is this stack's own (`household_cfo_ls_<name>_test`) on this machine.
-- The API can open connections only to this machine. Anything else (S3, Resend, WorkOS, OpenRouter) is blocked and logged as `[local-stack] blocked a connection to …`.
+- Every hosted-service variable is empty: AWS, Resend, SMTP and reminder email, ops alerts, Sentry, Plaid, WorkOS and Clerk. `api/.env` can't sneak them back: dotenv refills a variable only when it's missing, the launcher exports each one empty, and the guard refuses any value that is still there.
+- No `*DATABASE_URL` of any name is set, and the guard checks the database Rails actually resolves after merging any URL into `database.yml`: this stack's own (`household_cfo_ls_<name>_<hash>_test`) on this machine. Postgres's own `PGHOST`, `PGHOSTADDR`, `PGSERVICE` and `PGSERVICEFILE` must be empty or local.
+- The API can open connections only to this machine, and through no proxy elsewhere. Anything else (S3, Resend, WorkOS, OpenRouter) is blocked and logged as `[local-stack] blocked a connection to …`.
 - ActionMailer mail is written to files, never sent.
 - Jobs run in-process, so statement reading finishes while you wait.
 
@@ -40,17 +40,17 @@ A fresh database has no program. An admin creates one under Settings → Program
 
 ## Files and logs
 
-Everything lives under `~/.local/state/household-cfo/local-stack/<name>/`: uploads in `storage/`, any mail in `mail/`, and `api.log`, `web.log` and `prepare.log`. Rails also writes `api/log/test.log`. `<name>` comes from the checkout's folder name.
+Everything lives under `~/.local/state/household-cfo/local-stack/<name>_<hash>/`: uploads in `storage/`, any mail in `mail/`, and `api.log`, `web.log` and `prepare.log`. Rails also writes `api/log/test.log`. `<name>` is the checkout's folder name and `<hash>` comes from its full path, so two checkouts with the same folder name never share a database or files.
 
 ## Several checkouts at once
 
-Each checkout gets its own database and state folder from its folder name. Give each one its own ports:
+Each checkout gets its own database and state folder. Give each one its own ports:
 
 ```bash
 LOCAL_STACK_API_PORT=3310 LOCAL_STACK_WEB_PORT=5310 bin/local-stack up
 ```
 
-Pass `LOCAL_STACK_LIFECYCLE_SESSION=<session id>` to record both processes with `dev-lifecycle`. Use the same ports for `down` and `status`.
+Pass `LOCAL_STACK_LIFECYCLE_SESSION=<session id>` to record both processes with `dev-lifecycle`. Use the same ports for `down` and `status`. `down` stops a process only when its PID and start time both match what `up` recorded, and `reset` stops without deleting anything if the database drop fails.
 
 ## Reading statements that need the AI reader
 
@@ -60,7 +60,7 @@ CSV and Excel files, and the Wells Fargo and Apple Cash PDF templates, are read 
 OPENROUTER_API_KEY=sk-or-…
 ```
 
-The launcher uses it only when the key is different from the one in `api/.env` (production spends that one) and OpenRouter reports a credit limit on it. Then the API may also reach `openrouter.ai`. `doctor` shows which way it went.
+The launcher uses it only when the key is different from the one in `api/.env` (production spends that one; both files are read with dotenv's own parser) and OpenRouter reports a credit limit on it. The key is read and sent by Ruby, never on a command line. The API then accepts it only with the fingerprint the launcher passes, and may also reach `openrouter.ai`. `doctor` shows which way it went.
 
 ## Not covered yet
 

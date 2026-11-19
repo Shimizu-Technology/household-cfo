@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "digest"
 require "net/http"
 require "pathname"
 
@@ -18,18 +19,19 @@ module LocalStack
     RESEND_API_KEY RESEND_FROM_EMAIL MAILER_FROM_EMAIL OPS_ALERT_EMAILS
     REMINDERS_EMAIL_ENABLED SMTP_ADDRESS SMTP_USERNAME SMTP_PASSWORD
     SENTRY_DSN
-    PLAID_CLIENT_ID PLAID_SECRET PLAID_WEBHOOK_URL
-    DATABASE_URL CACHE_DATABASE_URL QUEUE_DATABASE_URL
+    PLAID_ENV PLAID_CLIENT_ID PLAID_SECRET PLAID_WEBHOOK_URL
     AUTH_PROVIDER WORKOS_API_KEY WORKOS_CLIENT_ID
     CLERK_SECRET_KEY CLERK_PUBLISHABLE_KEY CLERK_JWKS_URL
     SOLID_QUEUE_IN_PUMA
   ].freeze
+  # libpq reads these when Rails gives it no host, or by name from a service file.
+  POSTGRES_HOST_VARIABLES = %w[PGHOST PGHOSTADDR].freeze
+  POSTGRES_SERVICE_VARIABLES = %w[PGSERVICE PGSERVICEFILE].freeze
+  # Net::HTTP sends traffic for an allowed host through these.
+  PROXY_VARIABLES = %w[http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY].freeze
   DATABASE_NAME = /\Ahousehold_cfo_ls_[a-z0-9_]+_test\z/
   LOCAL_HOSTS = %w[localhost 127.0.0.1 ::1].freeze
   MODEL_HOST = "openrouter.ai"
-  # bin/local-stack sets this only after checking the key is not production's
-  # and has a credit limit.
-  MODEL_KEY_CHECKED = "checked"
 
   module_function
 
@@ -37,35 +39,82 @@ module LocalStack
     env["HCFO_LOCAL_STACK"] == "1"
   end
 
-  def problems(env:, rails_env:, repo_root:)
+  # database_configs: the connection settings Rails will really use, after any
+  # DATABASE_URL or <NAME>_DATABASE_URL has been merged into database.yml.
+  def problems(env:, rails_env:, repo_root:, database_configs: [], shared_env_files: [])
     found = []
     found << "Run it with RAILS_ENV=test (the local stack signs in with test identities)." unless rails_env.to_s == "test"
     found << "Set STORAGE_BACKEND=local so uploads stay on this machine." unless env["STORAGE_BACKEND"] == "local"
     HOSTED_SERVICE_VARIABLES.each do |name|
       found << "#{name} must be empty (it points at a hosted service)." if env[name].present?
     end
-    unless env["DATABASE_TEST_NAME"].to_s.match?(DATABASE_NAME)
-      found << "DATABASE_TEST_NAME must look like household_cfo_ls_<name>_test, so a shared database is never used."
+    env.each { |name, value| found << "#{name} must be empty (it points at a hosted database)." if name.to_s.end_with?("DATABASE_URL") && value.present? }
+    (POSTGRES_HOST_VARIABLES + PROXY_VARIABLES).each do |name|
+      found << "#{name} must be empty or this machine." if env[name].present? && !local_host?(env[name])
     end
-    host = env["DATABASE_HOST"].to_s
-    unless host.empty? || host.in?(LOCAL_HOSTS) || host.start_with?("/")
-      found << "DATABASE_HOST must be this machine."
-    end
-    if env["OPENROUTER_API_KEY"].present? && env["HCFO_LOCAL_STACK_MODEL_KEY"] != MODEL_KEY_CHECKED
-      found << "OPENROUTER_API_KEY must be empty unless bin/local-stack checked it is a separate key with a credit limit."
-    end
+    POSTGRES_SERVICE_VARIABLES.each { |name| found << "#{name} must be empty (a service file can name another server)." if env[name].present? }
+    found.concat(database_problems(env, database_configs))
+    found.concat(model_key_problems(env, shared_env_files))
     storage = env["LOCAL_STORAGE_ROOT"].to_s
     if storage.empty?
       found << "Set LOCAL_STORAGE_ROOT to a folder outside the repository."
     elsif inside?(storage, repo_root)
       found << "LOCAL_STORAGE_ROOT must be outside the repository, so uploaded files can never be committed."
     end
-    found
+    found.uniq
+  end
+
+  def database_problems(env, database_configs)
+    unless env["DATABASE_TEST_NAME"].to_s.match?(DATABASE_NAME)
+      return [ "DATABASE_TEST_NAME must look like household_cfo_ls_<name>_test, so a shared database is never used." ]
+    end
+    return [ "Rails has no database settings to check." ] if database_configs.empty?
+
+    database_configs.flat_map do |config|
+      config = config.transform_keys(&:to_sym)
+      issues = []
+      issues << "The #{config[:name]} database must come from database.yml, not a URL." if config[:url].present?
+      issues << "The #{config[:name]} database must be #{env['DATABASE_TEST_NAME']}." unless config[:database].to_s == env["DATABASE_TEST_NAME"]
+      host = config[:host].to_s
+      issues << "The #{config[:name]} database must be on this machine." unless host.empty? || local_host?(host) || host.start_with?("/")
+      issues
+    end
+  end
+
+  # The launcher sets HCFO_LOCAL_STACK_MODEL_KEY to the fingerprint of the key it
+  # checked (a separate key with a credit limit). Anything else is refused,
+  # including the key the shared api/.env would refill.
+  def model_key_problems(env, shared_env_files)
+    key = env["OPENROUTER_API_KEY"].to_s
+    return [] if key.empty?
+
+    issues = []
+    issues << "OPENROUTER_API_KEY must be empty unless bin/local-stack checked it is a separate key with a credit limit." unless env["HCFO_LOCAL_STACK_MODEL_KEY"] == fingerprint(key)
+    shared = shared_env_files.filter_map { |path| shared_model_key(path) }
+    issues << "OPENROUTER_API_KEY is the shared key production uses." if shared.include?(key)
+    issues
+  end
+
+  def shared_model_key(path)
+    return unless File.file?(path)
+
+    require "dotenv"
+    Dotenv.parse(path)["OPENROUTER_API_KEY"].presence
+  end
+
+  def fingerprint(key) = Digest::SHA256.hexdigest(key.to_s)
+
+  def local_host?(value)
+    host = value.to_s.strip
+    host = URI.parse(host).host.to_s if host.include?("://")
+    host.downcase.delete_prefix("[").delete_suffix("]").sub(/:\d+\z/, "").in?(LOCAL_HOSTS)
+  rescue URI::InvalidURIError
+    false
   end
 
   def allowed_hosts(env = ENV)
     hosts = LOCAL_HOSTS.dup
-    hosts << MODEL_HOST if env["OPENROUTER_API_KEY"].present? && env["HCFO_LOCAL_STACK_MODEL_KEY"] == MODEL_KEY_CHECKED
+    hosts << MODEL_HOST if env["OPENROUTER_API_KEY"].present? && env["HCFO_LOCAL_STACK_MODEL_KEY"] == fingerprint(env["OPENROUTER_API_KEY"])
     hosts
   end
 
@@ -77,8 +126,17 @@ module LocalStack
     raise BlockedHost, "The local stack only connects to this machine#{" and #{MODEL_HOST}" if allowed_hosts(env).include?(MODEL_HOST)}; blocked #{name}."
   end
 
+  def effective_database_configs(application = Rails.application, rails_env = Rails.env)
+    require "active_record"
+    require "active_record/database_configurations"
+    ActiveRecord::DatabaseConfigurations.new(application.config.database_configuration).configs_for(env_name: rails_env.to_s, include_hidden: true).map do |config|
+      config.configuration_hash.merge(name: config.name, url: config.respond_to?(:url) ? config.url : nil)
+    end
+  end
+
   def install!(env: ENV, rails_env: Rails.env, repo_root: Rails.root.parent, application: Rails.application)
-    found = problems(env: env, rails_env: rails_env, repo_root: repo_root)
+    found = problems(env: env, rails_env: rails_env, repo_root: repo_root, database_configs: effective_database_configs(application, rails_env),
+      shared_env_files: [ application.root.join(".env").to_s ])
     raise Refused, "The local stack refused to start:\n- #{found.join("\n- ")}" if found.any?
 
     Net::HTTP.prepend(NetworkGuard) unless Net::HTTP.ancestors.include?(NetworkGuard)
@@ -103,8 +161,10 @@ module LocalStack
   module NetworkGuard
     private
 
+    # A proxy would receive the connection instead of the host it names, so both must be this machine.
     def connect
       LocalStack.check_host!(address)
+      LocalStack.check_host!(proxy_address) if proxy?
       super
     end
   end
