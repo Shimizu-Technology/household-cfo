@@ -504,5 +504,8 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_equal "transfer", extractor.send(:source_event_type, [], {}, "Online Transfer to Savings service charge", -5_000)
     assert_equal "debt_payment", extractor.send(:source_event_type, [], {}, "Visa payment incl late fee", -31_000)
     assert_equal "fee", extractor.send(:source_event_type, [], {}, "Branch Withdrawal Service Charge", -300)
+    # A "Type: purchase" column can't turn an explicit ATM withdrawal into a purchase.
+    assert_equal "cash_withdrawal", extractor.send(:source_event_type, [ "purchase" ], { "type" => 0 }, "ATM Withdrawal", -8_000)
+    assert_equal "purchase", extractor.send(:source_event_type, [], {}, "ATM/POS Purchase Walmart", -4_500)
   end
 end
