@@ -3,9 +3,11 @@
 # numbers (expected_amounts, read from the household's ledger at run time where
 # possible) and the global rules in HouseholdFinance::MiaEvalRules.
 #
-# known_gap marks a question the app can't answer correctly today. It reports
-# but doesn't fail CI; gap_reason says what is wrong. Remove known_gap when the
-# harness lists the case as a closed gap. docs/testing/mia-evals.md has the format.
+# known_gap marks a question the app can't answer correctly today. It names the
+# checks expected to fail (and, with modes, the runs it applies to); any other
+# failure, such as a rule or a wrong amount it doesn't name, still fails the run.
+# reason says what is wrong. Narrow or remove a gap when the harness lists it as
+# closed. docs/testing/mia-evals.md has the format.
 #
 # The household (time frozen at 2026-07-15): $5,400 planned income a month from
 # January; April to mid-July of confirmed purchases including a prenatal clinic
@@ -20,8 +22,10 @@ cases:
     expected_amounts:
       - { ledger: month_income, month: "2026-06" }
     live_expected: [/income/]
-    known_gap: true
-    gap_reason: Answered with June's spending ($3,798.48), not income. PR #311 (MiaIncomeAnswer) answers with the plan's income.
+    known_gap:
+      checks: [expected_amounts, income_answered_with_spending]
+      reason: >-
+        Answered with June's spending ($3,798.48), not income. PR #311 (MiaIncomeAnswer) answers with the plan's income.
 
   - id: cfo_income_this_month
     route: controller
@@ -29,8 +33,10 @@ cases:
     expected_amounts:
       - { ledger: month_income, month: "2026-07" }
     live_expected: [/income/]
-    known_gap: true
-    gap_reason: Answered with July's spending report, which also prints raw bank descriptors. PR #311 (MiaIncomeAnswer) answers with the plan's income.
+    known_gap:
+      checks: [expected_amounts, income_answered_with_spending, raw_bank_descriptor]
+      reason: >-
+        Answered with July's spending report, which also prints raw bank descriptors. PR #311 (MiaIncomeAnswer) answers with the plan's income.
 
   # Where it went, against the plan
   - id: cfo_spent_last_month
@@ -55,21 +61,23 @@ cases:
     prompt: How much did I spend this month?
     expected_amounts:
       - { ledger: month_spending, month: "2026-07" }
-    known_gap: true
-    gap_reason: >-
-      The total is right, but "Recent confirmed transactions" prints the bank's descriptor
-      ("Purchase authorized on 07/10 Island Prenatal Clinic Tamuning Gum S*····4410 Card 7302")
-      instead of the store name. The spending report doesn't use SpendingPatterns::MerchantName.
+    known_gap:
+      checks: [raw_bank_descriptor]
+      reason: >-
+        The total is right, but "Recent confirmed transactions" prints the bank's descriptor
+        ("Purchase authorized on 07/10 Island Prenatal Clinic Tamuning Gum S*····4410 Card 7302")
+        instead of the store name. The spending report doesn't use SpendingPatterns::MerchantName.
 
   - id: cfo_dining_out_june
     route: controller
     prompt: How much did we spend on dining out in June?
     expected_amounts:
       - { ledger: category_spending, category: Dining Out, month: "2026-06" }
-    known_gap: true
-    gap_reason: >-
-      The $130 is right, but "Top merchants" prints "Purchase authorized on 06/20 Reef Coffee Co
-      Hagatna GU S*····4410 Card 7302". The category report doesn't clean store names.
+    known_gap:
+      checks: [raw_bank_descriptor]
+      reason: >-
+        The $130 is right, but "Top merchants" prints "Purchase authorized on 06/20 Reef Coffee Co
+        Hagatna GU S*····4410 Card 7302". The category report doesn't clean store names.
 
   - id: cfo_store_june
     route: controller
@@ -83,11 +91,12 @@ cases:
     forbidden_phrases: [/\ANo\b/]
     expected_amounts:
       - { ledger: month_spending, month: "2026-07" }
-    known_gap: true
-    gap_reason: >-
-      Answers "No — … you are $477.19 over the plan so far". SpendingReportNarrator answers
-      "am I within budget?", so "Am I over budget?" gets Yes and No backwards (the base
-      household's budget_status case gets "Yes — … within" the same way).
+    known_gap:
+      checks: [forbidden_phrases]
+      reason: >-
+        Answers "No — … you are $477.19 over the plan so far". SpendingReportNarrator answers
+        "am I within budget?", so "Am I over budget?" gets Yes and No backwards (the base
+        household's budget_status case gets "Yes — … within" the same way).
 
   - id: cfo_where_it_went_against_plan
     route: controller
@@ -95,15 +104,18 @@ cases:
     expected_amounts:
       - { ledger: month_spending, month: "2026-06" }
       - { ledger: month_planned, month: "2026-06" }
-    known_gap: true
-    gap_reason: Routed to the readiness plan ("let's make the plan from approved household numbers"); it never compares June's spending with June's plan.
+    known_gap:
+      checks: [expected_amounts]
+      reason: Routed to the readiness plan ("let's make the plan from approved household numbers"); it never compares June's spending with June's plan.
 
   - id: cfo_where_most_money_goes
     route: controller
     prompt: Where does most of our money go?
     expected_phrases: [Rent]
-    known_gap: true
-    gap_reason: Without the model reader Mia deflects ("Let's take this one step at a time"); no deterministic route reads where money goes.
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects ("Let's take this one step at a time"); no deterministic route reads where money goes.
 
   # What to cut first
   - id: cfo_spending_patterns_three_months
@@ -124,32 +136,40 @@ cases:
     prompt: What should we cut first?
     expected_phrases: [[Jamaican Grill, Reef Coffee Co, Ross, Dining Out, Shopping]]
     live_expected: [[Jamaican Grill, Reef Coffee Co, Ross, Dining Out, Shopping, dining, takeout]]
-    known_gap: true
-    gap_reason: Without the model reader Mia deflects ("Let's take this one step at a time"); the read-only floor doesn't recognize "cut first".
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects ("Let's take this one step at a time"); the read-only floor doesn't recognize "cut first".
 
   - id: cfo_cut_prenatal_clinic
     route: controller
     prompt: Should we cut back on the prenatal clinic visits?
     expected_phrases: [[medical, protect, keep]]
     live_expected: [[medical, protect, keep, care, doctor]]
-    known_gap: true
-    gap_reason: Without the model reader Mia deflects instead of saying medical care stays protected. The rules still check that no reply offers the cut.
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects instead of saying medical care stays protected. The gap covers only that missing answer; protected_cut still fails any reply that offers the cut.
 
   - id: cfo_stop_family_support
     route: controller
     prompt: Can we stop sending money to Auntie Lina so we can save more?
     expected_phrases: [[family, your call, your decision, up to you]]
     live_expected: [[family, your call, your decision, up to you, choice]]
-    known_gap: true
-    gap_reason: Without the model reader Mia deflects; no answer says family support isn't a cut Mia suggests and that the choice is theirs.
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects; no answer says family support isn't a cut Mia suggests and that the choice is theirs. protected_cut still fails any reply that offers the cut.
 
   - id: cfo_one_off_every_month
     route: controller
     prompt: Can we save on the PayPal nursery payment every month?
     expected_phrases: [[one-time, one time, once, one-off]]
     live_expected: [[one-time, one time, once, one-off, single]]
-    known_gap: true
-    gap_reason: Without the model reader Mia deflects instead of saying the $690 nursery payment happened once.
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects instead of saying the $690 nursery payment happened once. one_month_saving still fails any reply that calls it a monthly saving.
 
   # Subscriptions
   - id: cfo_subscriptions
@@ -158,11 +178,12 @@ cases:
     expected_phrases: [Netflix, Spotify]
     expected_amounts: ["$15.49", "$11.99"]
     live_expected: [Netflix, Spotify]
-    known_gap: true
-    gap_reason: >-
-      Answered with July's Subscriptions category report, and it names Spotify as "Recurring
-      Payment authorized on 07/05 Spotify USA S*····4410 Card 7302". PR #311 adds a
-      subscriptions answer.
+    known_gap:
+      checks: [raw_bank_descriptor]
+      reason: >-
+        Answered with July's Subscriptions category report, and it names Spotify as "Recurring
+        Payment authorized on 07/05 Spotify USA S*····4410 Card 7302". PR #311 adds a
+        subscriptions answer.
 
   # Is our budget realistic
   - id: cfo_budget_realistic
@@ -170,8 +191,11 @@ cases:
     prompt: We have a baby due soon. Is our budget realistic?
     expected_amounts:
       - { ledger: month_plan_left, month: "2026-07" }
-    known_gap: true
-    gap_reason: Deflects ("Let's take this one step at a time"). PR #311 answers with the month's plan.
+    known_gap:
+      checks: [expected_amounts]
+      modes: [deterministic]
+      reason: >-
+        Deflects ("Let's take this one step at a time"). PR #311 answers with the month's plan.
 
   - id: cfo_how_am_i_doing
     route: controller
@@ -189,11 +213,12 @@ cases:
     expected_phrases: [[$375, $333]]
     expected_amounts: ["$3,000"]
     live_expected: [[$375, $333, "375", "333"]]
-    known_gap: true
-    gap_reason: >-
-      Read as a question about March 2026 spending ("Approved spending for March 2026 is not
-      known yet"). Nothing works out $3,000 over the months to March 2027 ($375 a month for
-      August to March).
+    known_gap:
+      checks: [expected_phrases, expected_amounts]
+      reason: >-
+        Read as a question about March 2026 spending ("Approved spending for March 2026 is not
+        known yet"). Nothing works out $3,000 over the months to March 2027 ($375 a month for
+        August to March).
 
   # Debt order
   - id: cfo_debt_order
@@ -209,8 +234,9 @@ cases:
     prompt: How much are our debt payments each month?
     expected_amounts:
       - { ledger: debt_minimums }
-    known_gap: true
-    gap_reason: Lists each debt's minimum ($310, $95, $35) but never the $440 a month they add up to.
+    known_gap:
+      checks: [expected_amounts]
+      reason: Lists each debt's minimum ($310, $95, $35) but never the $440 a month they add up to.
 
   # Can I afford it
   - id: cfo_afford_tv
@@ -237,28 +263,32 @@ cases:
     prompt: What should I do with a $1,000 bonus?
     expected_amounts: ["$1,000"]
     forbidden_phrases: [car registration]
-    known_gap: true
-    gap_reason: The bonus answer always asks for "the due date for car registration", a fixed line; this household has no car registration.
+    known_gap:
+      checks: [forbidden_phrases]
+      reason: The bonus answer always asks for "the due date for car registration", a fixed line; this household has no car registration.
 
   # Will we make it to payday
   - id: cfo_make_it_to_payday
     route: controller
     prompt: Will we make it to payday?
     expected_phrases: [payday]
-    known_gap: true
-    gap_reason: Gives the generic bill-triage reply. Nothing reads a checking balance or pay dates to answer whether money lasts until payday.
+    known_gap:
+      checks: [expected_phrases]
+      reason: Gives the generic bill-triage reply. Nothing reads a checking balance or pay dates to answer whether money lasts until payday.
 
   - id: cfo_make_it_to_payday_with_numbers
     route: controller
     prompt: We have $400 in checking and payday is in 9 days. Will we make it?
     expected_amounts: ["$400"]
     expected_phrases: [[9 days, nine days]]
-    known_gap: true
-    gap_reason: Ignores the $400 and the 9 days the participant gave and gives the same bill-triage reply.
+    known_gap:
+      checks: [expected_phrases, expected_amounts]
+      reason: Ignores the $400 and the 9 days the participant gave and gives the same bill-triage reply.
 
   - id: cfo_runway_if_job_lost
     route: controller
     prompt: How many months could we last if I lost my job?
     expected_phrases: [0.6 months]
-    known_gap: true
-    gap_reason: Treated as distress ("This sounds hard"); it never gives the runway (0.6 months on $2,500 of savings).
+    known_gap:
+      checks: [expected_phrases]
+      reason: Treated as distress ("This sounds hard"); it never gives the runway (0.6 months on $2,500 of savings).

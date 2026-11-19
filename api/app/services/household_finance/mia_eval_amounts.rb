@@ -44,14 +44,15 @@ module HouseholdFinance
       ActiveSupport::NumberHelper.number_to_currency(cents.to_i.abs / 100.0, precision: cents.to_i.modulo(100).zero? ? 0 : 2)
     end
 
-    # { "missing" => [labels], "unexpected" => [labels] }
-    def check(eval_case, response, ledger)
+    # { "missing" => [labels], "unexpected" => [labels] }. strict: false ignores
+    # strict_amounts (live runs, where a reply may add other correct figures).
+    def check(eval_case, response, ledger, strict: true)
       expected = Array(eval_case["expected_amounts"]).map { |spec| resolve(spec, ledger) }
       missing = expected.filter_map do |row|
         row[:label] if row[:cents].nil? || !mentions?(response, row[:cents])
       end
       unexpected = []
-      if eval_case["strict_amounts"]
+      if strict && eval_case["strict_amounts"]
         allowed = expected + Array(eval_case["allowed_amounts"]).map { |spec| resolve(spec, ledger) }
         unexpected = amounts(response).reject { |found| allowed.any? { |row| row[:cents] && matches?(found, row[:cents]) } }
           .map { |found| format(found[:cents]) }.uniq

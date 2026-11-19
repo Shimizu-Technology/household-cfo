@@ -87,6 +87,17 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     assert_equal "1", workflow.dig("jobs", "live", "env", MiaEvals::LiveRunner::NIGHTLY_OPT_IN).to_s
   end
 
+  test "the nightly workflow gives the OpenRouter key only to the steps that use it and pins third-party actions" do
+    workflow = YAML.safe_load_file(Rails.root.join("../.github/workflows/mia-live-evals.yml"))
+    job = workflow.dig("jobs", "live")
+    assert_not job.fetch("env").key?("OPENROUTER_API_KEY")
+    keyed = job.fetch("steps").select { |step| step.dig("env", "OPENROUTER_API_KEY") }.pluck("name")
+    assert_equal [ "Check for the OpenRouter key", "Run live Mia evals" ], keyed
+    job.fetch("steps").filter_map { |step| step["uses"] }.each do |action|
+      assert_match(/@[0-9a-f]{40}\z/, action, "#{action} is not pinned to a commit")
+    end
+  end
+
   test "test database names must carry the test suffix" do
     assert @runner.send(:test_database_name?, "household_cfo_api_test")
     assert @runner.send(:test_database_name?, "household_cfo_api_test_ai_review")
@@ -108,6 +119,21 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     assert_match(/1 turn\(s\) did not return 201/, @runner.send(:run_problems, failed_turn, { provider_errors: 0 }).join)
 
     assert_match(/2 model call\(s\) failed/, @runner.send(:run_problems, clean, { provider_errors: 2 }).join)
+  end
+
+  test "a run exits non-zero when a case fails, including a known gap failing a check it doesn't name" do
+    gap = { "id" => "gap", "prompt" => "Should we cut back on the prenatal clinic visits?", "expected_phrases" => [ "protect" ],
+      "known_gap" => { "checks" => [ "expected_phrases" ], "reason" => "Deflects." } }
+    regular = { "id" => "regular", "prompt" => "Hi", "expected_phrases" => [ "hello" ] }
+    run = ->(cases, reply) do
+      result = HouseholdFinance::MiaEvalHarness.new(cases: cases, mode: :live,
+        runner: ->(_eval_case) { { response: reply, metadata: { turns: [ { status: 201 } ] } } }).call
+      @runner.run_problems(result, { provider_errors: 0 })
+    end
+
+    assert_empty run.call([ gap, regular ], "hello, one step at a time")
+    assert_equal [ "1 case(s) failed: regular." ], run.call([ regular ], "hi there")
+    assert_equal [ "1 case(s) failed: gap." ], run.call([ gap ], "Cut back on medical visits.")
   end
 
   test "model calls that time out before a response are recorded as provider errors" do

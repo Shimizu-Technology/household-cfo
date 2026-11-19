@@ -1,7 +1,8 @@
 # Runs the Mia evals against the live model every night and keeps the report.
 # It is the only CI context the live runner accepts (MIA_LIVE_EVALS_NIGHTLY_WORKFLOW
 # plus this workflow's name); every other CI job is still refused. It never gates a
-# PR. Without the OPENROUTER_API_KEY repository secret it skips with a notice.
+# PR, but the run goes red when a case fails. Without the OPENROUTER_API_KEY
+# repository secret it skips with a notice.
 name: Mia live evals (nightly)
 
 on:
@@ -59,11 +60,14 @@ jobs:
       MIA_LIVE_EVALS_NIGHTLY_WORKFLOW: "1"
       SET: ${{ inputs.set || 'cfo' }}
       CASES: ${{ inputs.cases }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    # The OpenRouter key is set only on the steps that use it, so setup steps and
+    # third-party actions never see it.
     steps:
       - name: Check for the OpenRouter key
         id: key
         working-directory: .
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           if [ -z "$OPENROUTER_API_KEY" ]; then
             echo "::notice title=Mia live evals skipped::The OPENROUTER_API_KEY repository secret is not set, so no live evals ran. Add the secret to turn this run on."
@@ -79,11 +83,11 @@ jobs:
 
       - name: Checkout code
         if: steps.key.outputs.present == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Ruby
         if: steps.key.outputs.present == 'true'
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
         with:
           bundler-cache: true
           working-directory: api
@@ -94,6 +98,9 @@ jobs:
 
       - name: Run live Mia evals
         if: steps.key.outputs.present == 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        # Exits non-zero when a case fails a check its known gap doesn't name, or a model call fails.
         run: bin/rails mia:evals:live
 
       - name: Add the report to the run summary

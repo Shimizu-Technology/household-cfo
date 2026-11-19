@@ -6,7 +6,7 @@ module HouseholdFinance
   # debt portfolio, and the spending-pattern analyzer's store labels. A runner takes
   # the snapshot inside its own transaction, so the live runner can roll back.
   class MiaEvalLedger
-    KINDS = %w[month_spending month_planned month_income month_plan_left category_spending debt_minimums].freeze
+    KINDS = %w[month_spending month_planned month_planned_out month_income month_plan_left category_spending debt_minimums].freeze
     Unavailable = Class.new(StandardError)
 
     # One plain, JSON-ready hash per case: every ledger amount the case names, plus
@@ -37,6 +37,8 @@ module HouseholdFinance
         "today" => @today.iso8601,
         "amounts" => amounts,
         "month_spending" => (1..@today.month).to_h { |month| [ format("%04d-%02d", @today.year, month), month_spending(month_date(month)) ] },
+        # nil where the plan has no income for the month.
+        "month_income" => (1..@today.month).to_h { |month| [ format("%04d-%02d", @today.year, month), known_month_income(month_date(month)) ] },
         "protected_names" => protected_names,
         "one_month_merchants" => one_month_merchants
       }
@@ -50,7 +52,8 @@ module HouseholdFinance
       month = spec["month"] ? Date.iso8601("#{spec['month']}-01") : @today.beginning_of_month
       value = case kind
       when "month_spending" then months(month, spec["through"]).sum { |each_month| month_spending(each_month) }
-      when "month_planned" then cells(month, active_only: true).sum { |cell| Money.cents(cell[:planned]) }
+      when "month_planned" then month_planned(month)
+      when "month_planned_out" then month_planned(month) + Money.cents(plan_for(month)[:monthly_debt_minimums])
       when "month_income" then month_income(month)
       when "month_plan_left" then month_plan_left(month)
       when "category_spending" then category_spending(spec.fetch("category"), month)
@@ -67,6 +70,17 @@ module HouseholdFinance
     # What Budget shows as spent: confirmed and reconciled category splits for the month.
     def month_spending(month)
       cells(month).sum { |cell| Money.cents(cell[:actual]) }
+    end
+
+    # The category plan only, without debt minimums. Budget's "planned out" adds them (month_planned_out).
+    def month_planned(month)
+      cells(month, active_only: true).sum { |cell| Money.cents(cell[:planned]) }
+    end
+
+    def known_month_income(month)
+      month_income(month)
+    rescue Unavailable
+      nil
     end
 
     def month_income(month)
@@ -122,9 +136,10 @@ module HouseholdFinance
       (categories.map(&:name) + merchants + transfers).compact_blank.uniq
     end
 
-    # Store labels seen in fewer months than a monthly cut needs.
+    # Store labels seen in fewer months than a monthly cut needs, with what was paid there.
     def one_month_merchants
-      patterns[:merchants].select { |row| row[:observed_months].length < SpendingPatterns::Analyzer::MIN_MONTHS_FOR_A_CUT }.pluck(:label)
+      patterns[:merchants].select { |row| row[:observed_months].length < SpendingPatterns::Analyzer::MIN_MONTHS_FOR_A_CUT }
+        .map { |row| { "label" => row[:label], "total_cents" => row[:total_cents] } }
     end
 
     def patterns

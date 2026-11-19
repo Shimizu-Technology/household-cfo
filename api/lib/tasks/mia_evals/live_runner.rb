@@ -132,18 +132,21 @@ module MiaEvals
       report = build_report(model, cases, result, started_at)
       paths = write_report(report)
       print_summary(report, paths)
+      result.closed_gaps.each { |gap| warn "Known gap #{gap.id} closed: #{gap.closed_gap_checks.join(', ')} now pass. Check the reply, then narrow or remove its known_gap." }
       problems = run_problems(result, report)
       problems.each { |problem| warn problem }
       problems.empty?
     end
 
-    # Reasons the report can't be trusted as a comparison of real model replies.
-    # Any of them makes the task exit non-zero.
+    # Reasons the task exits non-zero: a case failed a check its known gap (if
+    # any) doesn't name, or the report can't be trusted as a comparison of real
+    # model replies.
     def run_problems(result, report)
       turns = result.case_results.flat_map { |case_result| Array(case_result.metadata.to_h[:turns]) }
       crashed = result.case_results.count { |case_result| case_result.error.present? || Array(case_result.metadata.to_h[:turns]).empty? }
       failed_turns = turns.count { |turn| turn[:status] != 201 }
       problems = []
+      problems << "#{result.failures.length} case(s) failed: #{result.failures.map(&:id).join(', ')}." unless result.passed?
       problems << "#{crashed} case(s) raised before finishing; see the report for the error." if crashed.positive?
       problems << "#{failed_turns} turn(s) did not return 201." if failed_turns.positive?
       problems << "#{report[:provider_errors]} model call(s) failed, so some replies are canned fallbacks." if report[:provider_errors].to_i.positive?
@@ -222,7 +225,12 @@ module MiaEvals
           transcript = turns.map { |message| run_turn(session, user, message) }
           # Read before the rollback below removes the household.
           ledger = HouseholdFinance::MiaEvalLedger.snapshot(household, eval_case)
-          output = { response: transcript.last.fetch(:reply), metadata: { turns: transcript }, ledger: ledger }
+          output = {
+            response: transcript.last.fetch(:reply),
+            replies: transcript.map { |turn| { prompt: turn[:message], response: turn[:reply] } },
+            metadata: { turns: transcript },
+            ledger: ledger
+          }
           raise ActiveRecord::Rollback
         end
       end
@@ -265,6 +273,7 @@ module MiaEvals
         eval_time: HouseholdFinance::MiaEvalHousehold.eval_time.iso8601,
         passed: result.passed_count,
         total: result.total_count,
+        failed: result.failures.map(&:id),
         known_gaps: result.known_gaps.length,
         closed_gaps: result.closed_gaps.map(&:id),
         turns: turns.length,
@@ -287,6 +296,9 @@ module MiaEvals
             passed: case_result.passed,
             known_gap: case_result.known_gap,
             gap_reason: case_result.gap_reason,
+            gap_checks: case_result.gap_checks,
+            unexpected_failures: case_result.unexpected_failures,
+            closed_gap_checks: case_result.closed_gap_checks,
             missing: case_result.missing_phrases,
             forbidden: case_result.forbidden_matches,
             missing_amounts: case_result.missing_amounts,
@@ -330,8 +342,9 @@ module MiaEvals
       lines << "# Mia live evals: #{report[:model]} (#{report[:case_set]} cases)"
       lines << ""
       lines << "- Run: #{report[:started_at]} (household clock frozen at #{report[:eval_time]})"
-      lines << "- Passed: #{report[:passed]}/#{report[:total]} cases (#{report[:known_gaps]} known gaps still failing)"
-      lines << "- Known gaps now passing (check, then remove known_gap): #{report[:closed_gaps].join(', ')}" if report[:closed_gaps].any?
+      lines << "- Passed: #{report[:passed]}/#{report[:total]} cases (#{report[:known_gaps]} known gaps still failing only their named checks)"
+      lines << "- **Failed:** #{report[:failed].join(', ')}" if report[:failed].any?
+      lines << "- **Known gaps closed** (check the reply, then narrow or remove known_gap): #{report[:closed_gaps].join(', ')}" if report[:closed_gaps].any?
       lines << "- Latency per message (ms): mean #{report.dig(:latency_ms, :mean)}, p50 #{report.dig(:latency_ms, :p50)}, max #{report.dig(:latency_ms, :max)}"
       lines << "- Provider calls: #{report[:provider_calls]} (errors #{report[:provider_errors]}, truncated #{report[:truncated]})"
       lines << "- Tokens: #{report[:prompt_tokens]} in / #{report[:completion_tokens]} out (#{report[:reasoning_tokens]} reasoning)"
@@ -350,7 +363,7 @@ module MiaEvals
       report[:cases].each do |eval_case|
         lines << ""
         lines << "## #{eval_case[:id]} (#{result_label(eval_case)})"
-        lines << "Known gap: #{eval_case[:gap_reason]}" if eval_case[:known_gap]
+        lines << "Known gap (#{Array(eval_case[:gap_checks]).join(', ')}): #{eval_case[:gap_reason]}" if eval_case[:known_gap]
         Array(eval_case[:problems]).each { |problem| lines << "- #{problem.gsub('|', '/')}" }
         Array(eval_case[:turns]).each do |turn|
           calls = turn[:provider_calls].map { |call| "#{call[:title]} #{call[:status]} #{call[:elapsed_ms]}ms #{call[:completion_tokens]}tok" }
@@ -367,9 +380,10 @@ module MiaEvals
     end
 
     def result_label(eval_case)
-      return eval_case[:passed] ? "pass (gap closed)" : "known gap" if eval_case[:known_gap]
+      return "FAIL" if Array(eval_case[:unexpected_failures]).any?
+      return "GAP CLOSED" if Array(eval_case[:closed_gap_checks]).any?
 
-      eval_case[:passed] ? "pass" : "FAIL"
+      eval_case[:known_gap] ? "known gap" : "pass"
     end
 
     def table_text(values)
