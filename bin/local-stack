@@ -33,7 +33,7 @@ WEB_URL="http://127.0.0.1:$WEB_PORT"
 # dotenv refills, and checks the database Rails actually resolves.
 HOSTED_API=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_S3_BUCKET RESEND_API_KEY RESEND_FROM_EMAIL
   MAILER_FROM_EMAIL OPS_ALERT_EMAILS REMINDERS_EMAIL_ENABLED SMTP_ADDRESS SMTP_USERNAME SMTP_PASSWORD SENTRY_DSN
-  PLAID_ENV PLAID_CLIENT_ID PLAID_SECRET PLAID_WEBHOOK_URL AUTH_PROVIDER WORKOS_API_KEY WORKOS_CLIENT_ID
+  OPENROUTER_MIA_URL PLAID_ENV PLAID_CLIENT_ID PLAID_SECRET PLAID_WEBHOOK_URL AUTH_PROVIDER WORKOS_API_KEY WORKOS_CLIENT_ID
   CLERK_SECRET_KEY CLERK_PUBLISHABLE_KEY CLERK_JWKS_URL SOLID_QUEUE_IN_PUMA)
 HOSTED_WEB=(VITE_WORKOS_CLIENT_ID VITE_WORKOS_ADMIN_PORTAL_HOSTNAME VITE_SENTRY_DSN VITE_PUBLIC_POSTHOG_KEY
   VITE_ENABLE_ANALYTICS_IN_DEV VITE_CLERK_PUBLISHABLE_KEY)
@@ -58,21 +58,30 @@ check_model_key() {
     key = Dotenv.parse(ARGV[0])["OPENROUTER_API_KEY"].to_s
     exit 0 if key.empty?
     shared = ARGV[1..].select { |path| File.file?(path) }.map { |path| Dotenv.parse(path)["OPENROUTER_API_KEY"].to_s }
-    if shared.include?(key) then puts "refused", "the key in #{ARGV[0]} is the shared production key"; exit 0 end
+    say = ->(*fields) { puts ["LOCAL_STACK_RESULT", *fields].join("\t") }
+    if shared.include?(key) then say.call("refused", "the key in #{ARGV[0]} is the shared production key"); exit 0 end
+    if key.match?(/\s/) then say.call("refused", "the key in #{ARGV[0]} has spaces in it"); exit 0 end
     uri = URI("https://openrouter.ai/api/v1/key")
+    # No proxy: the probe runs before the launcher clears the environment.
+    http = Net::HTTP.new(uri.host, uri.port, nil)
+    http.use_ssl, http.open_timeout, http.read_timeout = true, 5, 10
     response = begin
-      Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 5, read_timeout: 10) { |http| http.get(uri.path, "Authorization" => "Bearer #{key}") }
+      http.start { |session| session.get(uri.path, "Authorization" => "Bearer #{key}") }
     rescue StandardError
       nil
     end
     limit = begin JSON.parse(response.body).dig("data", "limit") rescue nil end if response.is_a?(Net::HTTPSuccess)
-    if limit.nil? then puts "refused", "could not confirm the key in #{ARGV[0]} has a credit limit"; exit 0 end
-    puts "ok", "on (separate key, credit limit $#{limit})", key
+    if limit.nil? then say.call("refused", "could not confirm the key in #{ARGV[0]} has a credit limit"); exit 0 end
+    say.call("ok", "on (separate key, credit limit $#{limit})", key)
   ' "$SECRETS" "$ROOT/api/.env" "$main_env" 2>/dev/null || true)"
+  # Only the one line the probe writes counts; anything else on stdout is ignored.
+  result="$(grep -m1 $'^LOCAL_STACK_RESULT\t' <<<"$result" || true)"
   [[ -n "$result" ]] || return 0
-  MODEL_STATUS="$(sed -n 2p <<<"$result")"
-  if [[ "$(sed -n 1p <<<"$result")" == ok ]]; then
-    MODEL_KEY="$(sed -n 3p <<<"$result")"
+  local verdict status key
+  IFS=$'\t' read -r _ verdict status key <<<"$result"
+  MODEL_STATUS="$status"
+  if [[ "$verdict" == ok && -n "$key" ]]; then
+    MODEL_KEY="$key"
   else
     MODEL_STATUS="refused: $MODEL_STATUS"
   fi
@@ -189,8 +198,9 @@ stop_pid() { # stop_pid <pidfile>
     return 0
   fi
   kill "$pid" 2>/dev/null || true
-  for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-  if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null || true; fi
+  for _ in $(seq 1 20); do pid_alive "$file" || break; sleep 0.5; done
+  # Escalate only while it is still the same process: a PID reused meanwhile is left alone.
+  if pid_alive "$file"; then kill -9 "$pid" 2>/dev/null || true; fi
   rm -f "$file"
   say "  Stopped PID $pid"
 }

@@ -61,6 +61,10 @@ class LocalStackTest < ActiveSupport::TestCase
     assert_match(/no database settings/, problems(safe_env, database_configs: []).join)
     assert_empty problems(safe_env, database_configs: [ local_database(host: "127.0.0.1") ])
     assert_empty problems(safe_env, database_configs: [ local_database(host: "/tmp") ])
+    # libpq tries every host in a list: a socket folder first doesn't make a remote second one safe.
+    assert_match(/on this machine/, problems(safe_env, database_configs: [ local_database(host: "/tmp,db.example.com") ]).join)
+    assert_match(/on this machine/, problems(safe_env, database_configs: [ local_database(hostaddr: "203.0.113.7") ]).join)
+    assert_empty problems(safe_env, database_configs: [ local_database(host: "/tmp,localhost") ])
   end
 
   test "a PRIMARY_DATABASE_URL in the environment shows up in what Rails would use" do

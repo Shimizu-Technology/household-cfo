@@ -18,7 +18,7 @@ module LocalStack
     AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_S3_BUCKET
     RESEND_API_KEY RESEND_FROM_EMAIL MAILER_FROM_EMAIL OPS_ALERT_EMAILS
     REMINDERS_EMAIL_ENABLED SMTP_ADDRESS SMTP_USERNAME SMTP_PASSWORD
-    SENTRY_DSN
+    SENTRY_DSN OPENROUTER_MIA_URL
     PLAID_ENV PLAID_CLIENT_ID PLAID_SECRET PLAID_WEBHOOK_URL
     AUTH_PROVIDER WORKOS_API_KEY WORKOS_CLIENT_ID
     CLERK_SECRET_KEY CLERK_PUBLISHABLE_KEY CLERK_JWKS_URL
@@ -75,8 +75,7 @@ module LocalStack
       issues = []
       issues << "The #{config[:name]} database must come from database.yml, not a URL." if config[:url].present?
       issues << "The #{config[:name]} database must be #{env['DATABASE_TEST_NAME']}." unless config[:database].to_s == env["DATABASE_TEST_NAME"]
-      host = config[:host].to_s
-      issues << "The #{config[:name]} database must be on this machine." unless host.empty? || local_host?(host) || host.start_with?("/")
+      issues << "The #{config[:name]} database must be on this machine." unless local_database_host?(config[:host]) && local_database_host?(config[:hostaddr])
       issues
     end
   end
@@ -103,6 +102,12 @@ module LocalStack
   end
 
   def fingerprint(key) = Digest::SHA256.hexdigest(key.to_s)
+
+  # libpq accepts a comma-separated list and tries each in turn, so every entry must be a socket folder or this machine.
+  def local_database_host?(value)
+    hosts = value.to_s.split(",").map(&:strip)
+    hosts.empty? || hosts.all? { |host| host.start_with?("/") || local_host?(host) }
+  end
 
   def local_host?(value)
     host = value.to_s.strip
