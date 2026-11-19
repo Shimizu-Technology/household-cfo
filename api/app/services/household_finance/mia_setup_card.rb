@@ -378,6 +378,9 @@ module HouseholdFinance
         parts_cents = counted_sum(parts)
         if total["total_marker"] && parts_cents == total["amount_cents"]
           total = nil
+        elsif paychecks_explain_total?(parts, total)
+          # "Each paycheck is about $2,400. $4,800 is the total for the month": the month's total stands.
+          parts = []
         elsif parts.any? { |part| part["amount_cents"] == total["amount_cents"] } || parts_cents > total["amount_cents"] || total["cadence"] != "monthly" || parts.any? { |part| part["cadence"] != "monthly" }
           total = nil
           needs = true
@@ -450,6 +453,14 @@ module HouseholdFinance
       monthly = money(proposal[:monthly_cents])
       return "#{money(proposal[:low_cents])} to #{money(proposal[:high_cents])}, #{monthly} if that's right" if proposal[:kind] == :range
       "#{stated_note(part['stated_cents'], part['cadence'])}, about #{monthly} a month if that's right"
+    end
+
+    # Together the paychecks must make the month: one part of 2 × $2,400 for $4,800, never two parts that each do.
+    def paychecks_explain_total?(parts, total)
+      return false unless total["cadence"] == "monthly" && parts.all? { |part| part["cadence"] == "per_paycheck" || part["needs_frequency"] }
+
+      counts = parts.map { |part| part["count"] }
+      counts.all? && parts.zip(counts).sum { |part, count| part["amount_cents"].to_i * count } == total["amount_cents"]
     end
 
     def counted_sum(parts)
@@ -529,7 +540,7 @@ module HouseholdFinance
         state["parts"] << new_part
       end
       action = new_part["counted"] ? (match && !match["removed"] ? :changed : (renamed ? :renamed : :added)) : :needs_monthly
-      return updates << Update.new(field: field, action: :renamed, label: new_part["label"], cents: new_part["cents"], note: "#{clash}, so I added this one as #{new_part['label'].downcase}") if action == :renamed
+      return updates << Update.new(field: field, action: :renamed, label: new_part["label"], cents: new_part["cents"], note: "#{clash}, so I added this one as #{MiaSetupCardReply.inline(new_part['label'])}") if action == :renamed
       updates << Update.new(field: field, action: action, label: new_part["label"], cents: new_part["counted"] ? new_part["cents"] : nil, note: new_part["note"]) unless action == :needs_monthly && proposable_part(field).equal?(new_part)
     end
 

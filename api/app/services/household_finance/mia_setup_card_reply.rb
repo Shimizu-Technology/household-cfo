@@ -6,6 +6,8 @@ module HouseholdFinance
     QUESTIONS = REGISTRY::FIELDS.to_h { |field| [ field.key, field.questions ] }.freeze
     HELP = REGISTRY::FIELDS.to_h { |field| [ field.key, field.help ] }.freeze
     FIELD_NAMES = REGISTRY::FIELDS.to_h { |field| [ field.key, field.name ] }.freeze
+    GENERIC_LABELS = (REGISTRY::FIELDS.flat_map { |field| [ field.default_label, field.other_label, field.label ] }.compact +
+      [ "Other", "Total you gave", "Saved total", "Debt payments" ]).map(&:downcase).to_set.freeze
 
     module_function
 
@@ -21,6 +23,28 @@ module HouseholdFinance
     end
 
     def help(field) = HELP.fetch(field)
+
+    # A label inside a sentence keeps the capitals she typed: "water", "Starlink",
+    # "family loan from Tito Ben", KTDS. The card's own row names read in lowercase.
+    def inline(label)
+      text = label.to_s
+      return text.sub(/\A./, &:downcase) if GENERIC_LABELS.include?(text.downcase)
+
+      first = text[/\A[[:alpha:]][[:alnum:]'’+]*/]
+      return text unless first
+      said = ParticipantMessageReader::Current.message.to_s
+      # Her own word, away from the start of a sentence, shows how she writes it.
+      written = said.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(first)}(?![[:alnum:]])/i).filter_map do
+        match = Regexp.last_match
+        match[0] unless said[0...match.begin(0)].match?(/(?:\A|[.!?]\s*)\s*\z/)
+      end
+      return text.sub(/\A./) { written.first[0] } if written.any?
+      return text if first.match?(/\A[[:upper:]]{2,}\z/) || text[1..].to_s.match?(/[[:upper:]]/)
+      # Only at the start of a sentence: a one-word name ("Starlink $85.") keeps its capital.
+      return text if text.split.one? && said.match?(/(?:\A|[.!?]\s+)#{Regexp.escape(first)}(?![[:alnum:]])/)
+
+      text.sub(/\A[[:upper:]]/, &:downcase)
+    end
 
     # "Your income", "Fixed essentials", "What you owe": the field as the subject of a sentence, with its verb.
     def subject(field)
@@ -38,11 +62,11 @@ module HouseholdFinance
       offer = card.offer_question_for(field)
       return offer if offer
       labels = card.unresolved_labels(field)
-      return "#{labels.first.match?(/s\z/i) ? 'What are' : "What's"} #{labels.first.downcase} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
+      return "#{labels.first.match?(/s\z/i) ? 'What are' : "What's"} #{inline(labels.first)} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
       return "What are #{labels.to_sentence} in a usual month?" if labels.any?
       debts = field == MiaSetupCard::DEBT_FIELD ? card.debts_without_minimum : []
       return "What do you pay on debts in a usual month?" if debts == [ MiaSetupCard::PLACEHOLDER_DEBT ]
-      return "What's the monthly minimum on #{debts.to_sentence.downcase}?" if debts.any?
+      return "What's the monthly minimum on #{debts.map { |debt| inline(debt) }.to_sentence}?" if debts.any?
       variants = QUESTIONS.fetch(field)
       previous == field ? variants.last : variants.first
     end
@@ -109,10 +133,10 @@ module HouseholdFinance
       when :balance then row[:total_cents] ? [ "#{name} is #{money(row[:total_cents])}" ] : []
       when :debts
         return [ "no debts" ] if row[:value_text] == "No debts"
-        row[:parts].filter_map { |part| part[:removed] ? "#{part[:label].downcase} is off your debts" : (part[:cents] && "#{part[:label].downcase} minimum is #{money(part[:cents])}") }.presence ||
+        row[:parts].filter_map { |part| part[:removed] ? "#{inline(part[:label])} is off your debts" : (part[:cents] && "#{inline(part[:label])} minimum is #{money(part[:cents])}") }.presence ||
           [ row[:total_cents] && "#{name} are #{money(row[:total_cents])} a month" ].compact
       else
-        changes = row[:parts].filter_map { |part| part[:removed] ? "#{part[:label].downcase} is off" : (part[:cents] && "#{part[:label].downcase} is #{money(part[:cents])}") }
+        changes = row[:parts].filter_map { |part| part[:removed] ? "#{inline(part[:label])} is off" : (part[:cents] && "#{inline(part[:label])} is #{money(part[:cents])}") }
         total = row[:total_cents] && "#{name} #{verb(field)} #{money(row[:total_cents])} a month"
         changes.length > 3 ? [ total ].compact : (changes + [ total ]).compact
       end
@@ -133,11 +157,11 @@ module HouseholdFinance
       added = group.select { |update| update.action == :added && update.cents }
       # One sentence for everything she named. A row still missing its amount is named in it and explained once after.
       pending = group.select { |update| update.action == :added && update.cents.nil? }
-      named = added.map { |update| phrase(update) } + pending.map { |update| update.label.downcase }
+      named = added.map { |update| phrase(update) } + pending.map { |update| inline(update.label) }
       lines << "Added #{named.to_sentence}." if named.any?
       lines.concat(pending_lines(pending, alone: added.empty?))
       group.reject { |update| update.action.in?(%i[card_full kept_edit added]) }.each { |update| lines.concat(single_lines(field, update, card_open)) }
-      full = group.select { |update| update.action == :card_full }.map { |update| update.label.downcase }
+      full = group.select { |update| update.action == :card_full }.map { |update| inline(update.label) }
       lines << "Your card holds #{MiaSetupCard::MAX_PARTS} rows here, so I left #{full.to_sentence} off. You can combine a few, or give me one total." if full.any?
       if added.many? || group.any? { |update| update.action.in?(%i[changed removed]) }
         total = field == MiaSetupCard::DEBT_FIELD ? debt_total(card) : card.money_total(field)
@@ -151,26 +175,26 @@ module HouseholdFinance
       pending.group_by { |update| update.note.to_s.sub(/\Aneeds?\s+/, "") }.map do |need, rows|
         next if need.blank?
         next "It needs #{need}." if alone && rows.one?
-        names = rows.map { |update| "the #{update.label.downcase}" }
+        names = rows.map { |update| "the #{inline(update.label)}" }
         names.one? ? "#{names.first.sub(/\Athe/, 'The')} needs #{need}." : "#{names.to_sentence.sub(/\Athe/, 'The')} each need #{need}."
       end.compact
     end
 
     private_class_method def self.single_lines(field, update, card_open)
       case update.action
-      when :changed then update.cents ? [ "Changed #{update.label.downcase} to #{money(update.cents)}." ] : [ "Updated #{update.label.downcase}. It #{update.note}." ]
-      when :removed then [ "Took out #{update.label.downcase}." ]
-      when :added then update.cents ? [] : [ "Added #{update.label.downcase}. It #{update.note}." ]
+      when :changed then update.cents ? [ "Changed #{inline(update.label)} to #{money(update.cents)}." ] : [ "Updated #{inline(update.label)}. It #{update.note}." ]
+      when :removed then [ "Took out #{inline(update.label)}." ]
+      when :added then update.cents ? [] : [ "Added #{inline(update.label)}. It #{update.note}." ]
       when :total then [ total_line(field, update) ]
       when :none then [ field == MiaSetupCard::DEBT_FIELD ? "Noted: no debts." : none_line(field) ]
       when :needs_monthly then [ "#{(update.label || FIELD_NAMES.fetch(field)).sub(/\A./, &:upcase)} still #{update.label.to_s.match?(/s\z/i) ? 'need' : 'needs'} a monthly amount (#{update.note}), so I didn't count it." ]
       when :renamed then [ "#{update.note.sub(/\A./, &:upcase)}, #{money(update.cents)} a month." ]
       when :purchases_waiting then [ "#{update.label} has a purchase waiting for your review, so I haven't taken it off. Review that purchase first, then ask me again. Nothing changed." ]
       when :name_taken then [ "#{update.note.sub(/\A./, &:upcase)}. What should I call this new one? Nothing changed." ]
-      when :no_breakdown then [ "I only have one total for #{FIELD_NAMES.fetch(field)} (#{money(update.cents)}), so I can't change #{update.label.downcase} by itself. What should the new total be?" ]
-      when :not_found then [ card_open ? "I don't see #{update.label.downcase} on your card." : "I don't see #{update.label.downcase} in your saved numbers. Which one did you mean?" ]
+      when :no_breakdown then [ "I only have one total for #{FIELD_NAMES.fetch(field)} (#{money(update.cents)}), so I can't change #{inline(update.label)} by itself. What should the new total be?" ]
+      when :not_found then [ card_open ? "I don't see #{inline(update.label)} on your card." : "I don't see #{inline(update.label)} in your saved numbers. Which one did you mean?" ]
       when :debt_on_file then [ "You have a debt saved, so I left debts as they are. Tell me which one is gone, or change it in My Money." ]
-      when :combined then [ "#{update.note} is one row on your card, so I can't change #{update.label.downcase} by itself. What should that whole row be?" ]
+      when :combined then [ "#{update.note} is one row on your card, so I can't change #{inline(update.label)} by itself. What should that whole row be?" ]
       when :too_long then [ "That's a little long for #{FIELD_NAMES.fetch(field)}. Can you shorten it to #{update.cents} characters or fewer?" ]
       else []
       end
@@ -186,7 +210,7 @@ module HouseholdFinance
       "#{subject(field)} #{verb(field)} #{amount}."
     end
 
-    private_class_method def self.phrase(update) = "#{update.label.downcase} #{money(update.cents)}"
+    private_class_method def self.phrase(update) = "#{inline(update.label)} #{money(update.cents)}"
 
     private_class_method def self.debt_total(card)
       Array(card.debt_state["parts"]).reject { |part| part["removed"] || part["minimum_cents"].nil? }.sum { |part| part["minimum_cents"] }
