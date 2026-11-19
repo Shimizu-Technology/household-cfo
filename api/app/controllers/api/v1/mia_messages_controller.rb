@@ -200,6 +200,10 @@ module Api
           if @care_topic && @care_topic["care_kind"] != "crisis" && HouseholdFinance::ParticipantCare.skip_only?(content, @participant_reading)
             @participant_reading = @participant_reading.with(care: "none", care_status: "new_topic")
           end
+          # "I pay $500 a month and I'm about $1,500 behind" is a debt to put on the card.
+          if @care_topic.nil? && HouseholdFinance::ParticipantCare.setup_facts_only?(content, @participant_reading)
+            @participant_reading = @participant_reading.with(care: "none")
+          end
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
           unless @participant_reading.available
             HouseholdFinance::ParticipantCare.guard_when_unread(content, history: history,

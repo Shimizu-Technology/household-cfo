@@ -70,6 +70,23 @@ module HouseholdFinance
       reading.care == "hardship" && Array(reading.setup_changes.to_h["skips"]).any? && message.to_s.match?(PLAIN_SKIP) && !current_hardship_sign?(message) && !::Mia::SensitiveMoment.grief?(message)
     end
 
+    # Debts stated plainly ("I pay $500 a month and I'm about $1,500 behind", "not
+    # sure of the full balance") are facts for the card, even when the reader
+    # hears hardship. Anything else in the message, a feeling, a life event or
+    # present hardship keeps the care reply.
+    FEELING = /\b(?:stress\w*|scared|scary|afraid|worr\w*|anxi\w*|panic\w*|overwhelm\w*|terrif\w*|desperate|hopeless|helpless|ashamed|embarrass\w*|cry\w*|heavy|hard\s+(?:time|week|month)|struggl\w*|can['’]?t\s+sleep|losing\s+sleep|freak\w*)\b/i
+    LIFE_EVENT = /\b(?:lost|losing|lose)\s+(?:my|his|her|our|their|the)\s+jobs?\b|\blet\s+(?:me|us|him|her|them)\s+go\b|\blaid\s+off\b|\bfired\b|\bhours\s+(?:got\s+|were\s+)?cut\b|\bevict\w*|\bdue\s+(?:today|tonight|tomorrow|(?:this\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\bin\s+(?:the\s+)?hospital\b|\bhospitalized\b|\b(?:sick|died|passed\s+away|divorc\w*|left\s+(?:me|us))\b/i
+    SETUP_DEBT_ONLY_KEYS = %w[debt_payment skips help_topic work_out confirm_monthly].freeze
+
+    def setup_facts_only?(message, reading)
+      changes = reading.setup_changes.to_h
+      return false unless reading.available && reading.care == "hardship" && changes["debt_payment"].present?
+      return false unless changes.except(*SETUP_DEBT_ONLY_KEYS).values.all?(&:blank?)
+
+      text = message.to_s
+      setup_content?(text, reading) && !text.match?(FEELING) && !text.match?(LIFE_EVENT)
+    end
+
     def brush_off?(message)
       text = message.to_s
       text.split.length <= 10 && !text.match?(/\d/) && text.match?(BRUSH_OFF) && !text.match?(RECOVERY_EVIDENCE) && !text.match?(ConversationFollowupResolver::GRATITUDE_PATTERN) && !explicit_recovery?(text)

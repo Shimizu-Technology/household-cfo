@@ -69,7 +69,7 @@ module HouseholdFinance
       replace_all on a money field: true when she says start over or gives a whole new list for that field ("ok lets start over. rent 1000, gpa 200"), so earlier rows go away. Otherwise false.
       Bare amounts with no label answering last_asked are still that field: "1400 and 1250" at last_asked primary_income is two parts with empty labels and cadence monthly. Two different amounts at last_asked such as "maybe 450, 500 tops" are total_amount "500", total_cadence unclear, on the last_asked field; it is never a goal or name.
       none on a money field: true only for a plain statement that the whole field is zero ("no income", "no bills").
-      debt_payment: none true for a plain "no debts". For named debts use parts, each {op, name, minimum, balance, source}. minimum is the monthly minimum quote, balance is the owed amount quote, each "" if not stated; never put a balance in minimum. Two debts in one message are two parts: "the visa is 75 n the truck 310" and "my card is like 40 minimum n student loan 120" each give two parts. One overall debt total without names uses total_amount with total_cadence and total_source. A debt she pays off or that is gone uses op remove.
+      debt_payment: none true for a plain "no debts". For named debts use parts, each {op, name, minimum, balance, source}. minimum is the monthly minimum quote, balance is the owed amount quote, each "" if not stated; never put a balance in minimum. A one-time bill that is coming but has no monthly payment yet (a hospital bill after a birth, a car repair) is not a debt; leave it out. Two debts in one message are two parts: "the visa is 75 n the truck 310" and "my card is like 40 minimum n student loan 120" each give two parts. One overall debt total without names uses total_amount with total_cadence and total_source. A debt she pays off or that is gone uses op remove.
       skips: setup field keys she asks to skip, does not know yet, or wants to come back to. Use last_asked for a bare "skip", "idk yet", "ill do that later". Never skip a field she answered.
       help_topic: the setup field key when she asks what a setup question or term means or how to answer it ("whats fixed mean", "what do you mean by goal", "idk what my goal should be"), else "". A plain question about something else leaves help_topic empty and uses question=true.
       work_out: true when she wants help working out or calculating a monthly number ("help me work it out", "idk how to figure that out", "can u do the math"), with help_topic set to that field. false for a question about what a term means. confirm_monthly: true only when she agrees to a monthly figure Mia offered in draft ("yes", "use that", "sounds right"). If she gives a number instead, that is the answer and confirm_monthly is false. When paycheck_help is true she was asked for one paycheck and how often it comes: a lone amount is that paycheck with cadence unclear, never a monthly amount.
@@ -334,7 +334,18 @@ module HouseholdFinance
         entry.merge!("cadence" => "unclear", "needs_frequency" => true) unless entry["count"]
       end
       entry["total_marker"] = true if setup_total_context?(offset, amount)
+      # "$4,800 a month … paid twice a month" and "$4,800 is the monthly total": the
+      # amount's own words make it a month; "twice a month" is only the pay schedule.
+      entry.merge!("cadence" => "monthly").except!("count", "stated_cadence", "needs_frequency") if status == :ok && setup_monthly_amount?(offset, amount)
       entry
+    end
+
+    SETUP_MONTHLY_AFTER = %r{\A\s*(?:(?:a|per|each|every|/)\s*month\b|/\s*mo\b|monthly\b|(?:is|was)\s+(?:the|our|my)\s+(?:monthly\s+total|total\s+(?:for|each|every|per|a)\s+(?:the\s+)?month)\b)}i
+    SETUP_MONTHLY_BEFORE = /\b(?:monthly\s+total|total\s+(?:for|each|every|per|a)\s+(?:the\s+)?month)\s*(?:is|of|was|:)?\s*(?:about|around|roughly)?\s*\$?\s*\z/i
+
+    def setup_monthly_amount?(offset, amount)
+      before, after = setup_amount_context(offset, amount)
+      after.match?(SETUP_MONTHLY_AFTER) || before.match?(SETUP_MONTHLY_BEFORE)
     end
 
     # "maybe 700 or 800" is two figures for one thing. Ruby finds both so Mia
@@ -476,7 +487,14 @@ module HouseholdFinance
       minimum = setup_debt_minimum(part["minimum"], part["source"])
       # A bare name is a debt she has only in a statement, never in a question.
       return if minimum.empty? && balance.nil? && (op != "add" || @question)
+      # "A hospital bill of maybe $1,000-2,000" is a one-time bill coming, not a debt with a monthly minimum.
+      return if minimum["minimum_cents"].nil? && minimum["cadence"].in?([ nil, "unclear" ]) && balance.nil? && setup_one_time_bill?(name, part["source"])
       { "op" => op, "name" => name, "balance_cents" => balance }.merge(minimum)
+    end
+
+    def setup_one_time_bill?(name, source)
+      text = "#{name} #{source}"
+      text.match?(/\b(?:bills?|one[- ]time|one[- ]off)\b/i) && !text.match?(/\b(?:a|per|each|every)\s+month\b|\bmonthly\b|\bmin(?:imum)?\b|\bpayment\s+plan\b|\bpay(?:ing)?\s+(?:it\s+off\s+)?\$?\d/i)
     end
 
     def setup_debt_balance(amount, source)
