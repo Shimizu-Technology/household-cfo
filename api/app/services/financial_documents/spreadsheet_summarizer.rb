@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "csv"
+require "digest"
 require "fileutils"
 require "roo"
 require "roo-xls"
@@ -26,9 +27,10 @@ module FinancialDocuments
       "#{count} formula #{count == 1 ? 'cell' : 'cells'} (such as a total) had no saved result, so #{count == 1 ? 'it was' : 'they were'} left blank. If you need #{count == 1 ? 'that value' : 'those values'}, open the file in Excel or Google Sheets, save it, and upload it again."
     end
 
-    def initialize(file_path:, filename:)
+    def initialize(file_path:, filename:, preserve_cell_keys: false)
       @file_path = file_path
       @filename = filename
+      @preserve_cell_keys = preserve_cell_keys
     end
 
     def call
@@ -144,7 +146,8 @@ module FinancialDocuments
           break
         end
 
-        values = (1..last_column).map { |column_number| clean_cell(spreadsheet.cell(row_number, column_number)) }
+        cells = (1..last_column).map { |column_number| spreadsheet.cell(row_number, column_number) }
+        values = cells.map { |cell| clean_cell(cell) }
         @scanned_cells = scanned_cells + last_column
         next if values.all?(&:blank?)
         if rows.length >= MAX_ROWS_PER_SHEET
@@ -162,7 +165,16 @@ module FinancialDocuments
         else
           []
         end
-        rows << { row: row_number, values: values, cell_types: cell_types, cell_formats: cell_formats }
+        row = { row: row_number, values: values, cell_types: cell_types, cell_formats: cell_formats }
+        if @preserve_cell_keys
+          # Text shortened or rewritten for display can still identify a distinct
+          # account. Only the hash is carried to the native extractor.
+          keys = cells.each_with_index.filter_map do |cell, index|
+            [ index, Digest::SHA256.hexdigest(cell) ] if cell.is_a?(String) && cell.squish != values[index]
+          end
+          row[:cell_keys] = keys.to_h if keys.any?
+        end
+        rows << row
       end
 
       return nil if rows.empty?

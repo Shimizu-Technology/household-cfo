@@ -7,6 +7,7 @@ module FinancialDocuments
       MASKED = /[\s·*•-]*(?:\*{2,}|X{2,}|·{2,}|•{2,})\s*\d{4}\b/i
       TRAILING_DIGITS = /(?:\A|[\s#])(?<last4>\d{4})\z/
       ACCOUNT_NUMBER = /\A\d(?:[ -]?\d){3,}\z/
+      LONG_ACCOUNT_NUMBER = /(?<![\d$.,])\d(?:[ -]?\d){7,}(?!\d|[.,]\d)/
       module_function
 
       # Returns { name:, last4: }; either may be nil.
@@ -21,8 +22,9 @@ module FinancialDocuments
       end
 
       def display_label(label)
-        text = label.to_s.squish
+        text = label.to_s.unicode_normalize(:nfkc).squish
         return "····#{text.gsub(/\D/, '').last(4)}" if text.match?(ACCOUNT_NUMBER)
+        text = text.gsub(LONG_ACCOUNT_NUMBER) { |number| "····#{number.delete(' -').last(4)}" }
         return text if text.match?(GENERIC)
 
         AccountNumberMask.display(text).sub(TRAILING_DIGITS) { " ····#{Regexp.last_match[:last4]}" }.strip

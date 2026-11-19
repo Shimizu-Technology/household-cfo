@@ -130,15 +130,17 @@ module FinancialDocuments
       end
 
       def account_details(account, tracked)
-        return AccountName.parts(tracked.label) if tracked
+        choices = (@account_choices ||= AccountMatch.candidates(household).to_a)
+        if tracked
+          return AccountName.parts(tracked.label).merge(choices: choices.reject { |choice| choice.id == tracked.id }.map { |choice| account_choice(choice) })
+        end
 
         basis = account.account_basis
         label = AccountMatch.default_label(account, basis)
         name = AccountName.parts(label)
-        choices = (@account_choices ||= AccountMatch.candidates(household).to_a)
         eligible = choices.select { |choice| choice.account_basis == basis || basis == "unknown" }
         suggested = AccountMatch.suggested(household, label, basis, account: account)
-        needs_choice = !suggested && (basis == "unknown" || account.limitations.include?("account_label_ambiguous") || name[:last4].nil? || AccountMatch.with_last_four(eligible, name[:last4]).many?)
+        needs_choice = !suggested && (basis == "unknown" || name[:last4].nil? || AccountMatch.ambiguous?(household, label, basis, account: account))
         name.merge(needs_choice: needs_choice, suggested: suggested && account_choice(suggested), choices: eligible.map { |choice| account_choice(choice) })
       end
 

@@ -50,7 +50,7 @@ export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchan
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
-export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
+export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; expected_tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
 export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
@@ -254,13 +254,11 @@ export function coverageMissingNote(): string {
 }
 
 export function accountMatchNote(accounts: ReviewedSourceAccount[]): string {
-  const matches = new Map(accounts.flatMap(row => {
-    const id = row.approved?.tracked_account.id ?? row.suggested?.id
-    const last4 = row.approved ? row.last4 : row.suggested?.last4
-    return id != null && last4 ? [[id, last4] as const] : []
-  }))
-  if (matches.size !== 1 || accounts.some(row => !row.approved && !row.suggested)) return ''
-  const last4 = matches.values().next().value
+  const [first] = accounts
+  const trackedId = (row: ReviewedSourceAccount) => row.approved?.tracked_account.id ?? row.suggested?.id
+  const id = first && trackedId(first)
+  const last4 = first?.approved ? first.last4 : first?.suggested?.last4
+  if (id == null || !last4 || accounts.some(row => trackedId(row) !== id)) return ''
   return accounts.every(row => row.approved) ? `Saved with your account ending ${last4}` : `We’ll use your account ending ${last4}`
 }
 

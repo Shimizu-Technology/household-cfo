@@ -94,7 +94,11 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   async function save(input: ApproveLinesInput, focusIndex: number | null = null): Promise<boolean> {
     focusAfter.current = focusIndex
     const answer = input.coverage_answer ?? coverageAnswer
-    const saved = await mutation.mutate('approve_lines', answer ? { ...input, coverage_answer: answer, expected_coverage_id: coverageVersion.current } : input)
+    const choices = review?.accounts.flatMap(row => !row.approved && row.choices && !row.needs_choice ? [{
+      source_account_id: row.source_account_id, expected_tracked_account_id: row.suggested?.id ?? null,
+    }] : []) ?? []
+    const request = !input.accounts && choices.length ? { ...input, accounts: choices } : input
+    const saved = await mutation.mutate('approve_lines', answer ? { ...request, coverage_answer: answer, expected_coverage_id: coverageVersion.current } : request)
     if (!saved) focusAfter.current = undefined
     else changedCallback.current?.()
     return saved

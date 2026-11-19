@@ -21,16 +21,22 @@ module FinancialDocuments
       end
 
       def suggested(household, label, basis, account:, allow_last_four: true)
-        return if account.limitations.include?("account_label_ambiguous") || !basis.in?(%w[asset liability])
+        matches(household, label, basis, account: account, allow_last_four: allow_last_four).then { |rows| rows.first if rows.one? }
+      end
 
-        exact = existing(household, label, basis) if named?(label)
-        return exact if exact || !allow_last_four
+      def ambiguous?(household, label, basis, account:, allow_last_four: true)
+        account.limitations.include?("account_label_ambiguous") ||
+          matches(household, label, basis, account: account, allow_last_four: allow_last_four).many?
+      end
+
+      def matches(household, label, basis, account:, allow_last_four:)
+        return [] if account.limitations.include?("account_label_ambiguous") || !basis.in?(%w[asset liability])
+
+        exact = named?(label) ? exact_matches(household, label, basis) : []
+        return exact if exact.any? || !allow_last_four
 
         last4 = AccountName.parts(label)[:last4]
-        return unless last4
-
-        matches = with_last_four(candidates(household, basis), last4)
-        matches.first if matches.one?
+        last4 ? with_last_four(candidates(household, basis), last4) : []
       end
 
       def with_last_four(accounts, last4)
@@ -39,8 +45,12 @@ module FinancialDocuments
 
       # The account already tracked under this label (spacing and capitals aside) and basis, or nil.
       def existing(household, label, basis)
-        matches = candidates(household, basis).where("lower(regexp_replace(btrim(label), '\\s+', ' ', 'g')) = ?", label.to_s.squish.downcase).limit(2).to_a
+        matches = exact_matches(household, label, basis)
         matches.first if matches.one?
+      end
+
+      def exact_matches(household, label, basis)
+        candidates(household, basis).where("lower(regexp_replace(btrim(label), '\\s+', ' ', 'g')) = ?", label.to_s.squish.downcase).limit(2).to_a
       end
     end
   end

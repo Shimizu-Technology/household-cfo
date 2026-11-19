@@ -82,7 +82,7 @@ module FinancialDocuments
     end
 
     def call
-      summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename).call
+      summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename, preserve_cell_keys: true).call
       warnings << SpreadsheetSummarizer.uncalculated_formula_warning(summary[:uncalculated_formula_cells]) if summary[:uncalculated_formula_cells].to_i.positive?
       if summary[:sheet_limit_exceeded]
         return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_SHEETS} worksheets and could not be inspected completely. Remove empty sheets or split it into smaller workbooks so every value can be reviewed.")
@@ -203,7 +203,7 @@ module FinancialDocuments
           next unless financial_cell || merchant_cell
           next if !transaction_like_row?(values, map) && item_from_row(values, map, cell_types: row[:cell_types], cell_formats: row[:cell_formats])
           account_label = cell(values, map, "account").to_s.presence
-          key = account_label || "sheet-#{sheet_index}"
+          key = source_account_key(row, map, sheet_index)
           basis = @account_basis || cell(values, map, "account_basis").to_s.downcase
           raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: SourceReview::AccountName.display_label(account_label).presence || "Spreadsheet account #{sheet_index + 1}" }
           merchant = clean_text(cell(values, map, "merchant").presence || cell(values, map, "label"), max_length: 120)
@@ -235,7 +235,7 @@ module FinancialDocuments
       # Distinct account numbers in one file can have an identical masked label.
       # Keep their source keys and ask which account each section belongs to.
       raw_accounts = raw_accounts.uniq { |account| [ account[:account_key], account[:account_basis] ] }
-      raw_accounts.group_by { |account| [ account[:label], account[:account_basis] ] }.each_value do |group|
+      raw_accounts.group_by { |account| [ AccountingContract.normalized_text(account[:label], 120)&.downcase, account[:account_basis] ] }.each_value do |group|
         next unless group.many?
 
         group.each { |account| account[:limitations] = [ "account_label_ambiguous" ] }
@@ -261,7 +261,7 @@ module FinancialDocuments
         map = header_map_for(header[:values])
         next [] if map.key?("debit") || map.key?("credit") || !map.key?("amount")
         rows.select { |row| row[:row] > header[:row] && !transaction_header?(row[:values]) }
-          .group_by { |row| cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet[:sheet_index] || index}" }
+          .group_by { |row| source_account_key(row, map, sheet[:sheet_index] || index) }
           .map { |key, group| [ [ sheet[:sheet_index] || index, key ], group, map ] }
       end
       unresolved = []
@@ -515,6 +515,10 @@ module FinancialDocuments
         evidence: notes.presence || label,
         metadata: {}
       }
+    end
+
+    def source_account_key(row, map, sheet_index)
+      row.dig(:cell_keys, map["account"]) || cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet_index}"
     end
 
     def cell(values, header_map, key)

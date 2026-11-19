@@ -991,6 +991,22 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal bank.id, review_account(source).dig("approved", "tracked_account", "id")
   end
 
+  test "a last-four suggestion which stopped being unique refuses approval without saving anything" do
+    bank = track("BOH ····6824")
+    source = build_source(label: "Bank of Hawaii checking 6824", rows: [ [ "Payroll", 5_000, "income", 2 ] ])
+    details = review_account(source)
+    lines = as_read(source[:revision].financial_source_events.ids, source: source)
+    assert_equal bank.id, details.dig("suggested", "id")
+
+    track("Other checking ····6824")
+    assert_no_difference [ "SourceTrackedAccount.count", "SourceAccountIdentityVersion.count", "SourceReviewVersion.count" ] do
+      approve_lines({ lines: lines, expect_ready_ids: lines.pluck(:event_id),
+        accounts: [ { source_account_id: details.fetch("source_account_id"), expected_tracked_account_id: bank.id } ] }, source: source)
+      assert_response :conflict
+      assert_equal "Your saved accounts changed. Refresh to choose which account this is.", response.parsed_body.fetch("errors").first
+    end
+  end
+
   test "two last-four matches require a choice, and a new account can be saved separately" do
     first = track("BOH ····6824")
     second = track("Second checking 6824")
@@ -1000,13 +1016,19 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_nil details.fetch("suggested")
     assert_equal [ first.id, second.id ], details.fetch("choices").pluck("id")
 
+    assert_no_difference [ "SourceTrackedAccount.count", "SourceAccountIdentityVersion.count" ] do
+      approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id") } ] }, source: source)
+      assert_response :conflict
+    end
+
     approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: second.id } ] }, source: source)
     assert_response :success
     assert_equal second.id, review_account(source).dig("approved", "tracked_account", "id")
 
-    separate = build_source(label: "BOH ····6824")
+    separate = build_source(label: "Another bank 6824")
     details = review_account(separate)
-    assert_equal first.id, details.dig("suggested", "id")
+    assert details.fetch("needs_choice")
+    assert_nil details.fetch("suggested")
     assert_difference "SourceTrackedAccount.count", 1 do
       approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: nil } ] }, source: separate)
       assert_response :success
@@ -1014,7 +1036,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_not_equal first.id, review_account(separate).dig("approved", "tracked_account", "id")
   end
 
-  test "a missing last four asks which account and never changes an approved link" do
+  test "a missing last four asks and a different existing account can be selected later" do
     source = build_source(label: "Everyday checking", rows: [ [ "Payroll", 5_000, "income", 2 ] ])
     bank = track("Bank of Hawaii checking ····6824")
     details = review_account(source)
@@ -1025,14 +1047,32 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     approve_lines({ accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: bank.id } ],
       lines: as_read(source[:revision].financial_source_events.ids, source: source) }, source: source)
     assert_response :success, response.body
-    saved = review_account(source).fetch("approved")
+    assert_equal 1, plan_for(source).fetch("done")
     other = track("Different checking ····6824")
     approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: other.id } ] }, source: source)
-    assert_response :conflict
-    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), label: other.label } ] }, source: source)
     assert_response :success
-    assert_equal saved, review_account(source).fetch("approved")
+    assert_equal other.id, review_account(source).dig("approved", "tracked_account", "id")
+    assert_equal 0, plan_for(source).fetch("done")
+  end
+
+  test "correcting the saved type and name asks for another look without using last-four matching" do
+    source = build_source(label: "Everyday checking 6824", rows: [ [ "Payroll", 5_000, "income", 2 ] ])
+    lines = as_read(source[:revision].financial_source_events.ids, source: source)
+    approve_lines({ lines: lines }, source: source)
+    assert_response :success
+    details = review_account(source)
     assert_equal 1, plan_for(source).fetch("done")
+    card = track("Other card ····6824", basis: "liability")
+    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), account_basis: "liability" } ] }, source: source)
+    assert_response :success
+    corrected = review_account(source).dig("approved", "tracked_account")
+    assert_equal "liability", corrected.fetch("account_basis")
+    assert_not_equal card.id, corrected.fetch("id")
+    assert_equal 0, plan_for(source).fetch("done")
+
+    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), label: "My card" } ] }, source: source)
+    assert_response :success
+    assert_equal "My card ····6824", review_account(source).dig("approved", "tracked_account", "label")
   end
 
   test "linking a statement's account while she answers a copy question never makes her answer stale" do
@@ -1127,6 +1167,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "a name or a saved description with a raw account number reads masked, even when it was approved before" do
     names = ->(label, masked = nil) { FinancialDocuments::SourceReview::AccountName.parts(label, masked) }
+    assert_equal "Checking ····6824", FinancialDocuments::SourceReview::AccountName.display_label("Checking 1111-2222-6824")
+    assert_equal "Demo ····6824 card", FinancialDocuments::SourceReview::AccountName.display_label("Demo 1111 2222 6824 card")
+    assert_equal "Checking 2", FinancialDocuments::SourceReview::AccountName.display_label("Checking 2")
     assert_equal({ name: "Bank of Guam checking", last4: "5678" }, names.call("Bank of Guam checking 000012345678"))
     assert_equal({ name: "Statement.pdf ····5678", last4: "1234" }, names.call("Statement.pdf 12345678 · ****1234"))
     event = @events.fetch("Payless")

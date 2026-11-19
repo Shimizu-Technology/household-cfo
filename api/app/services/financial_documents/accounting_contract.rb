@@ -228,8 +228,10 @@ module FinancialDocuments
       nil
     end
 
-    def text(value, limit)
+    def self.normalized_text(value, limit)
       value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish.truncate(limit).presence
     end
+
+    def text(value, limit) = self.class.normalized_text(value, limit)
   end
 end

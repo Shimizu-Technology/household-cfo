@@ -96,13 +96,21 @@ export function StatementAccountSheet({ accounts, reviewed, names, busy, canClos
 
   function save(event: FormEvent) {
     event.preventDefault()
-    if (drafts.some(row => !row.choice && reviewed.find(account => account.source_account_id === row.source_account_id)?.choices?.length)) return setProblem('Choose a saved account or a new account.')
+    if (drafts.some(row => !row.choice && reviewed.some(account => account.source_account_id === row.source_account_id && !account.approved && account.choices?.length))) return setProblem('Choose a saved account or a new account.')
     if (drafts.some((row) => !row.account_basis)) return setProblem('Choose bank account or credit card.')
     if (drafts.some((row) => row.period_start_on && row.period_end_on && row.period_start_on > row.period_end_on)) return setProblem('The statement can’t end before it starts.')
     setProblem(null)
-    onSave(drafts.map((row) => ({ source_account_id: row.source_account_id, label: (!row.choice || row.choice === 'new') && row.label.trim() !== names[row.source_account_id]?.name ? row.label.trim() || undefined : undefined,
-      tracked_account_id: row.choice === 'new' ? null : row.choice ? Number(row.choice) : undefined, account_basis: row.account_basis as 'asset' | 'liability',
-      period_start_on: row.period_start_on || undefined, period_end_on: row.period_end_on || undefined })))
+    onSave(drafts.map((row) => {
+      const reviewedAccount = reviewed.find(account => account.source_account_id === row.source_account_id)
+      const choice = row.choice || (reviewedAccount?.needs_choice && !reviewedAccount.choices?.length ? 'new' : '')
+      return {
+        source_account_id: row.source_account_id,
+        label: (!choice || choice === 'new') && row.label.trim() !== names[row.source_account_id]?.name ? row.label.trim() || undefined : undefined,
+        tracked_account_id: choice === 'new' ? null : choice ? Number(choice) : undefined,
+        account_basis: row.account_basis as 'asset' | 'liability',
+        period_start_on: row.period_start_on || undefined, period_end_on: row.period_end_on || undefined,
+      }
+    }))
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
@@ -118,16 +126,16 @@ export function StatementAccountSheet({ accounts, reviewed, names, busy, canClos
             {choices.length > 0 && <label>Account
               <select value={row.choice} onChange={event => {
                 const choice = choices.find(item => String(item.id) === event.target.value)
-                update(index, { choice: event.target.value, account_basis: choice?.account_basis ?? row.account_basis })
+                update(index, { choice: event.target.value, account_basis: choice?.account_basis ?? account?.approved?.tracked_account.account_basis ?? row.account_basis })
               }}>
-                <option value="">Choose one</option>
+                <option value="">{account?.approved ? 'This account' : 'Choose one'}</option>
                 {choices.map(choice => <option key={choice.id} value={choice.id}>{accountSentence({ name: choice.name ?? '', last4: choice.last4 ?? '' }) || (choice.account_basis === 'asset' ? 'Bank account' : 'Credit card')}</option>)}
                 <option value="new">New account</option>
               </select>
             </label>}
-            {!account?.approved && !selected && <label>Name<input value={row.label} maxLength={120} placeholder="Optional, like Bank of Guam checking" onChange={(event) => update(index, { label: event.target.value })} /></label>}
+            {!selected && <label>Name<input value={row.label} maxLength={120} placeholder="Optional, like Bank of Guam checking" onChange={(event) => update(index, { label: event.target.value })} /></label>}
             {!selected && <label>Type
-              <select value={row.account_basis} disabled={Boolean(account?.approved)} onChange={(event) => update(index, { account_basis: event.target.value as AccountDraft['account_basis'] })}>
+              <select value={row.account_basis} onChange={(event) => update(index, { account_basis: event.target.value as AccountDraft['account_basis'] })}>
                 <option value="">Choose one</option><option value="asset">Bank account</option><option value="liability">Credit card</option>
               </select>
             </label>}
@@ -137,6 +145,7 @@ export function StatementAccountSheet({ accounts, reviewed, names, busy, canClos
             </div>
           </fieldset>
         })}
+        {reviewed.some(row => row.approved) && <p>Changing this account means its lines need a quick look again.</p>}
         {(problem || error) && <p role="alert" className="statement-sheet-error">{problem ?? error}</p>}
         {busy && canClose && <p>Close this window to check whether your change saved or try it again.</p>}
         <div className="statement-sheet-actions"><Button type="submit" disabled={busy}>{busy ? 'Saving' : 'Save'}</Button></div>

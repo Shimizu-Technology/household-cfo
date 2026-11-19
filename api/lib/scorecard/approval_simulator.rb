@@ -43,6 +43,11 @@ module Scorecard
           # Answer the ownership question when the file gives no account type.
           # The label and tracked-account match come from the production defaults.
           answer[:account_basis] = @key.identity_for(doc, account, mappings).fetch("account_basis") if account.account_basis == "unknown"
+          basis = answer[:account_basis] || account.account_basis
+          label = REVIEW::AccountMatch.default_label(account, basis)
+          # An unresolved collision shows a choice. Keep the file's own name
+          # and explicitly choose a new account when the app cannot match it.
+          answer[:tracked_account_id] = nil if REVIEW::AccountMatch.ambiguous?(@household, label, basis, account: account)
           answer
         end
       end

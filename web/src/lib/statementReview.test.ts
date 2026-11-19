@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
-import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, coverageQuestionText, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, spansYears, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
+import { APPROVE_PAGE, accountMatchNote, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, coverageQuestionText, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, spansYears, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
 
 const ready = (count: number): StatementPlan['ready'] => Array.from({ length: count }, (_, index) => ({ event_id: index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), ready: ready(24), coverage: { question: null, answer: null }, totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
@@ -135,4 +135,15 @@ describe('statement review inputs', () => {
     expect(accountsNeedingBasis(data.accounts, [{ source_account_id: 501, approved: null }])).toHaveLength(1)
     expect(accountsNeedingBasis(data.accounts, [{ source_account_id: 501, approved: {} }])).toHaveLength(0)
   })
+})
+
+
+it('does not describe multiple saved accounts by just the one with last four', () => {
+  const first = participantReviewFixture().participant_review!.accounts[0]
+  const approved = first.approved!
+  const numbered = { ...first, last4: '6824' }
+  const unnamed = { ...first, source_account_id: 502, last4: null,
+    approved: { ...approved, tracked_account: { ...approved.tracked_account, id: approved.tracked_account.id + 1 } } }
+  expect(accountMatchNote([numbered])).toBe('Saved with your account ending 6824')
+  expect(accountMatchNote([numbered, unnamed])).toBe('')
 })

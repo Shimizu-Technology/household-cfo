@@ -20,6 +20,19 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     end
   end
 
+  test "CSV labels that store identically after normalization and truncation are ambiguous" do
+    Tempfile.create([ "account-collision", ".csv" ]) do |file|
+      prefix = "Example checking " * 8
+      file.write("Date,Account,Description,Debit\n2026-01-02,#{prefix}one,Demo Market,12.00\n2026-01-03,#{prefix.sub('E', 'Ｅ')}two,Demo Store,30.00\n")
+      file.flush
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "accounts.csv").call
+      accounts = result.data.fetch(:source_accounting).fetch(:accounts)
+      assert_equal 2, accounts.length
+      assert_equal 1, accounts.map { |account| account.dig(:evidence, :label) }.uniq.length
+      assert accounts.all? { |account| account[:limitations].include?("account_label_ambiguous") }
+    end
+  end
+
   test "ATM purchases fees and cash back remain whole expenses distinct from withdrawals" do
     descriptions = {
       "ATM/POS Purchase Walmart" => "purchase", "Purchase with Cash Back $20" => "purchase",
