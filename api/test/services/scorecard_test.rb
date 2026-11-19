@@ -10,7 +10,7 @@ class ScorecardTest < ActiveSupport::TestCase
       full = ENV["SCORECARD_FULL"] == "1"
       report = Scorecard::Runner.new(document_paths: full ? nil : Scorecard::Runner::FAST_PATHS).call
       baseline = JSON.parse(Scorecard::Runner::TALUN.join(full ? "baseline.json" : "baseline-fast.json").read)
-      assert_empty Scorecard::Ratchet.regressions(report, baseline)
+      assert_empty baseline_ratchet.regressions(report, baseline)
       assert_equal full ? 79 : Scorecard::Runner::FAST_PATHS.length, report.fetch("document_count")
       assert_equal report.dig("annual", "decisions_by_kind").values.sum, report.dig("annual", "decisions")
       assert_equal full ? 298 : Scorecard::Runner::FAST_CSV_ROWS, report.dig("annual", "questions_by_kind", "direction")
@@ -83,10 +83,42 @@ class ScorecardTest < ActiveSupport::TestCase
     end
   end
 
+  test "baseline_ratchet reads the base commit's ratchet when CI provides it, in its own namespace" do
+    Dir.mktmpdir("scorecard-base-ratchet-") do |directory|
+      path = Pathname.new(directory).join("ratchet.rb")
+      path.write("module Scorecard\n  class Ratchet\n    def self.regressions(*) = [ \"base rules\" ]\n  end\nend\n")
+      with_env("SCORECARD_BASE_RATCHET" => path.to_s) do
+        assert_equal [ "base rules" ], baseline_ratchet.regressions({}, {})
+      end
+      assert_equal Scorecard::Ratchet, baseline_ratchet
+      assert_empty Scorecard::Ratchet.regressions({ "decisions" => 1 }, { "decisions" => 1 })
+    end
+  end
+
   private
 
   def without_network
     Scorecard::Offline.call { yield }
+  end
+
+  # The ratchet that judges the committed baseline. On a pull request CI sets SCORECARD_BASE_RATCHET to the
+  # base commit's lib/scorecard/ratchet.rb, so a PR can't loosen the rules and worsen the baseline together.
+  # It loads into an anonymous module and leaves the PR's Scorecard::Ratchet (and its own tests) alone.
+  def baseline_ratchet
+    path = ENV["SCORECARD_BASE_RATCHET"].to_s
+    return Scorecard::Ratchet if path.empty?
+
+    namespace = Module.new
+    namespace.module_eval(File.read(path), path)
+    namespace::Scorecard::Ratchet
+  end
+
+  def with_env(values)
+    saved = values.keys.index_with { |key| ENV[key] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    saved.each { |key, value| ENV[key] = value }
   end
 end
 
