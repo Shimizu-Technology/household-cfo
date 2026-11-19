@@ -415,6 +415,29 @@ describe('statement review a participant can finish', () => {
     expect(await screen.findByText(/We’ll keep this statement marked as not finished/)).toBeTruthy()
   })
 
+  it('keeps a recorded “something’s missing” changeable after the statement stops asking', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready = []; plan.ready_event_ids = []; plan.attention = []
+    plan.coverage = { question: null, answer: 'something_missing', version_id: 912 }
+    fetchReview.mockResolvedValue(data)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="reask" />)
+    expect(await screen.findByText('You said something may be missing from this statement. Is anything still missing?')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [], coverage_answer: 'nothing_missing' })
+  })
+
+  it('shows the year on line dates when the file runs across a new year', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.first_on = '2025-11-03'; plan.last_on = '2026-11-13'
+    plan.attention = plan.attention.slice(0, 1).map((row) => ({ ...row, posted_on: '2025-12-03' }))
+    fetchReview.mockResolvedValue(data)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="years" />)
+    const list = await screen.findByRole('list', { name: 'Lines that need a quick look' })
+    expect(within(list).getByText(/Dec 3, 2025/)).toBeTruthy()
+  })
+
   it('saves her answer straight away when every line is already saved, and holds the next step until she answers', async () => {
     const data = participantReviewFixture(); const plan = data.participant_review!.plan
     plan.done = 137; plan.ready = []; plan.ready_event_ids = []; plan.attention = []

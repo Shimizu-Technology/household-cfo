@@ -63,6 +63,34 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_nil SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 8, 2), from: "2026-07-01", to: "2026-07-31").call[:observed_spending_cents]
   end
 
+  test "a purchase saved with no category stays on her list until she chooses one or leaves it out" do
+    @source = build_source(rows: [ [ "Tasi Demo Cafe", -1250, "purchase", 1 ], [ "Mangilao Demo Hardware", -4200, "purchase", 2 ] ])
+    cafe, hardware = @source[:revision].financial_source_events.order(:position).to_a
+    suggest(cafe, @clothing)
+    assert_equal @clothing.id, review_plan.fetch("ready").find { |row| row["event_id"] == cafe.id }.fetch("category_id"), "The reader guessed a category"
+    approve_lines({ lines: [ cafe, hardware ].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: nil } } } })
+    assert_response :success, response.body
+
+    plan = review_plan
+    assert_equal [ 2, 2 ], plan.values_at("done", "without_category")
+    rows = plan.fetch("attention").index_by { |row| row["event_id"] }
+    assert_equal [ cafe.id, hardware.id ], rows.keys.sort
+    assert_equal [ "no_category" ], rows.values.map { |row| row["kind"] }.uniq
+    assert_equal "What was this for?", rows.fetch(cafe.id).fetch("question")
+    assert_equal [ "edit", "leave_out" ], rows.fetch(cafe.id).fetch("answers").map { |answer| answer["id"] }
+    assert_equal [ nil, nil ], rows.fetch(cafe.id).values_at("category_id", "category_name"), "Shows what she saved, not the reader's guess"
+    assert_empty @household.household_transactions.where(status: %w[confirmed reconciled]), "Without a category it counts nowhere"
+
+    approve_lines({ lines: [ { event_id: cafe.id, expected_head: rows.fetch(cafe.id).fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @groceries.id } },
+      { event_id: hardware.id, expected_head: rows.fetch(hardware.id).fetch("expected_head"), decision: "leave_out" } ] })
+    assert_response :success, response.body
+    plan = review_plan
+    assert_empty plan.fetch("attention")
+    assert_equal [ 2, 0 ], plan.values_at("done", "without_category")
+    assert_equal [ 1250 ], @household.household_transactions.where(status: %w[confirmed reconciled]).pluck(:total_amount_cents)
+    assert_equal "exclude", SourceReviewHead.find_by!(financial_source_event: hardware).approved_version.disposition
+  end
+
   test "a withdrawal without an active Cash category asks for one instead of guessing or creating it" do
     @household.budget_categories.create!(name: "Cash", stack_key: "discretionary", active: false, sort_order: 2)
     @groceries.update!(name: "Flexible spending")

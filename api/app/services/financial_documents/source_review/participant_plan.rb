@@ -45,7 +45,8 @@ module FinancialDocuments
       end
 
       def ready_ids = lines.select { |line| line.ready? && !line.done }.map { |line| line.event.id }
-      def attention = lines.reject { |line| line.ready? || line.done }
+      # A saved purchase with no category counts nowhere, so it stays on her list as "What was this for?" until she picks one or leaves it out.
+      def attention = lines.select { |line| line.without_category || !(line.ready? || line.done) }
       def line_for(event_id) = lines.find { |line| line.event.id == event_id }
 
       # Facts exactly as read from the statement. Participant answers change these
@@ -124,9 +125,12 @@ module FinancialDocuments
           category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && policy&.dig(:reason) != "confirmed_spending_purpose" && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
+          without_category = without_category?(heads[event.id]&.approved_version)
+          # Saved with no category: show and ask exactly that, not the reader's earlier guess.
+          kind, category_id = :no_category, nil if without_category
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
-            done: done?(heads[event.id]&.approved_version), without_category: without_category?(heads[event.id]&.approved_version))
+            done: done?(heads[event.id]&.approved_version), without_category: without_category)
         end
       end
 

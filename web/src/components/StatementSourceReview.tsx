@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
-  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
+  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
   type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine,
 } from '../lib/statementReview'
 import { useStatementReview } from '../lib/useStatementReview'
@@ -112,7 +112,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
           {savingLines >= APPROVE_PAGE && busy && <p className="statement-muted" role="status">Saving {savingLines} lines. This can take a minute.</p>}
           {asBeforeNote(plan) && <p className="statement-muted">{asBeforeNote(plan)}</p>}
           {!plan.signed_amount_question && coverage.ask && <div className="statement-question-row">
-            <p className="statement-question" id="statement-coverage-question">{plan.coverage.question}</p>
+            <p className="statement-question" id="statement-coverage-question">{coverageQuestionText(plan)}</p>
             <div className="statement-answers" role="group" aria-labelledby="statement-coverage-question">
               <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
               <Button variant={coverage.said === 'something_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'something_missing'} disabled={busy} onClick={() => coverage.answer('something_missing')}>Something’s missing</Button>
@@ -147,7 +147,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             <button type="button" className="statement-line" disabled={busy} aria-label={`Edit ${item.merchant ?? 'this line'}`} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(item) })}>
               <span className="statement-line-name">{item.merchant ?? 'Unreadable line'}</span>
               <span className="statement-line-amount">{money(item.signed_amount_cents ?? item.amount_cents ?? null)}</span>
-              <span className="statement-line-meta">{[formatMonthDay(item.posted_on) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
+              <span className="statement-line-meta">{[formatMonthDay(item.posted_on, { year: spansYears(plan) }) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
             </button>
             <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
             <StatementAnswers item={item} categories={categories} disabled={busy || needBasis.length > 0} unsaved={unsavedAnswer} onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
@@ -174,8 +174,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
                 const category = facts ? categories.find((entry) => entry.id === facts.budget_category_id)?.name : ready ? readyCategoryLabel(ready) ?? undefined : event.transaction_draft?.category_name
                 const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : (kind === 'spending' || kind === 'cash') ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
                 return <tr key={event.id} data-needs-look={attention || undefined}>
-                  <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</span></td>
-                  <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</td>
+                  <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</span></td>
+                  <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</td>
                   <td className="statement-num">{signed == null ? 'Unknown' : sourceMoney(signed, true)}</td>
                   <td>{label}</td>
                 </tr>
