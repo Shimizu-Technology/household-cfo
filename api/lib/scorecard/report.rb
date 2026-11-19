@@ -12,7 +12,7 @@ module Scorecard
         [ month, month_report(month, expected) ]
       end
       annual = aggregate(months.values)
-      { "schema_version" => 1, "answer_key" => @key.data.fetch("schema_version"), "document_count" => @documents.length,
+      { "schema_version" => 2, "answer_key" => @key.data.fetch("schema_version"), "document_count" => @documents.length,
         "months" => months, "annual" => annual,
         "distinct_purchase_groups" => @key.data.fetch("events").filter_map { |event| event["distinct_purchase_group"] }.uniq.to_h do |group|
           events = @key.data.fetch("events").select { |event| event["distinct_purchase_group"] == group && @documents.any? { |doc| doc.fetch("lines").any? { |line| line["event_id"] == event["event_id"] } } }
@@ -36,7 +36,12 @@ module Scorecard
           row.dig("total_spending", "error_cents") / 100.0, row.dig("income", "actual_cents") / 100.0,
           row["double_counts"], row["transfer_leakage_cents"] / 100.0, row["decisions"])
       end
-      lines << "Targets: #{report.fetch('targets').map { |name, passed| "#{name}=#{passed ? 'PASS' : 'FAIL'}" }.join(', ')}"
+      lines << "Targets: #{report.fetch('targets').map { |name, passed| "#{name}=#{passed ? 'PASS' : 'FAIL'}" }.join(', ')}" if report.key?("targets")
+      annual = report.fetch("annual")
+      lines << "Accepted as proposed: #{annual.fetch('accepted_as_proposed')}; manual corrections: #{annual.fetch('manual_correction')}; manual exclusions: #{annual.fetch('manual_exclusion')}"
+      lines << "Corrections by field: #{annual.fetch('corrections_by_field').to_json}"
+      lines << "Unmapped spending: #{annual.fetch('unmapped_spending_count')} transactions / #{annual.fetch('unmapped_spending_cents')} cents"
+      lines << "Uncorrected (answers only):\n#{table(report.fetch('uncorrected'))}" if report.key?("uncorrected")
       lines.join("\n")
     end
 
@@ -70,7 +75,12 @@ module Scorecard
         "analyzer_spending" => metric(analysis[:observed_spending_cents].to_i, expected.fetch("total_spending_cents")),
         "double_counts" => double_counts, "transfer_leakage_cents" => leaked_spending + leaked_income,
         "transfer_leakage_spending_cents" => leaked_spending, "transfer_leakage_income_cents" => leaked_income,
-        "receipts" => receipts, "decisions" => decisions.values.sum, "decisions_by_kind" => decisions }
+        "receipts" => receipts, "decisions" => decisions.values.sum, "decisions_by_kind" => decisions }.merge(@simulator.quality[month], unmapped_spending(transactions))
+    end
+
+    def unmapped_spending(transactions)
+      unmapped = transactions.reject { |row| transaction_answer(row) }
+      { "unmapped_spending_cents" => unmapped.sum(&:total_amount_cents), "unmapped_spending_count" => unmapped.length }
     end
 
     def transaction_answer(row) = @simulator.row_answers[row.financial_source_event_id] || @simulator.transaction_answers[row.id]
@@ -102,7 +112,10 @@ module Scorecard
         values = months.filter_map { |row| row.dig("spending_by_category", name) }
         [ name, metric(values.sum { |row| row["actual_cents"] }, values.sum { |row| row["expected_cents"] }) ]
       end
-      %w[double_counts transfer_leakage_cents decisions].each { |key| result[key] = months.sum { |row| row.fetch(key) } }
+      %w[double_counts transfer_leakage_cents transfer_leakage_spending_cents transfer_leakage_income_cents decisions manual_correction manual_exclusion accepted_as_proposed unmapped_spending_cents unmapped_spending_count].each { |key| result[key] = months.sum { |row| row.fetch(key) } }
+      %w[decisions_by_kind corrections_by_field questions_by_kind].each do |key|
+        result[key] = months.flat_map { |row| row.fetch(key).keys }.uniq.sort.to_h { |kind| [ kind, months.sum { |row| row.fetch(key).fetch(kind, 0) } ] }
+      end
       receipts = months.flat_map { |row| row.fetch("receipts") }
       result.merge("receipt_extraction_absolute_error_cents" => receipts.sum { |row| row.dig("extracted_new_money", "error_cents").abs }, "receipt_count" => receipts.length, "receipt_matches" => receipts.count { |row| row["matched_to_bank"] },
         "receipt_new_money_absolute_error_cents" => receipts.sum { |row| row.dig("new_money", "error_cents").abs },

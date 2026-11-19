@@ -1,19 +1,23 @@
 module Scorecard
   class ApprovalSimulator
     REVIEW = FinancialDocuments::SourceReview
-    attr_reader :decisions, :row_answers, :transaction_answers, :receipt_observations
+    attr_reader :decisions, :row_answers, :transaction_answers, :receipt_observations, :quality
 
-    def initialize(household:, user:, answer_key:, categories:)
+    def initialize(household:, user:, answer_key:, categories:, correct_proposals: true)
       @household, @key, @categories = household, answer_key, categories
+      @correct_proposals = correct_proposals
+      @quality = Hash.new { |hash, month| hash[month] = { "manual_correction" => 0, "manual_exclusion" => 0, "accepted_as_proposed" => 0, "corrections_by_field" => %w[type amount date category direction].index_with(0), "questions_by_kind" => Hash.new(0) } }
       @domain = REVIEW::Domain.new(household, user: user)
       @decisions = Hash.new { |hash, month| hash[month] = Hash.new(0) }
       @row_answers = {}
       @transaction_answers = {}
       @receipt_observations = {}
       @included_legs = Set.new
+      @same_charge_ids = Set.new
     end
 
     def call(document, doc)
+      @document = doc
       revision = document.financial_extraction_revisions.order(:id).last
       rows = revision.financial_source_events.includes(:financial_source_evidence).order(:position, :id).to_a
       mappings = @key.map_rows(doc, rows)
@@ -43,8 +47,13 @@ module Scorecard
         entries = page.map do |row|
           line = plan.line_for(row.id)
           answer = mappings[row.id]
-          count(doc, line.kind, answer) if line.kind
-          entry = answer_for(line, answer)
+          month = answer ? @key.event(answer).fetch("date")[0, 7] : doc.fetch("period").fetch("start_on")[0, 7]
+          quality[month]["questions_by_kind"][line.kind.to_s] += 1 if line.kind
+          entry = answer_for(line, answer, month)
+          # One submitted line answer is one action, even when that answer also
+          # corrects fields or excludes a row. Quality counters are separate.
+          action = line.kind || (entry[:decision] == "leave_out" ? :manual_exclusion : entry[:decision] == "edited" ? :manual_correction : nil)
+          count(doc, action, answer) if action
           @included_legs << leg_key(answer) if answer && entry[:decision] != "leave_out" && row.row_kind != "informational"
           entry
         end
@@ -77,24 +86,37 @@ module Scorecard
       @household.with_lock { REVIEW::LineApprover.new(@domain, revision, input).call }
     rescue ArgumentError => error
       raise unless error.message.include?("rows may overlap") && input[:lines].present?
-      input[:lines].each do |entry|
-        begin
-          @household.with_lock { REVIEW::LineApprover.new(@domain, revision, { lines: [ entry ] }).call }
-        rescue ArgumentError => line_error
-          raise unless line_error.message.include?("rows may overlap")
-          # The stage/approve guard can reveal an overlap after a direction edit,
-          # or for identical rows on the same statement. Answer that extra
-          # question through the production source proposal review operation.
-          answer = row_answers.fetch(entry.fetch(:event_id))
-          count_for(answer, :duplicate_guard)
-          approve_distinct(revision, entry)
+      # Reuse the displayed page plan when retrying its answers individually.
+      # Rebuilding a 298-row CSV plan for each answer obscures CI runtime with
+      # harness work. apply! is the same production validation/stage/approve
+      # path called by LineApprover#call; every failed save still rolls back.
+      plan = REVIEW::ParticipantPlan.new(@household, revision)
+      form = REVIEW::LineApprover.new(@domain, revision, {})
+      @domain.overlap_context = REVIEW::OverlapDetector::Context.new(@household)
+      begin
+        input[:lines].each do |entry|
+          begin
+            @household.with_lock { form.send(:apply!, plan, entry, Hash.new(0)) }
+          rescue ArgumentError => line_error
+            raise unless line_error.message.include?("rows may overlap")
+            answer = row_answers.fetch(entry.fetch(:event_id))
+            count_for(answer, :duplicate_guard)
+            if !@correct_proposals && answer && @same_charge_ids.include?(entry.fetch(:event_id))
+              excluded = entry.merge(decision: "leave_out").except(:edit)
+              @household.with_lock { form.send(:apply!, plan, excluded, Hash.new(0)) }
+            else
+              approve_distinct(revision, entry, line: plan.line_for(entry.fetch(:event_id)))
+            end
+          end
+          @domain.overlap_context.refresh!
         end
+      ensure
+        @domain.overlap_context = nil
       end
     end
 
-    def approve_distinct(revision, entry)
+    def approve_distinct(revision, entry, line:)
       event = revision.financial_source_events.find(entry.fetch(:event_id))
-      line = REVIEW::ParticipantPlan.new(@household, revision).line_for(event.id)
       identity = @domain.account_heads.find_by!(financial_source_account_id: event.financial_source_account_id).approved_version
       # Use the same participant edit interpretation and projection as the line
       # form, then explicitly answer the additional overlap guard.
@@ -113,16 +135,27 @@ module Scorecard
       answer["match_key"] || answer.fetch("leg_id")
     end
 
-    def answer_for(line, answer)
+    def answer_for(line, answer, month)
       row = line.event
       base = { event_id: row.id, shown: { event_type: row.event_type, category_id: line.category_id }, expected_head: line.expected_head }
-      return base.merge(decision: "leave_out") unless answer
-      return base.merge(decision: "as_read") if row.row_kind == "informational"
-      expected = @key.event(answer)
-      if @included_legs.include?(leg_key(answer)) || answer["status"] == "pending"
-        count_for(answer, :manual_exclusion) unless line.kind == :duplicate
+      unless answer
+        # An unmapped proposal must remain visible in the question-only output
+        # when the app accepts it; the answer key cannot silently remove it.
+        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate])
+          return base.merge(decision: "as_read")
+        end
+        quality[month]["manual_exclusion"] += 1 if @correct_proposals
         return base.merge(decision: "leave_out")
       end
+      return base.merge(decision: "as_read") if row.row_kind == "informational"
+      expected = @key.event(answer)
+      excluded = @included_legs.include?(leg_key(answer)) || answer["status"] == "pending"
+      @same_charge_ids << row.id if excluded
+      if excluded && (@correct_proposals || line.kind.in?(%i[duplicate unclear]))
+        quality[month]["manual_exclusion"] += 1 unless line.kind == :duplicate || (line.kind == :unclear && answer["status"] == "pending")
+        return base.merge(decision: "leave_out")
+      end
+      return base.merge(decision: "leave_out") if !@correct_proposals && line.kind == :unclear
       type = expected.fetch("event_kind")
       kind = case type
       when "income" then "money_in"
@@ -135,16 +168,37 @@ module Scorecard
       category = @categories[expected["category"]]&.id
       signed = answer.fetch("signed_amount_cents")
       expected_type = { "money_in" => "income", "moved" => "transfer", "card" => "debt_payment", "cash" => "cash_withdrawal", "refund" => "refund" }[kind] || (type.in?(%w[fee interest]) ? type : "purchase")
-      wrong = row.event_type != expected_type || row.signed_amount_cents != signed || row.posted_on&.iso8601 != answer.fetch("date") ||
-        (kind == "spending" && line.category_id != category)
-      return base.merge(decision: line.kind == :duplicate ? "different" : "as_read") unless wrong || line.kind.in?(%i[direction unclear no_category])
-      count_for(answer, :manual_correction) unless line.kind
-      edit = { kind: kind, category_id: category, amount_cents: signed.abs,
-        money_direction: signed.positive? ? "in" : "out", posted_on: answer.fetch("date") }
+      proposed_amount = row.signed_amount_cents&.abs || HouseholdFinance::Money.document_cents(row.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true)
+      fields = []
+      fields << "type" if row.event_type != expected_type
+      fields << "amount" if proposed_amount != signed.abs
+      fields << "direction" if row.signed_amount_cents.nil? || row.signed_amount_cents.positive? != signed.positive?
+      fields << "date" if row.posted_on&.iso8601 != answer.fetch("date")
+      fields << "category" if kind == "spending" && line.category_id != category
+      quality[month]["accepted_as_proposed"] += 1 if fields.empty? && !excluded
+      allowed = case line.kind
+      when :direction then %w[type direction category]
+      when :transfer, :card_payment, :refund then %w[type direction category]
+      when :no_category, :suggested_category, :still_category then %w[category]
+      else []
+      end
+      changes = @correct_proposals ? fields : fields & allowed
+      if changes.any?
+        quality[month]["manual_correction"] += 1
+        changes.each { |field| quality[month]["corrections_by_field"][field] += 1 }
+      end
+      return base.merge(decision: line.kind == :duplicate ? "different" : "as_read") if changes.empty? && !line.kind.in?(%i[direction unclear no_category])
+      proposed_kind = { "income" => "money_in", "transfer" => "moved", "debt_payment" => "card", "cash_withdrawal" => "cash", "refund" => "refund" }[row.event_type] || "spending"
+      edit = { kind: changes.include?("type") || line.kind == :direction ? kind : proposed_kind,
+        category_id: changes.include?("category") ? category : line.category_id,
+        amount_cents: changes.include?("amount") ? signed.abs : proposed_amount,
+        money_direction: changes.include?("direction") ? (signed.positive? ? "in" : "out") : (row.signed_amount_cents.to_i.positive? ? "in" : "out"),
+        posted_on: changes.include?("date") ? answer.fetch("date") : row.posted_on&.iso8601 }
       base.merge(decision: "edited", edit: edit)
     end
 
     def count_for(answer, kind)
+      return count(@document, kind) unless answer
       decisions[@key.event(answer).fetch("date")[0, 7]][kind.to_s] += 1
     end
 
@@ -167,7 +221,6 @@ module Scorecard
     def review_receipts(document, doc)
       # Legacy receipt reviews use transaction drafts, not source-line review.
       document.transaction_drafts.where(financial_source_event_id: nil, status: "pending").each do |draft|
-        count(doc, :receipt_confirmation)
         matches = HouseholdFinance::TransactionDraftMatcher.new(draft).call
         event_id = doc.fetch("receipt").fetch("matching_bank_event_id")
         match = matches.find { |candidate| row_answers[candidate.household_transaction.financial_source_event_id]&.fetch("event_id") == event_id }
@@ -177,14 +230,32 @@ module Scorecard
           raise "Receipt match failed" unless result.success?
           receipt_observations.fetch(doc.fetch("path"))["matched"] = true
         else
-          # A careful user may choose categories, but the app must supply the
-          # receipt's tender amount and splits. A missing match stays visible.
-          splits = draft.transaction_draft_splits.ordered.map do |split|
-            category = @categories[split.category_name] || @categories[@key.event(doc.fetch("lines").first)["category"]]
-            count(doc, :receipt_category) unless split.budget_category_id == category&.id
-            { id: split.id, budget_category_id: category&.id, amount: HouseholdFinance::Money.dollars(split.amount_cents) }
+          expected = doc.fetch("receipt")
+          answer = doc.fetch("lines").first
+          month = @key.event(answer).fetch("date")[0, 7]
+          allocations = expected.fetch("expected_category_allocations")
+          fields = []
+          fields << "amount" if draft.total_amount_cents != expected.fetch("new_money_cents")
+          fields << "date" if draft.occurred_on&.iso8601 != answer.fetch("date")
+          actual = draft.transaction_draft_splits.ordered.map { |split| [ split.budget_category&.name || split.category_name, split.amount_cents ] }.sort
+          wanted = allocations.map { |allocation| [ allocation.fetch("category"), allocation.fetch("spending_cents") ] }.sort
+          fields << "category" unless actual == wanted
+          quality[month]["accepted_as_proposed"] += 1 if fields.empty?
+          attributes = {}
+          if @correct_proposals && fields.any?
+            quality[month]["manual_correction"] += 1
+            fields.each { |field| quality[month]["corrections_by_field"][field] += 1 }
+            attributes = { amount: HouseholdFinance::Money.dollars(expected.fetch("new_money_cents")), occurred_on: answer.fetch("date"),
+              splits: allocations.map { |allocation| { budget_category_id: @categories.fetch(allocation.fetch("category")).id, amount: HouseholdFinance::Money.dollars(allocation.fetch("spending_cents")) } } }
+          elsif draft.transaction_draft_splits.any? { |split| split.budget_category_id.nil? }
+            # The receipt cannot be confirmed without answering its category question.
+            attributes[:splits] = draft.transaction_draft_splits.ordered.map do |split|
+              category = @categories[split.category_name] || @categories[@key.event(answer)["category"]]
+              { id: split.id, budget_category_id: category&.id, amount: HouseholdFinance::Money.dollars(split.amount_cents) }
+            end
           end
-          result = HouseholdFinance::TransactionDraftConfirmer.new(draft, { splits: splits }).call
+          count(doc, :receipt_confirmation)
+          result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes).call
           raise "Receipt confirmation failed: #{result.errors.join(', ')}" unless result.success?
           transaction_answers[result.transaction.id] = doc.fetch("lines").first
         end

@@ -1,4 +1,5 @@
 require "test_helper"
+require Rails.root.join("lib/scorecard")
 
 class ScorecardTest < ActiveSupport::TestCase
   test "Talun scorecard replays offline and never worsens the committed baseline" do
@@ -11,6 +12,9 @@ class ScorecardTest < ActiveSupport::TestCase
       baseline = JSON.parse(Scorecard::Runner::TALUN.join(full ? "baseline.json" : "baseline-fast.json").read)
       assert_empty Scorecard::Ratchet.regressions(report, baseline)
       assert_equal full ? 79 : Scorecard::Runner::FAST_PATHS.length, report.fetch("document_count")
+      assert_equal report.dig("annual", "decisions_by_kind").values.sum, report.dig("annual", "decisions")
+      assert_equal full ? 298 : Scorecard::Runner::FAST_CSV_ROWS, report.dig("annual", "questions_by_kind", "direction")
+      assert_equal full ? 298 : Scorecard::Runner::FAST_CSV_ROWS, report.dig("annual", "decisions_by_kind", "direction")
       assert_equal users, User.count
       assert_equal households, Household.count
     end
@@ -82,11 +86,6 @@ class ScorecardTest < ActiveSupport::TestCase
   private
 
   def without_network
-    singleton = Net::HTTP.singleton_class
-    original = singleton.instance_method(:start)
-    singleton.define_method(:start) { |*| raise "Scorecard must never use the network" }
-    yield
-  ensure
-    singleton.define_method(:start, original)
+    Scorecard::Offline.call { yield }
   end
 end

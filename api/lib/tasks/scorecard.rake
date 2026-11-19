@@ -1,6 +1,7 @@
 namespace :scorecard do
   desc "Replay the Talun year offline; PRIVATE=1 accepts external FAMILY_DIR and ANSWER_KEY"
   task run: :environment do
+    require Rails.root.join("lib/scorecard")
     private_mode = ENV["PRIVATE"] == "1"
     options = if private_mode
       { family_dir: ENV.fetch("FAMILY_DIR"), answer_key: ENV.fetch("ANSWER_KEY"), private_mode: true }
@@ -22,11 +23,18 @@ namespace :scorecard do
     abort "Private scorecard could not finish. Check the external answer key, recordings, and test database."
   end
 
+  desc "Prove purchase-to-transfer, shifted-date and disabled-duplicate regressions fail"
+  task prove_injections: :environment do
+    require Rails.root.join("lib/scorecard")
+    puts JSON.pretty_generate(Scorecard::InjectionProof.call)
+  end
+
   desc "Record missing Talun provider responses (explicit live-model opt-in)"
   task record: :environment do
+    require Rails.root.join("lib/scorecard")
     raise "Use RAILS_ENV=test and RECORD=1" unless Rails.env.test? && ENV["RECORD"] == "1"
     require "dotenv"
     key = Dotenv.parse(ENV.fetch("RECORDING_ENV_FILE")).fetch("OPENROUTER_API_KEY")
-    Scorecard::Recorder.call(root: Scorecard::Runner::TALUN, api_key: key)
+    Scorecard::Recorder.call(root: Scorecard::Runner::TALUN, api_key: key, refresh: ENV["RERECORD"] == "1")
   end
 end

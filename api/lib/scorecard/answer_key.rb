@@ -17,8 +17,8 @@ module Scorecard
 
     def expected_months(documents)
       return data.fetch("expected_months") if documents.length == self.documents.length
-      paths = documents.map { |doc| doc.fetch("path") }.to_set
-      represented = data.fetch("events").select { |event| event.fetch("representations").any? { |copy| paths.include?(copy.fetch("document_path")) && copy["status"] != "pending" } }
+      represented_ids = documents.flat_map { |doc| doc.fetch("lines").reject { |line| line["status"] == "pending" }.map { |line| line.fetch("event_id") } }.to_set
+      represented = data.fetch("events").select { |event| represented_ids.include?(event.fetch("event_id")) }
       data.fetch("expected_months").to_h do |month, _full_year|
         events = represented.select { |event| event.fetch("date").start_with?(month) }
         categories = data.fetch("categories").to_h { |category| [ category, 0 ] }
