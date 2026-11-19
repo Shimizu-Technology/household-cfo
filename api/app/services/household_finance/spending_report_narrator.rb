@@ -1,6 +1,8 @@
 module HouseholdFinance
   class SpendingReportNarrator
     BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|over plan|under plan|on track|off track|am i okay|are we okay)\b/i
+    # A cleaned name that is only an everyday word ("Check 1234" -> "Check") can't be what she asked about.
+    GENERIC_STORE = /\A(?:checks?|payments?|transfers?|deposits?|zelle|venmo|withdrawals?|purchases?|atm|fees?|transactions?|cash)\z/i
     CATEGORY_STATUS_TERMS = /\b(?:what|which)\s+categories\b.*\b(?:over|under)\b.*\b(?:plan|budget)\b/i
 
     def initialize(report, prompt: nil)
@@ -230,7 +232,7 @@ module HouseholdFinance
       drafts = Array(report[:pending_drafts])
       # She asks about the store ("Jollibee"), not the bank's descriptor ("Purchase: Jollibee Tamuning Gum").
       merchant = (transactions + drafts).map { |row| store(row[:merchant]) }.compact_blank.uniq
-        .select { |name| normalized(name).length >= 3 && mentions?(name) }
+        .select { |name| normalized(name).length >= 3 && !name.match?(GENERIC_STORE) && mentions?(name) }
         .max_by(&:length)
       return unless merchant
 

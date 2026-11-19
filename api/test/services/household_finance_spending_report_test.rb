@@ -117,6 +117,10 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
       assert narrate.call("Are we within budget?").start_with?("No —")
       assert narrate.call("Am I over budget? I want to stay on track.").start_with?("Yes —"), "the question's first budget words decide"
       assert narrate.call("Is it true that I am not over budget?").start_with?("No —"), "a negated over question reads like within"
+      check = household.household_transactions.create!(budget_period: manager.current_period_for(Date.new(2026, 7, 11)), occurred_on: Date.new(2026, 7, 11),
+        merchant: "Check 1234", total_amount_cents: 2_000, source_type: "statement", status: "confirmed")
+      check.transaction_splits.create!(budget_category: dining, amount_cents: 2_000)
+      refute_includes narrate.call("Can you check how July went?"), "confirmed spending at Check", "an everyday word is not a store question"
       reef = narrate.call("How much did we spend at Reef Coffee Co in July?")
       assert_includes reef, "confirmed spending at Reef Coffee Co is $8,000"
       general = narrate.call("How was spending in July?")
