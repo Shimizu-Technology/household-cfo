@@ -345,9 +345,9 @@ module FinancialDocuments
 
     def source_event_type(values, map, merchant, amount)
       label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), merchant ].compact.join(" ").downcase
-      return "fee" if amount.to_i.negative? && label.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       return "debt_payment" if label.match?(/payment\s+thank\s+you|(?:credit card|card|loan|debt|visa|mastercard)\s+(?:payment|pmt)|payment\s+(?:to|for)\s+(?:card|loan|debt)/)
       return "transfer" if label.match?(/transfer|wallet\s+funding|payment[_ ]sent/)
+      return "fee" if amount.to_i.negative? && label.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       return "cash_withdrawal" if !amount.to_i.positive? && label.match?(/\b(?:ATM\b|(?:Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && !label.match?(/\b(?:purchase|pos)\b/i)
       return "refund" if label.match?(/refund|reimburse|reversal/)
       return "interest" if label.match?(/interest/)

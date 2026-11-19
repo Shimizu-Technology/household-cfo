@@ -8,6 +8,14 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     doc["kind"] == "statement" && doc["format"] == "pdf" && !doc["filename"].include?("scanned")
   end.freeze
 
+  test "a transfer or loan payment that mentions a fee keeps its own type in reconciled statements" do
+    parser = FinancialDocuments::ReconciledStatementParser.allocate
+    parser.instance_variable_set(:@account, { account_basis: "asset" })
+    assert_equal "transfer", parser.send(:event_type, "Online Transfer to Savings service charge", -5_000)
+    assert_equal "debt_payment", parser.send(:event_type, "Loan Payment incl late fee", -31_000)
+    assert_equal "fee", parser.send(:event_type, "ATM Surcharge", -300)
+  end
+
   test "withdrawals and ATM fees keep their separate types through reconciled statements" do
     [ "Non-WF ATM Withdrawal authorized on 08/05 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee", "Non-WF ATM Withdrawal Fee", "Non-WF ATM Balance Inquiry Fee", "ATM Withdrawal Fee", "ATM Surcharge", "ATM Fees", "Branch Withdrawal Service Charge", "ATM/POS Purchase Walmart", "Purchase with Cash Back $20" ].each do |description|
       pages = pages_for("bank-descriptors.pdf")

@@ -498,4 +498,11 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
   ensure
     file&.close!
   end
+
+  test "a spreadsheet transfer or card payment that mentions a fee keeps its own type" do
+    extractor = FinancialDocuments::StructuredSpreadsheetExtractor.allocate
+    assert_equal "transfer", extractor.send(:source_event_type, [], {}, "Online Transfer to Savings service charge", -5_000)
+    assert_equal "debt_payment", extractor.send(:source_event_type, [], {}, "Visa payment incl late fee", -31_000)
+    assert_equal "fee", extractor.send(:source_event_type, [], {}, "Branch Withdrawal Service Charge", -300)
+  end
 end

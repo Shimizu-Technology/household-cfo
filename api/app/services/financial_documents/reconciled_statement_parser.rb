@@ -322,9 +322,9 @@ module FinancialDocuments
     end
 
     def event_type(body, signed)
-      return "fee" if signed.negative? && body.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       return "debt_payment" if body.match?(/(?:card|visa|loan)\s+payment|payment\s+(?:received|thank you)/i) || (@account[:account_basis] == "liability" && body.match?(/\Apayment\s+from\b/i))
       return "transfer" if body.match?(/\btransfer\b/i)
+      return "fee" if signed.negative? && body.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       return "cash_withdrawal" if signed.negative? && body.match?(/\b(?:ATM\b|(?:Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && !body.match?(/\b(?:purchase|pos)\b/i)
       return "refund" if signed.positive? && body.match?(/refund|return|reversal/i)
       return "income" if signed.positive? && body.match?(/payroll|salary|\bdeposit\b|ACH CREDIT|dividend/i)

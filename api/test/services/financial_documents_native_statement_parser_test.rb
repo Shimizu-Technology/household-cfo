@@ -12,6 +12,13 @@ class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
     end
   end
 
+  test "a transfer or loan payment that mentions a fee keeps its own type" do
+    parser = FinancialDocuments::NativeStatementParser.allocate
+    assert_equal "transfer", parser.send(:wf_type, "Zelle to Mia Demo for daycare fees", -20_000)
+    assert_equal "transfer", parser.send(:wf_type, "Online Transfer to Savings service charge", -5_000)
+    assert_equal "debt_payment", parser.send(:wf_type, "Loan Payment incl late fee", -31_000)
+  end
+
   test "a Wells Fargo ATM transaction fee is read as a fee only when it is money out" do
     parser = FinancialDocuments::NativeStatementParser.allocate
     assert_equal "fee", parser.send(:wf_type, "Non-Wells Fargo ATM Transaction Fee", -300)
