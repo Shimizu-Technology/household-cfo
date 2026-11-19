@@ -90,7 +90,8 @@ class ScorecardTest < ActiveSupport::TestCase
       with_env("SCORECARD_BASE_RATCHET" => path.to_s) do
         assert_equal [ "base rules" ], baseline_ratchet.regressions({}, {})
       end
-      assert_equal Scorecard::Ratchet, baseline_ratchet
+      # CI sets the variable for the whole run, so clear it to see the default.
+      with_env("SCORECARD_BASE_RATCHET" => nil) { assert_equal Scorecard::Ratchet, baseline_ratchet }
       assert_empty Scorecard::Ratchet.regressions({ "decisions" => 1 }, { "decisions" => 1 })
     end
   end
