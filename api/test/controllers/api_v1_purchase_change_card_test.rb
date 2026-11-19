@@ -402,7 +402,9 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
       apply(card)
     end
     assert_response :unprocessable_entity
-    assert_includes response.parsed_body["errors"].join, "would look like another purchase you already have, so I left it as it was. Open it in Review"
+    assert_equal [ "With that change, Tasi Demo Home Store would look like another purchase you already have, so I left it as it was. " \
+      "To change it, open Review, choose See all under Confirmed this month and tap Reopen next to it. " \
+      "Then tap Change on it, and you can say if it's the same purchase. Nothing changed." ], response.parsed_body["errors"]
     purchase.reload
     assert_equal "confirmed", purchase.status
     assert_equal 18_488, purchase.confirmed_transaction.total_amount_cents
