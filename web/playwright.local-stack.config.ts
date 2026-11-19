@@ -12,6 +12,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // Real reads and saves: a statement can take a minute to read, and Go live previews real answers.
+  timeout: 180_000,
   reporter: 'list',
   use: {
     baseURL: web,

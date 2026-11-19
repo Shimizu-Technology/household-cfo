@@ -34,10 +34,23 @@ export async function signIn(page: Page, role: Role, path = '/') {
 }
 
 /** A direct call to the local API, for setup checks and for reading what was saved. */
-export async function api<T>(role: Role, path: string): Promise<T> {
-  const response = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${TOKENS[role]}`, Accept: 'application/json' } })
+export async function api<T>(role: Role, path: string, workspaceId?: number): Promise<T> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${TOKENS[role]}`, Accept: 'application/json' }
+  if (workspaceId) headers['X-Coach-Workspace-Id'] = String(workspaceId)
+  const response = await fetch(`${API}${path}`, { headers })
   if (!response.ok) throw new Error(`${path} answered ${response.status}`)
   return response.json() as Promise<T>
+}
+
+/** Budget's report month in a given year, whatever year Budget opens on. */
+export async function showBudgetMonth(page: Page, year: number, month: string) {
+  const label = page.locator('.budget-year-label')
+  for (let step = 0; step < 5 && Number(await label.textContent()) !== year; step += 1) {
+    await page.getByRole('button', { name: Number(await label.textContent()) > year ? 'Previous year' : 'Next year' }).click()
+    await expect(label).not.toHaveText('')
+  }
+  await expect(label).toHaveText(String(year))
+  await page.getByLabel('Report month').selectOption({ label: month })
 }
 
 /** The More menu on phones, the sidebar on desktop. */

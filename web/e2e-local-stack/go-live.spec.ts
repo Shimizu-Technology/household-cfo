@@ -1,6 +1,7 @@
 import { api, expect, signIn, test } from './stack'
 
 type Me = { user: { coach_workspaces?: Array<{ id: number; name: string }> } }
+type Assignable = { cohorts: Array<{ name: string; persona_assignment?: { persona?: { name?: string } } | null }> }
 const stamp = new Date().toISOString().slice(11, 19).replaceAll(':', '')
 
 test('Go live starts with no group ticked and reaches only the group she ticks @saves', async ({ page }) => {
@@ -44,6 +45,12 @@ test('Go live starts with no group ticked and reaches only the group she ticks @
   await page.getByRole('button', { name: 'Approve and go live' }).click({ timeout: 60_000 })
   await expect(page.getByText(`Live for ${groups[0]}.`, { exact: false })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText(groups[1], { exact: false }).filter({ hasText: 'Live for' })).toHaveCount(0)
+
+  // Read back what each group now has, not only the receipt: only the ticked group got the program's voice.
+  const workspace = (await api<Me>('admin', '/api/v1/auth/me')).user.coach_workspaces?.[0]?.id
+  const { cohorts } = await api<Assignable>('admin', '/api/v1/admin/personas/assignable_cohorts', workspace)
+  const assigned = (name: string) => Boolean(cohorts.find(cohort => cohort.name === name)?.persona_assignment)
+  expect([assigned(groups[0]), assigned(groups[1])]).toEqual([true, false])
 })
 
 test('Groups lists the new groups at phone width @reads', async ({ page }) => {

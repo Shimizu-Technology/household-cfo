@@ -6,6 +6,8 @@ Two parts: an automated pass on the local full stack, and a short pass on produc
 
 ## 1. Automated, on the local full stack (about a minute)
 
+`reset` drops this checkout's local-stack database and deletes its uploads and mail. Save anything you want to keep first.
+
 ```bash
 bin/local-stack reset
 bin/local-stack up
@@ -17,15 +19,17 @@ It uses the real API with nothing mocked, and fails if the browser sends any req
 
 | ID | What it proves | Widths |
 |---|---|---|
-| A1 | A fictional bank CSV, reviewed by hand (coverage, account type, own-account transfer, cash withdrawal category, card payment, refund), saves every line. Budget's August spending is exactly the posted spending, $2,339.65. | 1366, then 390 (WebKit) and 320 |
-| A2 | Go live starts with no group ticked, publishes only to the group she ticks, and the groups show on a phone. | 1366, then 390 (WebKit) and 320 |
-| A3 | Budget's year arrows stay on the month row, and no screen scrolls sideways at phone widths. | 390 (WebKit), 320 |
+| A1 | A fictional bank CSV, reviewed by hand (coverage, account type, own-account transfer, cash withdrawal category, card payment, refund), saves every line. Budget's August 2026 spending is exactly the posted spending, $2,339.65. | Review at 1366 only |
+| A2 | The saved statement and that August spending read the same on a phone. | 390 (WebKit), 320 |
+| A3 | Go live starts with no group ticked, and only the ticked group gets the program's voice (read back through the API). | 1366 |
+| A4 | The groups list on a phone. | 390 (WebKit), 320 |
+| A5 | Budget's year arrows stay on the month row, and Budget, Statements and Groups don't scroll sideways. | 390 (WebKit), 320 |
 
-The suite assumes a fresh stack; the statement test stops at once if the participant already has uploads.
+The suite assumes a fresh stack; the statement test stops at once if the participant already has uploads. The review flow itself runs only at desktop width; phone widths are checked by hand (M3).
 
 ## 2. By hand, on the local full stack
 
-Use the fictional people `bin/local-stack status` lists. Check each at 1366, 390 and 320, and check saved results through the API or the screen that reads them, not only the confirmation message.
+Use the fictional people `bin/local-stack status` lists. Check each at 1366, 390 and 320, and check saved results through the API or the screen that reads them, not only the confirmation message. M1 and M7 need the state before any setup: run them on a freshly reset stack (`reset`, then `up`, without `local_stack:household` and before the automated pass), and reset again between widths.
 
 | ID | Scenario | Expected saved result |
 |---|---|---|

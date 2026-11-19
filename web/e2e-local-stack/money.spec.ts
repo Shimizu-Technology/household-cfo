@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { api, expect, openSection, signIn, test } from './stack'
+import { api, expect, openSection, showBudgetMonth, signIn, test } from './stack'
 
 // A fictional bank CSV, read without any model. Its posted spending is $2,796.15 withdrawn, less a $200
 // transfer to her own savings and a $250 card payment, and it has a $6.50 card authorization still
@@ -31,14 +31,14 @@ test('a fictional statement, reviewed by hand, saves exactly its posted spending
   expect(after.document_imports[0]?.statement_review).toMatchObject({ total: 27, done: 27, without_category: 0 })
 
   await openSection(page, 'Budget')
-  await page.getByLabel('Report month').selectOption({ label: 'Aug' })
+  await showBudgetMonth(page, 2026, 'Aug')
   await expect(page.getByText(/Approved spending:/)).toContainText('$2,339.65')
 })
 
 test('Budget shows the same August spending at phone width, with the year arrows beside the month @reads', async ({ page }) => {
   await signIn(page, 'participant')
   await openSection(page, 'Budget')
-  await page.getByLabel('Report month').selectOption({ label: 'Aug' })
+  await showBudgetMonth(page, 2026, 'Aug')
   await expect(page.getByText(/Approved spending:/)).toContainText('$2,339.65')
   const month = await page.getByLabel('Report month').boundingBox()
   const next = await page.getByRole('button', { name: 'Next year' }).boundingBox()
