@@ -65,16 +65,18 @@ class PlaidIntegrationAutoConfirmerTest < ActiveSupport::TestCase
   end
 
   test "loads confirmed amount history once for a batch of candidate drafts" do
-    %w[Netflix Hulu].each do |merchant|
+    # Different prices: two bank lines with the same amount on the same day would ask "Same purchase?".
+    prices = { "Netflix" => 1_957, "Hulu" => 1_799 }
+    prices.each do |merchant, cents|
       3.times do |index|
-        transaction = @household.household_transactions.create!(budget_period: @period, occurred_on: Date.new(2026, 8, index + 1), merchant: merchant, total_amount_cents: 1_957, source_type: "plaid", status: "confirmed")
-        transaction.transaction_splits.create!(budget_category: @category, amount_cents: 1_957)
+        transaction = @household.household_transactions.create!(budget_period: @period, occurred_on: Date.new(2026, 8, index + 1), merchant: merchant, total_amount_cents: cents, source_type: "plaid", status: "confirmed")
+        transaction.transaction_splits.create!(budget_category: @category, amount_cents: cents)
       end
       @household.merchant_category_rules.create!(budget_category: @category, merchant_pattern: merchant.downcase, confidence: BigDecimal("0.89"), source: "user_confirmed", times_confirmed: 3, last_confirmed_at: Time.current, active: true)
     end
 
-    drafts = %w[Netflix Hulu].map do |merchant|
-      source = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "next-#{merchant.downcase}", name: merchant, merchant_name: merchant, occurred_on: Date.new(2026, 8, 16), amount_cents: 1_957, pending: false, source_fingerprint: SecureRandom.hex(32))
+    drafts = prices.map do |merchant, cents|
+      source = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "next-#{merchant.downcase}", name: merchant, merchant_name: merchant, occurred_on: Date.new(2026, 8, 16), amount_cents: cents, pending: false, source_fingerprint: SecureRandom.hex(32))
       PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ source.id ], actor_type: "system").call.drafts.sole
     end
 

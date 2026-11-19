@@ -254,12 +254,42 @@ module Scorecard
               { id: split.id, budget_category_id: category&.id, amount: HouseholdFinance::Money.dollars(split.amount_cents) }
             end
           end
-          count(doc, :receipt_confirmation)
           result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes).call
+          if result.possible_matches.present?
+            # The app asks "Same purchase as …?" before it can count twice. Both
+            # views answer from the answer key, like any other duplicate question.
+            same = result.possible_matches.find { |candidate| bank_event_id(candidate.fetch(:transaction_id)) == event_id }
+            if same
+              accept_asked_receipt_match!(draft, attributes, same.fetch(:transaction_id), doc)
+              next
+            end
+            result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes, different_purchase: true).call
+          end
+          count(doc, :receipt_confirmation)
           raise "Receipt confirmation failed: #{result.errors.join(', ')}" unless result.success?
           transaction_answers[result.transaction.id] = doc.fetch("lines").first
         end
       end
+    end
+
+    def bank_event_id(transaction_id)
+      row_answers[HouseholdTransaction.find(transaction_id).financial_source_event_id]&.fetch("event_id")
+    end
+
+    # "Same purchase": the receipt form saves her corrections, the card shows
+    # the bank line it matches, and she matches it. One receipt-match action.
+    def accept_asked_receipt_match!(draft, attributes, transaction_id, doc)
+      if attributes.any?
+        saved = HouseholdFinance::TransactionDraftUpdater.new(draft, attributes).call
+        raise "Receipt correction failed: #{saved.errors.join(', ')}" unless saved.success?
+      else
+        HouseholdFinance::TransactionDraftMatcher.new(draft).call
+      end
+      match = draft.transaction_draft_matches.proposed.find_by!(household_transaction_id: transaction_id)
+      count(doc, :receipt_match)
+      result = HouseholdFinance::TransactionDraftMatchAccepter.new(draft, match_id: match.id).call
+      raise "Receipt match failed" unless result.success?
+      receipt_observations.fetch(doc.fetch("path"))["matched"] = true
     end
 
     def count(doc, kind, answer = nil)

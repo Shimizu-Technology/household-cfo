@@ -29,7 +29,8 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
   def confirmed(merchant, amount, on, category)
     draft = @runner.run(operation_key: "transaction.draft.create", idempotency_key: SecureRandom.uuid,
       input: { occurred_on: on.iso8601, merchant: merchant, amount: amount, budget_category_id: category.id, source_type: "manual_ui" }).subject
-    @runner.run(operation_key: "transaction.draft.confirm", input: { draft_id: draft.id, source_type: "manual_ui" }, idempotency_key: SecureRandom.uuid)
+    # Some tests confirm near-identical purchases on purpose: she says each is a different purchase.
+    @runner.run(operation_key: "transaction.draft.confirm", input: { draft_id: draft.id, source_type: "manual_ui", different_purchase: true }, idempotency_key: SecureRandom.uuid)
     draft.reload
   end
 
@@ -387,6 +388,26 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal 11_240, spent(@shopping)
     assert_equal 0, spent(@groceries)
     assert_equal "pending", MiaActionDraft.find(card["id"]).status
+  end
+
+  test "a change that would make it look like another purchase she has is refused and changes nothing" do
+    purchase = confirmed("Tasi Demo Home Store", "184.88", Date.new(2026, 11, 8), @shopping)
+    card = say("the tasi demo home store one was actually 34.88 not 184.88").fetch("mia_action_draft")
+    # Its bank line was approved since she confirmed the receipt.
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 11, 8))
+    @household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 11, 8), merchant: "Tasi Demo Home Store",
+      total_amount_cents: 3_488, source_type: "statement", status: "confirmed").transaction_splits.create!(budget_category: @shopping, amount_cents: 3_488)
+
+    assert_no_difference -> { @household.household_transactions.count } do
+      apply(card)
+    end
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body["errors"].join, "would look like another purchase you already have"
+    purchase.reload
+    assert_equal "confirmed", purchase.status
+    assert_equal 18_488, purchase.confirmed_transaction.total_amount_cents
+    assert_equal "confirmed", purchase.confirmed_transaction.status
+    assert_equal 18_488 + 3_488, spent(@shopping)
   end
 
   test "a purchase that came from a statement line is sent to Statements, with a real statement fixture" do

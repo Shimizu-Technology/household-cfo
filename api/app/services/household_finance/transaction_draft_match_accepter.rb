@@ -26,7 +26,7 @@ module HouseholdFinance
           matched_transaction = accepted_match.household_transaction
           matched_transaction.lock!
           raise ArgumentError, "Matched transaction belongs to another household" unless matched_transaction.household_id == draft.household_id
-          raise ArgumentError, "Matched transaction is already linked to another draft" if matched_elsewhere?(matched_transaction)
+          raise ArgumentError, "That purchase is already matched to another one you logged. Nothing changed." if matched_elsewhere?(matched_transaction)
 
           accepted_match.update!(status: "accepted")
           draft.transaction_draft_matches.where.not(id: accepted_match.id).update_all(status: "rejected", updated_at: Time.current)

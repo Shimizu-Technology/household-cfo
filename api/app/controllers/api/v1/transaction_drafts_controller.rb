@@ -37,6 +37,7 @@ module Api
       end
 
       def confirm
+        refresh_match_suggestions!([ @draft ])
         result = operation_runner.run(
           operation_key: "transaction.draft.confirm",
           input: confirm_params.to_h.merge(draft_id: @draft.id, source_type: "manual_ui"),
@@ -57,6 +58,8 @@ module Api
           transaction: serialize_transaction(transaction),
           workspace: workspace_payload_for(transaction.budget_period.budget_year.year)
         }
+      rescue HouseholdFinance::TransactionDraftConfirmer::PossibleDuplicate => e
+        render_possible_duplicate(e)
       rescue ArgumentError, ActiveRecord::RecordInvalid => e
         render_operation_error(e)
       end
@@ -161,6 +164,7 @@ module Api
           return render json: { errors: [ "Type CONFIRM #{draft_ids.length} to approve this bulk actuals update" ] }, status: :unprocessable_entity
         end
 
+        refresh_match_suggestions!(current_household.transaction_drafts.where(id: draft_ids).to_a)
         operation = operation_runner.run(
           operation_key: "transaction.drafts.bulk_confirm",
           input: {
@@ -190,6 +194,27 @@ module Api
         render_operation_error(e)
       end
 
+      # The purchase might look like one she already has only now, for example
+      # after its bank line was approved. Save those suggestions first so a
+      # refused confirmation can ask "Same purchase as …?" on the card.
+      # Suggestions never change spending.
+      def refresh_match_suggestions!(drafts)
+        drafts.each do |draft|
+          next unless draft.pending? && draft.financial_source_event_id.nil?
+
+          draft.with_lock { HouseholdFinance::TransactionDraftMatcher.new(draft).call if draft.pending? }
+        end
+      end
+
+      def render_possible_duplicate(error)
+        render json: {
+          errors: [ error.message ],
+          code: "possible_duplicate",
+          possible_matches: error.matches,
+          transaction_draft: serialize_draft(@draft.reload)
+        }, status: :conflict
+      end
+
       def requested_draft_ids
         Array(params[:transaction_draft_ids]).map(&:to_i).select(&:positive?).uniq
       end
@@ -207,7 +232,7 @@ module Api
       end
 
       def confirm_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, :different_purchase, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def update_params
@@ -343,6 +368,7 @@ module Api
             id: transaction.id,
             occurred_on: transaction.occurred_on.iso8601,
             merchant: transaction.merchant,
+            store_name: HouseholdFinance::TransactionDraftConfirmer.store_name(transaction.merchant),
             amount: HouseholdFinance::Money.dollars(transaction.total_amount_cents),
             source_type: transaction.source_type,
             categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }

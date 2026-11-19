@@ -99,9 +99,15 @@ module HouseholdFinance
         split = draft.transaction_draft_splits.reload.order(:id).sole
         amount = payload.fetch("new_amount_cents").to_i
         dollars = format("%d.%02d", amount / 100, amount % 100)
-        runner.run(operation_key: "transaction.draft.confirm", idempotency_key: "#{key}:confirm", source: "mia",
-          input: { draft_id: draft.id, source_type: "manual_chat", amount: dollars,
-                   splits: [ { id: split.id, budget_category_id: payload["new_category_id"] || split.budget_category_id, amount: dollars } ] })
+        begin
+          runner.run(operation_key: "transaction.draft.confirm", idempotency_key: "#{key}:confirm", source: "mia",
+            input: { draft_id: draft.id, source_type: "manual_chat", amount: dollars,
+                     splits: [ { id: split.id, budget_category_id: payload["new_category_id"] || split.budget_category_id, amount: dollars } ] })
+        rescue TransactionDraftConfirmer::PossibleDuplicate
+          # With the change it would look like another purchase she already
+          # has. The change card can't ask "Same purchase?", so leave it alone.
+          raise Stale, "With that change, #{draft.merchant} would look like another purchase you already have, so I left it as it was. Change it on the Spending screen, where you can say if it's the same purchase. Nothing changed."
+        end
       end
     end
 
