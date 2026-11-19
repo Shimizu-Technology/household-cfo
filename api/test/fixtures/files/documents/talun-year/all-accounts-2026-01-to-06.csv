@@ -1,0 +1,300 @@
+Date,Account,Description,Amount,Category,Status
+2026-01-01,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-01-02,****4410 checking,Talun family home rent,-1250.00,Housing,Posted
+2026-01-03,****4410 checking,Purchase authorized on 01/03 Tasi Demo Childcare Tamuning Gum S*····7788 Card 7302,-420.00,Childcare,Posted
+2026-01-04,****4410 checking,Purchase authorized on 01/04 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-103.79,Groceries,Posted
+2026-01-03,****4410 checking,Purchase authorized on 01/05 Tasi Demo Fuel Tamuning Gum S*····7788 Card 7302,-48.86,Transport,Posted
+2026-01-06,****4410 checking,Tasi Demo Power current monthly bill,-186.45,Utilities,Posted
+2026-01-06,****4410 checking,Tasi Demo Water,-56.78,Utilities,Posted
+2026-01-08,****4410 checking,Recurring Payment authorized on 01/08 Google Youtubeprem 650-····1111 CA S*····8899 Card 7302,-13.99,Subscriptions,Posted
+2026-01-06,****4410 checking,Recurring Payment authorized on 01/09 Tasi Demo Mobile Card 7302,-65.00,Phone,Posted
+2026-01-10,****4410 checking,Online Transfer to Talun Savings DEMO ****8642,-200.00,Transfer,Posted
+2026-01-09,****4410 checking,Online Transfer to own Bank of Guam DEMO ****6824,-500.00,Transfer,Posted
+2026-01-12,****4410 checking,APPLE CASH SENT MONEY card top-up ****9056,-100.00,Transfer,Posted
+2026-01-12,****4410 checking,Online Payment to Mainland Visa DEMO ****6074,-250.00,Transfer,Posted
+2026-01-14,****4410 checking,Purchase authorized on 01/14 Tasi Demo Dining Room Tamuning Gum S*····7788 Card 7302,-67.20,Dining,Posted
+2026-01-12,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-01-16,****4410 checking,Zelle to Neri Talun DEMO parent support,-125.00,Family support,Posted
+2026-01-15,****4410 checking,Non-WF ATM Withdrawal authorized on 01/17 Tamuning Gum Card 7302,-100.00,Cash,Posted
+2026-01-17,****4410 checking,ATM Transaction Fee,-3.00,Fees,Posted
+2026-01-17,****4410 checking,Purchase authorized on 01/18 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-148.03,Groceries,Posted
+2026-01-20,****4410 checking,Purchase authorized on 01/20 Tasi Demo Market 42.40 + Cash back 20.00 Card 7302,-62.40,Groceries,Posted
+2026-01-23,****4410 checking,APPLE CASH TRANSFER FROM OWN WALLET ****9056,25.00,Transfer,Posted
+2026-01-02,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-01-04,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-29.00,Groceries,Posted
+2026-01-05,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-29.77,Groceries,Posted
+2026-01-10,****6824 bog,BRANCH CASH WITHDRAWAL - HAGATNA DEMO,-200.00,Cash,Posted
+2026-01-09,****6824 bog,Transfer from own checking DEMO ****4410,500.00,Transfer,Posted
+2026-01-12,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.54,Groceries,Posted
+2026-01-13,****6824 bog,Tasi Demo Fuel,-52.00,Transport,Posted
+2026-01-16,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-01-15,****6824 bog,Tasi Demo Internet,-85.00,Utilities,Posted
+2026-01-19,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-31.31,Groceries,Posted
+2026-01-20,****6824 bog,Tasi Demo Noodle House,-28.50,Dining,Posted
+2026-01-24,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-32.08,Groceries,Posted
+2026-01-24,****6824 bog,Mateo DEMO weekend repairs,185.00,Income,Posted
+2026-01-27,****6824 bog,Monthly service fee,-5.00,Fees,Posted
+2026-01-09,****8642 savings,Online Transfer from own checking DEMO ****4410,200.00,Transfer,Posted
+2026-01-11,****9056 apple,Card top-up from own debit card 7302,100.00,Transfer,Posted
+2026-01-13,****9056 apple,Apple Cash purchase - Tasi Demo Dining Room GU,-18.75,Dining,Posted
+2026-01-14,****9056 apple,Apple Cash purchase - Tasi Demo Market GU,-22.55,Groceries,Posted
+2026-01-21,****9056 apple,Apple Cash purchase - Tasi Demo Coffee GU,-6.50,Dining,Posted
+2026-01-19,****9056 apple,Apple Cash purchase - Tasi Demo Coffee GU,-6.50,Dining,Posted
+2026-01-24,****9056 apple,Apple Cash purchase - Tasi Demo Bus GU,-15.75,Transport,Posted
+2026-01-25,****9056 apple,Transfer to own bank ****4410,-25.00,Transfer,Posted
+2026-01-03,****6074 card,Tasi Demo Market,-119.12,Groceries,Posted
+2026-01-09,****6074 card,Tasi Demo Outfitters,-84.25,Clothing,Posted
+2026-01-10,****6074 card,Payment received from Talun checking ****4410,250.00,Transfer,Posted
+2026-01-19,****6074 card,Tasi Demo Home Store,-74.00,Household,Posted
+2026-01-20,****6074 card,Tasi Demo Online Shop,-37.99,Household,Posted
+2026-01-27,****6074 card,Card service fee,-5.00,Fees,Posted
+2026-01-26,****6074 card,Purchase interest charge,-21.75,Interest,Posted
+2026-02-01,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-02-02,****4410 checking,Talun family home rent,-1250.00,Housing,Posted
+2026-02-03,****4410 checking,Purchase authorized on 02/03 Tasi Demo Childcare Tamuning Gum S*····7788 Card 7302,-420.00,Childcare,Posted
+2026-02-04,****4410 checking,Purchase authorized on 02/04 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-104.16,Groceries,Posted
+2026-02-03,****4410 checking,Purchase authorized on 02/05 Tasi Demo Fuel Tamuning Gum S*····7788 Card 7302,-48.97,Transport,Posted
+2026-02-06,****4410 checking,Tasi Demo Power current monthly bill,-186.45,Utilities,Posted
+2026-02-06,****4410 checking,Tasi Demo Water,-56.78,Utilities,Posted
+2026-02-08,****4410 checking,Recurring Payment authorized on 02/08 Google Youtubeprem 650-····1111 CA S*····8899 Card 7302,-13.99,Subscriptions,Posted
+2026-02-06,****4410 checking,Recurring Payment authorized on 02/09 Tasi Demo Mobile Card 7302,-65.00,Phone,Posted
+2026-02-10,****4410 checking,Online Transfer to Talun Savings DEMO ****8642,-200.00,Transfer,Posted
+2026-02-09,****4410 checking,Online Transfer to own Bank of Guam DEMO ****6824,-500.00,Transfer,Posted
+2026-02-12,****4410 checking,APPLE CASH SENT MONEY card top-up ****9056,-100.00,Transfer,Posted
+2026-02-12,****4410 checking,Online Payment to Mainland Visa DEMO ****6074,-250.00,Transfer,Posted
+2026-02-14,****4410 checking,Purchase authorized on 02/14 Tasi Demo Dining Room Tamuning Gum S*····7788 Card 7302,-67.20,Dining,Posted
+2026-02-12,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-02-16,****4410 checking,Zelle to Neri Talun DEMO parent support,-125.00,Family support,Posted
+2026-02-15,****4410 checking,Non-WF ATM Withdrawal authorized on 02/17 Tamuning Gum Card 7302,-100.00,Cash,Posted
+2026-02-17,****4410 checking,ATM Transaction Fee,-3.00,Fees,Posted
+2026-02-17,****4410 checking,Purchase authorized on 02/18 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-148.24,Groceries,Posted
+2026-02-20,****4410 checking,Purchase authorized on 02/20 Tasi Demo Market 42.40 + Cash back 20.00 Card 7302,-62.40,Groceries,Posted
+2026-02-18,****4410 checking,Purchase authorized on 02/21 Tasi Demo Clinic Tamuning Gum S*····7788 Card 7302,-87.00,Medical,Posted
+2026-02-26,****4410 checking,APPLE CASH TRANSFER FROM OWN WALLET ****9056,25.00,Transfer,Posted
+2026-02-02,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-02-04,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-29.23,Groceries,Posted
+2026-02-05,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.00,Groceries,Posted
+2026-02-10,****6824 bog,BRANCH CASH WITHDRAWAL - HAGATNA DEMO,-200.00,Cash,Posted
+2026-02-09,****6824 bog,Transfer from own checking DEMO ****4410,500.00,Transfer,Posted
+2026-02-12,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.77,Groceries,Posted
+2026-02-13,****6824 bog,Tasi Demo Fuel,-52.00,Transport,Posted
+2026-02-16,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-02-15,****6824 bog,Tasi Demo Internet,-85.00,Utilities,Posted
+2026-02-19,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-31.54,Groceries,Posted
+2026-02-20,****6824 bog,Tasi Demo Noodle House,-28.50,Dining,Posted
+2026-02-24,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-32.31,Groceries,Posted
+2026-02-26,****6824 bog,Monthly service fee,-5.00,Fees,Posted
+2026-02-09,****8642 savings,Online Transfer from own checking DEMO ****4410,200.00,Transfer,Posted
+2026-02-11,****9056 apple,Card top-up from own debit card 7302,100.00,Transfer,Posted
+2026-02-13,****9056 apple,Apple Cash purchase - Tasi Demo Dining Room GU,-18.75,Dining,Posted
+2026-02-14,****9056 apple,Apple Cash purchase - Tasi Demo Market GU,-22.60,Groceries,Posted
+2026-02-21,****9056 apple,Apple Cash purchase - Tasi Demo Coffee GU,-6.50,Dining,Posted
+2026-02-22,****9056 apple,Apple Cash purchase - Tasi Demo Bus GU,-15.75,Transport,Posted
+2026-02-26,****9056 apple,Transfer to own bank ****4410,-25.00,Transfer,Posted
+2026-02-03,****6074 card,Tasi Demo Market,-119.25,Groceries,Posted
+2026-02-09,****6074 card,Tasi Demo Outfitters,-84.25,Clothing,Posted
+2026-02-10,****6074 card,Payment received from Talun checking ****4410,250.00,Transfer,Posted
+2026-02-19,****6074 card,Tasi Demo Home Store,-74.00,Household,Posted
+2026-02-20,****6074 card,Tasi Demo Online Shop,-37.99,Household,Posted
+2026-02-27,****6074 card,Card service fee,-5.00,Fees,Posted
+2026-02-26,****6074 card,Purchase interest charge,-21.75,Interest,Posted
+2026-03-01,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-03-02,****4410 checking,Talun family home rent,-1250.00,Housing,Posted
+2026-03-03,****4410 checking,Purchase authorized on 03/03 Tasi Demo Childcare Tamuning Gum S*····7788 Card 7302,-420.00,Childcare,Posted
+2026-03-04,****4410 checking,Purchase authorized on 03/04 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-104.53,Groceries,Posted
+2026-03-03,****4410 checking,Purchase authorized on 03/05 Tasi Demo Fuel Tamuning Gum S*····7788 Card 7302,-49.08,Transport,Posted
+2026-03-06,****4410 checking,Tasi Demo Power current monthly bill,-186.45,Utilities,Posted
+2026-03-06,****4410 checking,Tasi Demo Water,-56.78,Utilities,Posted
+2026-03-08,****4410 checking,Recurring Payment authorized on 03/08 Google Youtubeprem 650-····1111 CA S*····8899 Card 7302,-13.99,Subscriptions,Posted
+2026-03-06,****4410 checking,Recurring Payment authorized on 03/09 Tasi Demo Mobile Card 7302,-65.00,Phone,Posted
+2026-03-10,****4410 checking,Online Transfer to Talun Savings DEMO ****8642,-200.00,Transfer,Posted
+2026-03-09,****4410 checking,Online Transfer to own Bank of Guam DEMO ****6824,-500.00,Transfer,Posted
+2026-03-12,****4410 checking,APPLE CASH SENT MONEY card top-up ****9056,-100.00,Transfer,Posted
+2026-03-12,****4410 checking,Online Payment to Mainland Visa DEMO ****6074,-250.00,Transfer,Posted
+2026-03-14,****4410 checking,Purchase authorized on 03/14 Tasi Demo Dining Room Tamuning Gum S*····7788 Card 7302,-67.20,Dining,Posted
+2026-03-12,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-03-16,****4410 checking,Zelle to Neri Talun DEMO parent support,-125.00,Family support,Posted
+2026-03-15,****4410 checking,Non-WF ATM Withdrawal authorized on 03/17 Tamuning Gum Card 7302,-100.00,Cash,Posted
+2026-03-17,****4410 checking,ATM Transaction Fee,-3.00,Fees,Posted
+2026-03-17,****4410 checking,Purchase authorized on 03/18 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-148.45,Groceries,Posted
+2026-03-20,****4410 checking,Purchase authorized on 03/20 Tasi Demo Market 42.40 + Cash back 20.00 Card 7302,-62.40,Groceries,Posted
+2026-03-20,****4410 checking,Purchase authorized on 03/23 Tasi Demo Outfitters Tamuning Gum S*····7788 Card 7302,-52.50,Clothing,Posted
+2026-03-26,****4410 checking,APPLE CASH TRANSFER FROM OWN WALLET ****9056,25.00,Transfer,Posted
+2026-03-02,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-03-04,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-29.46,Groceries,Posted
+2026-03-05,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.23,Groceries,Posted
+2026-03-10,****6824 bog,BRANCH CASH WITHDRAWAL - HAGATNA DEMO,-200.00,Cash,Posted
+2026-03-09,****6824 bog,Transfer from own checking DEMO ****4410,500.00,Transfer,Posted
+2026-03-12,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-31.00,Groceries,Posted
+2026-03-13,****6824 bog,Tasi Demo Fuel,-52.00,Transport,Posted
+2026-03-16,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-03-15,****6824 bog,Tasi Demo Internet,-85.00,Utilities,Posted
+2026-03-19,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-31.77,Groceries,Posted
+2026-03-20,****6824 bog,Tasi Demo Noodle House,-28.50,Dining,Posted
+2026-03-24,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-32.54,Groceries,Posted
+2026-03-24,****6824 bog,Mateo DEMO weekend repairs,327.50,Income,Posted
+2026-03-27,****6824 bog,Monthly service fee,-5.00,Fees,Posted
+2026-03-09,****8642 savings,Online Transfer from own checking DEMO ****4410,200.00,Transfer,Posted
+2026-03-11,****9056 apple,Card top-up from own debit card 7302,100.00,Transfer,Posted
+2026-03-13,****9056 apple,Apple Cash purchase - Tasi Demo Dining Room GU,-18.75,Dining,Posted
+2026-03-14,****9056 apple,Apple Cash purchase - Tasi Demo Market GU,-22.65,Groceries,Posted
+2026-03-21,****9056 apple,Apple Cash purchase - Tasi Demo Coffee GU,-6.50,Dining,Posted
+2026-03-22,****9056 apple,Apple Cash purchase - Tasi Demo Bus GU,-15.75,Transport,Posted
+2026-03-26,****9056 apple,Transfer to own bank ****4410,-25.00,Transfer,Posted
+2026-03-03,****6074 card,Tasi Demo Market,-119.38,Groceries,Posted
+2026-03-06,****6074 card,Merchandise refund from February clothing purchase,29.99,Clothing,Posted
+2026-03-06,****6074 card,Tasi Demo Outfitters,-84.25,Clothing,Posted
+2026-03-13,****6074 card,Payment received from Talun checking ****4410,250.00,Transfer,Posted
+2026-03-17,****6074 card,Tasi Demo Home Store,-74.00,Household,Posted
+2026-03-22,****6074 card,Tasi Demo Online Shop,-37.99,Household,Posted
+2026-03-26,****6074 card,Card service fee,-5.00,Fees,Posted
+2026-03-27,****6074 card,Purchase interest charge,-21.75,Interest,Posted
+2026-04-01,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-04-02,****4410 checking,Talun family home rent,-1250.00,Housing,Posted
+2026-04-03,****4410 checking,Purchase authorized on 04/03 Tasi Demo Childcare Tamuning Gum S*····7788 Card 7302,-420.00,Childcare,Posted
+2026-04-04,****4410 checking,Purchase authorized on 04/04 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-104.90,Groceries,Posted
+2026-04-03,****4410 checking,Purchase authorized on 04/05 Tasi Demo Fuel Tamuning Gum S*····7788 Card 7302,-49.19,Transport,Posted
+2026-04-07,****4410 checking,Tasi Demo Water,-56.78,Utilities,Posted
+2026-04-07,****4410 checking,Recurring Payment authorized on 04/08 Google Youtubeprem 650-····1111 CA S*····8899 Card 7302,-13.99,Subscriptions,Posted
+2026-04-09,****4410 checking,Recurring Payment authorized on 04/09 Tasi Demo Mobile Card 7302,-65.00,Phone,Posted
+2026-04-07,****4410 checking,Online Transfer to Talun Savings DEMO ****8642,-200.00,Transfer,Posted
+2026-04-11,****4410 checking,Online Transfer to own Bank of Guam DEMO ****6824,-500.00,Transfer,Posted
+2026-04-10,****4410 checking,APPLE CASH SENT MONEY card top-up ****9056,-100.00,Transfer,Posted
+2026-04-13,****4410 checking,Online Payment to Mainland Visa DEMO ****6074,-250.00,Transfer,Posted
+2026-04-13,****4410 checking,Purchase authorized on 04/14 Tasi Demo Dining Room Tamuning Gum S*····7788 Card 7302,-67.20,Dining,Posted
+2026-04-15,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-04-13,****4410 checking,Zelle to Neri Talun DEMO parent support,-125.00,Family support,Posted
+2026-04-17,****4410 checking,Non-WF ATM Withdrawal authorized on 04/17 Tamuning Gum Card 7302,-100.00,Cash,Posted
+2026-04-15,****4410 checking,ATM Transaction Fee,-3.00,Fees,Posted
+2026-04-18,****4410 checking,Purchase authorized on 04/18 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-148.66,Groceries,Posted
+2026-04-19,****4410 checking,Purchase authorized on 04/20 Tasi Demo Market 42.40 + Cash back 20.00 Card 7302,-62.40,Groceries,Posted
+2026-04-26,****4410 checking,APPLE CASH TRANSFER FROM OWN WALLET ****9056,25.00,Transfer,Posted
+2026-04-02,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-04-04,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-29.69,Groceries,Posted
+2026-04-05,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.46,Groceries,Posted
+2026-04-10,****6824 bog,BRANCH CASH WITHDRAWAL - HAGATNA DEMO,-200.00,Cash,Posted
+2026-04-09,****6824 bog,Transfer from own checking DEMO ****4410,500.00,Transfer,Posted
+2026-04-12,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-31.23,Groceries,Posted
+2026-04-13,****6824 bog,Tasi Demo Fuel,-52.00,Transport,Posted
+2026-04-16,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-04-15,****6824 bog,Tasi Demo Internet,-85.00,Utilities,Posted
+2026-04-19,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-32.00,Groceries,Posted
+2026-04-20,****6824 bog,Tasi Demo Noodle House,-28.50,Dining,Posted
+2026-04-24,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-32.77,Groceries,Posted
+2026-04-26,****6824 bog,Monthly service fee,-5.00,Fees,Posted
+2026-04-09,****8642 savings,Online Transfer from own checking DEMO ****4410,200.00,Transfer,Posted
+2026-04-11,****9056 apple,Card top-up from own debit card 7302,100.00,Transfer,Posted
+2026-04-13,****9056 apple,Apple Cash purchase - Tasi Demo Dining Room GU,-18.75,Dining,Posted
+2026-04-14,****9056 apple,Apple Cash purchase - Tasi Demo Market GU,-22.70,Groceries,Posted
+2026-04-21,****9056 apple,Apple Cash purchase - Tasi Demo Coffee GU,-6.50,Dining,Posted
+2026-04-22,****9056 apple,Apple Cash purchase - Tasi Demo Bus GU,-15.75,Transport,Posted
+2026-04-26,****9056 apple,Transfer to own bank ****4410,-25.00,Transfer,Posted
+2026-04-03,****6074 card,Tasi Demo Market,-119.51,Groceries,Posted
+2026-04-09,****6074 card,Tasi Demo Outfitters,-84.25,Clothing,Posted
+2026-04-10,****6074 card,Payment received from Talun checking ****4410,250.00,Transfer,Posted
+2026-04-19,****6074 card,Tasi Demo Home Store,-74.00,Household,Posted
+2026-04-20,****6074 card,Tasi Demo Online Shop,-37.99,Household,Posted
+2026-04-27,****6074 card,Card service fee,-5.00,Fees,Posted
+2026-04-26,****6074 card,Purchase interest charge,-21.75,Interest,Posted
+2026-05-01,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-05-02,****4410 checking,Talun family home rent,-1250.00,Housing,Posted
+2026-05-03,****4410 checking,Purchase authorized on 05/03 Tasi Demo Childcare Tamuning Gum S*····7788 Card 7302,-420.00,Childcare,Posted
+2026-05-04,****4410 checking,Purchase authorized on 05/04 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-105.27,Groceries,Posted
+2026-05-03,****4410 checking,Purchase authorized on 05/05 Tasi Demo Fuel Tamuning Gum S*····7788 Card 7302,-49.30,Transport,Posted
+2026-05-06,****4410 checking,Tasi Demo Power current monthly bill,-186.45,Utilities,Posted
+2026-05-06,****4410 checking,Tasi Demo Power past-due April bill paid late,-186.45,Utilities,Posted
+2026-05-07,****4410 checking,Tasi Demo Power late fee,-15.00,Fees,Posted
+2026-05-04,****4410 checking,Tasi Demo Water,-56.78,Utilities,Posted
+2026-05-08,****4410 checking,Recurring Payment authorized on 05/08 Google Youtubeprem 650-····1111 CA S*····8899 Card 7302,-13.99,Subscriptions,Posted
+2026-05-07,****4410 checking,Recurring Payment authorized on 05/09 Tasi Demo Mobile Card 7302,-65.00,Phone,Posted
+2026-05-10,****4410 checking,Online Transfer to Talun Savings DEMO ****8642,-200.00,Transfer,Posted
+2026-05-10,****4410 checking,Online Transfer to own Bank of Guam DEMO ****6824,-500.00,Transfer,Posted
+2026-05-12,****4410 checking,APPLE CASH SENT MONEY card top-up ****9056,-100.00,Transfer,Posted
+2026-05-10,****4410 checking,Online Payment to Mainland Visa DEMO ****6074,-250.00,Transfer,Posted
+2026-05-14,****4410 checking,Purchase authorized on 05/14 Tasi Demo Dining Room Tamuning Gum S*····7788 Card 7302,-67.20,Dining,Posted
+2026-05-13,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-05-16,****4410 checking,Zelle to Neri Talun DEMO parent support,-125.00,Family support,Posted
+2026-05-16,****4410 checking,Non-WF ATM Withdrawal authorized on 05/17 Tamuning Gum Card 7302,-100.00,Cash,Posted
+2026-05-17,****4410 checking,ATM Transaction Fee,-3.00,Fees,Posted
+2026-05-15,****4410 checking,Purchase authorized on 05/18 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-148.87,Groceries,Posted
+2026-05-20,****4410 checking,Purchase authorized on 05/20 Tasi Demo Market 42.40 + Cash back 20.00 Card 7302,-62.40,Groceries,Posted
+2026-05-24,****4410 checking,APPLE CASH TRANSFER FROM OWN WALLET ****9056,25.00,Transfer,Posted
+2026-05-02,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-05-04,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-29.92,Groceries,Posted
+2026-05-05,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.69,Groceries,Posted
+2026-05-10,****6824 bog,BRANCH CASH WITHDRAWAL - HAGATNA DEMO,-200.00,Cash,Posted
+2026-05-09,****6824 bog,Transfer from own checking DEMO ****4410,500.00,Transfer,Posted
+2026-05-12,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-31.46,Groceries,Posted
+2026-05-13,****6824 bog,Tasi Demo Fuel,-52.00,Transport,Posted
+2026-05-16,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-05-15,****6824 bog,Tasi Demo Internet,-85.00,Utilities,Posted
+2026-05-19,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-32.23,Groceries,Posted
+2026-05-20,****6824 bog,Tasi Demo Noodle House,-28.50,Dining,Posted
+2026-05-24,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-33.00,Groceries,Posted
+2026-05-26,****6824 bog,Monthly service fee,-5.00,Fees,Posted
+2026-05-09,****8642 savings,Online Transfer from own checking DEMO ****4410,200.00,Transfer,Posted
+2026-05-11,****9056 apple,Card top-up from own debit card 7302,100.00,Transfer,Posted
+2026-05-13,****9056 apple,Apple Cash purchase - Tasi Demo Dining Room GU,-18.75,Dining,Posted
+2026-05-14,****9056 apple,Apple Cash purchase - Tasi Demo Market GU,-22.75,Groceries,Posted
+2026-05-21,****9056 apple,Apple Cash purchase - Tasi Demo Coffee GU,-6.50,Dining,Posted
+2026-05-22,****9056 apple,Apple Cash purchase - Tasi Demo Bus GU,-15.75,Transport,Posted
+2026-05-26,****9056 apple,Transfer to own bank ****4410,-25.00,Transfer,Posted
+2026-05-03,****6074 card,Tasi Demo Market,-119.64,Groceries,Posted
+2026-05-09,****6074 card,Tasi Demo Outfitters,-84.25,Clothing,Posted
+2026-05-10,****6074 card,Payment received from Talun checking ****4410,250.00,Transfer,Posted
+2026-05-19,****6074 card,Tasi Demo Home Store,-74.00,Household,Posted
+2026-05-20,****6074 card,Tasi Demo Online Shop,-37.99,Household,Posted
+2026-05-27,****6074 card,Card service fee,-5.00,Fees,Posted
+2026-05-26,****6074 card,Purchase interest charge,-21.75,Interest,Posted
+2026-06-01,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-06-02,****4410 checking,Talun family home rent,-1250.00,Housing,Posted
+2026-06-03,****4410 checking,Purchase authorized on 06/03 Tasi Demo Childcare Tamuning Gum S*····7788 Card 7302,-420.00,Childcare,Posted
+2026-06-04,****4410 checking,Purchase authorized on 06/04 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-105.64,Groceries,Posted
+2026-06-03,****4410 checking,Purchase authorized on 06/05 Tasi Demo Fuel Tamuning Gum S*····7788 Card 7302,-49.41,Transport,Posted
+2026-06-06,****4410 checking,Tasi Demo Power current monthly bill,-186.45,Utilities,Posted
+2026-06-06,****4410 checking,Tasi Demo Water,-56.78,Utilities,Posted
+2026-06-08,****4410 checking,Recurring Payment authorized on 06/08 Google Youtubeprem 650-····1111 CA S*····8899 Card 7302,-13.99,Subscriptions,Posted
+2026-06-06,****4410 checking,Recurring Payment authorized on 06/09 Tasi Demo Mobile Card 7302,-65.00,Phone,Posted
+2026-06-10,****4410 checking,Online Transfer to Talun Savings DEMO ****8642,-200.00,Transfer,Posted
+2026-06-09,****4410 checking,Online Transfer to own Bank of Guam DEMO ****6824,-500.00,Transfer,Posted
+2026-06-12,****4410 checking,APPLE CASH SENT MONEY card top-up ****9056,-100.00,Transfer,Posted
+2026-06-12,****4410 checking,Online Payment to Mainland Visa DEMO ****6074,-250.00,Transfer,Posted
+2026-06-14,****4410 checking,Purchase authorized on 06/14 Tasi Demo Dining Room Tamuning Gum S*····7788 Card 7302,-67.20,Dining,Posted
+2026-06-12,****4410 checking,Lina DEMO government payroll,2100.00,Income,Posted
+2026-06-16,****4410 checking,Zelle to Neri Talun DEMO parent support,-125.00,Family support,Posted
+2026-06-15,****4410 checking,Non-WF ATM Withdrawal authorized on 06/17 Tamuning Gum Card 7302,-100.00,Cash,Posted
+2026-06-17,****4410 checking,ATM Transaction Fee,-3.00,Fees,Posted
+2026-06-17,****4410 checking,Purchase authorized on 06/18 Tasi Demo Market Tamuning Gum S*····7788 Card 7302,-149.08,Groceries,Posted
+2026-06-20,****4410 checking,Purchase authorized on 06/20 Tasi Demo Market 42.40 + Cash back 20.00 Card 7302,-62.40,Groceries,Posted
+2026-06-18,****4410 checking,Purchase authorized on 06/21 Tasi Demo Clinic Tamuning Gum S*····7788 Card 7302,-91.00,Medical,Posted
+2026-06-23,****4410 checking,Purchase authorized on 06/23 Tasi Demo Home Store Tamuning Gum S*····7788 Card 7302,-34.88,Household,Posted
+2026-06-24,****4410 checking,APPLE CASH TRANSFER FROM OWN WALLET ****9056,25.00,Transfer,Posted
+2026-06-02,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-06-04,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.15,Groceries,Posted
+2026-06-05,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-30.92,Groceries,Posted
+2026-06-10,****6824 bog,BRANCH CASH WITHDRAWAL - HAGATNA DEMO,-200.00,Cash,Posted
+2026-06-09,****6824 bog,Transfer from own checking DEMO ****4410,500.00,Transfer,Posted
+2026-06-12,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-31.69,Groceries,Posted
+2026-06-13,****6824 bog,Tasi Demo Fuel,-52.00,Transport,Posted
+2026-06-16,****6824 bog,Tasi Services DEMO payroll Mateo,1650.00,Income,Posted
+2026-06-15,****6824 bog,Tasi Demo Internet,-85.00,Utilities,Posted
+2026-06-19,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-32.46,Groceries,Posted
+2026-06-20,****6824 bog,Tasi Demo Noodle House,-28.50,Dining,Posted
+2026-06-24,****6824 bog,POS PURCHASE TASI DEMO MARKET MANGILAO GU,-33.23,Groceries,Posted
+2026-06-24,****6824 bog,Mateo DEMO weekend repairs,96.00,Income,Posted
+2026-06-27,****6824 bog,Monthly service fee,-5.00,Fees,Posted
+2026-06-09,****8642 savings,Online Transfer from own checking DEMO ****4410,200.00,Transfer,Posted
+2026-06-11,****9056 apple,Card top-up from own debit card 7302,100.00,Transfer,Posted
+2026-06-13,****9056 apple,Apple Cash purchase - Tasi Demo Dining Room GU,-18.75,Dining,Posted
+2026-06-14,****9056 apple,Apple Cash purchase - Tasi Demo Market GU,-22.80,Groceries,Posted
+2026-06-21,****9056 apple,Apple Cash purchase - Tasi Demo Coffee GU,-6.50,Dining,Posted
+2026-06-22,****9056 apple,Apple Cash purchase - Tasi Demo Bus GU,-15.75,Transport,Posted
+2026-06-26,****9056 apple,Transfer to own bank ****4410,-25.00,Transfer,Posted
+2026-06-03,****6074 card,Tasi Demo Market,-119.77,Groceries,Posted
+2026-06-09,****6074 card,Tasi Demo Outfitters,-84.25,Clothing,Posted
+2026-06-10,****6074 card,Payment received from Talun checking ****4410,250.00,Transfer,Posted
+2026-06-19,****6074 card,Tasi Demo Home Store,-74.00,Household,Posted
+2026-06-20,****6074 card,Tasi Demo Online Shop,-37.99,Household,Posted
+2026-06-27,****6074 card,Card service fee,-5.00,Fees,Posted
+2026-06-26,****6074 card,Purchase interest charge,-21.75,Interest,Posted
+Synthetic test document | Fictional household and accounts

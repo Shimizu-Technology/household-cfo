@@ -5,7 +5,7 @@ require Rails.root.join("lib/tasks/mia_evals/live_runner").to_s
 class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
   include WorkosAuthTestSupport
 
-  RUNNER_ENV_KEYS = %w[MIA_LIVE_EVALS CI OPENROUTER_API_KEY DATABASE_URL].freeze
+  RUNNER_ENV_KEYS = %w[MIA_LIVE_EVALS CI OPENROUTER_API_KEY DATABASE_URL MIA_LIVE_EVALS_NIGHTLY_WORKFLOW GITHUB_WORKFLOW SET].freeze
 
   setup do
     @previous_env = (RUNNER_ENV_KEYS + WORKOS_ENV_KEYS).to_h { |key| [ key, ENV[key] ] }
@@ -17,6 +17,17 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
 
   teardown do
     @previous_env.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  end
+
+  test "unknown case ids are refused instead of running nothing, and a valid subset runs" do
+    with_env("SET" => "cfo", "CASES" => "definitely-missing-case") do
+      error = assert_raises(ArgumentError) { @runner.send(:selected_cases) }
+      assert_includes error.message, "definitely-missing-case"
+    end
+    first = HouseholdFinance::MiaEvalHarness.load_cases(HouseholdFinance::MiaEvalHarness::CASE_SETS.fetch("cfo")).first.fetch("id")
+    with_env("SET" => "cfo", "CASES" => first) do
+      assert_equal [ first ], @runner.send(:selected_cases).pluck("id")
+    end
   end
 
   test "preflight passes only for the local test database with no sign-in provider" do
@@ -57,6 +68,47 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     assert_preflight false, /MIA_LIVE_EVALS=1/
   end
 
+  test "in CI only the nightly live-eval workflow may run, and only with its own opt-in" do
+    ENV["CI"] = "true"
+    ENV["GITHUB_WORKFLOW"] = MiaEvals::LiveRunner::NIGHTLY_WORKFLOW
+    assert_preflight false, /do not run in CI, except in the nightly/
+
+    ENV["MIA_LIVE_EVALS_NIGHTLY_WORKFLOW"] = "1"
+    assert_preflight true
+
+    ENV["GITHUB_WORKFLOW"] = "CI"
+    assert_preflight false, /do not run in CI/
+
+    ENV["GITHUB_WORKFLOW"] = MiaEvals::LiveRunner::NIGHTLY_WORKFLOW
+    ENV.delete("MIA_LIVE_EVALS")
+    assert_preflight false, /MIA_LIVE_EVALS=1/
+  end
+
+  test "SET picks a known case set" do
+    ENV["SET"] = "cfo"
+    assert_preflight true
+    assert_equal "cfo", @runner.send(:case_set)
+    ENV["SET"] = "everything"
+    assert_preflight false, /SET must be one of default, cfo/
+  end
+
+  test "the nightly workflow's name matches the runner's opt-in" do
+    workflow = YAML.safe_load_file(Rails.root.join("../.github/workflows/mia-live-evals.yml"))
+    assert_equal MiaEvals::LiveRunner::NIGHTLY_WORKFLOW, workflow.fetch("name")
+    assert_equal "1", workflow.dig("jobs", "live", "env", MiaEvals::LiveRunner::NIGHTLY_OPT_IN).to_s
+  end
+
+  test "the nightly workflow gives the OpenRouter key only to the steps that use it and pins third-party actions" do
+    workflow = YAML.safe_load_file(Rails.root.join("../.github/workflows/mia-live-evals.yml"))
+    job = workflow.dig("jobs", "live")
+    assert_not job.fetch("env").key?("OPENROUTER_API_KEY")
+    keyed = job.fetch("steps").select { |step| step.dig("env", "OPENROUTER_API_KEY") }.pluck("name")
+    assert_equal [ "Check for the OpenRouter key", "Run live Mia evals" ], keyed
+    job.fetch("steps").filter_map { |step| step["uses"] }.each do |action|
+      assert_match(/@[0-9a-f]{40}\z/, action, "#{action} is not pinned to a commit")
+    end
+  end
+
   test "test database names must carry the test suffix" do
     assert @runner.send(:test_database_name?, "household_cfo_api_test")
     assert @runner.send(:test_database_name?, "household_cfo_api_test_ai_review")
@@ -80,6 +132,21 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     assert_match(/2 model call\(s\) failed/, @runner.send(:run_problems, clean, { provider_errors: 2 }).join)
   end
 
+  test "a run exits non-zero when a case fails, including a known gap failing a check it doesn't name" do
+    gap = { "id" => "gap", "prompt" => "Should we cut back on the prenatal clinic visits?", "expected_phrases" => [ "protect" ],
+      "known_gap" => { "checks" => [ "expected_phrases" ], "reason" => "Deflects." } }
+    regular = { "id" => "regular", "prompt" => "Hi", "expected_phrases" => [ "hello" ] }
+    run = ->(cases, reply) do
+      result = HouseholdFinance::MiaEvalHarness.new(cases: cases, mode: :live,
+        runner: ->(_eval_case) { { response: reply, metadata: { turns: [ { status: 201 } ] } } }).call
+      @runner.run_problems(result, { provider_errors: 0 })
+    end
+
+    assert_empty run.call([ gap, regular ], "hello, one step at a time")
+    assert_equal [ "1 case(s) failed: regular." ], run.call([ regular ], "hi there")
+    assert_equal [ "1 case(s) failed: gap." ], run.call([ gap ], "Cut back on medical visits.")
+  end
+
   test "model calls that time out before a response are recorded as provider errors" do
     timing_out = Class.new(Net::HTTP) do
       private
@@ -101,6 +168,14 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
   end
 
   private
+
+  def with_env(values)
+    previous = values.keys.to_h { |key| [ key, ENV[key] ] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    previous.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  end
 
   def assert_preflight(expected, message = nil)
     passed = nil

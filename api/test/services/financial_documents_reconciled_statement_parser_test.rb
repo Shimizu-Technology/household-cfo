@@ -8,6 +8,50 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     doc["kind"] == "statement" && doc["format"] == "pdf" && !doc["filename"].include?("scanned")
   end.freeze
 
+  test "a transfer or loan payment that mentions a fee keeps its own type in reconciled statements" do
+    parser = FinancialDocuments::ReconciledStatementParser.allocate
+    parser.instance_variable_set(:@account, { account_basis: "asset" })
+    assert_equal "transfer", parser.send(:event_type, "Online Transfer to Savings service charge", -5_000)
+    assert_equal "debt_payment", parser.send(:event_type, "Loan Payment incl late fee", -31_000)
+    assert_equal "fee", parser.send(:event_type, "ATM Surcharge", -300)
+  end
+
+  test "withdrawals and ATM fees keep their separate types through reconciled statements" do
+    [ "Non-WF ATM Withdrawal authorized on 08/05 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee", "Non-WF ATM Withdrawal Fee", "Non-WF ATM Balance Inquiry Fee", "ATM Withdrawal Fee", "ATM Surcharge", "ATM Fees", "Branch Withdrawal Service Charge", "ATM/POS Purchase Walmart", "Purchase with Cash Back $20" ].each do |description|
+      pages = pages_for("bank-descriptors.pdf")
+      run = pages.flat_map { |page| page[:runs] }.find { |item| item[:text] == "Rent - Talun family home" }
+      assert run, "Synthetic fixture must contain the expected purchase description"
+      run[:text] = description
+      result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+      assert result.success?, result.error
+      event = result.data[:source_accounting][:events].find { |row| row.dig(:evidence, :raw_description) == description }
+      assert event, "Reconciled source row must retain the new description"
+      expected = if description.match?(/fee|surcharge|service charge/i)
+        "fee"
+      elsif description.include?("Purchase")
+        "purchase"
+      else
+        "cash_withdrawal"
+      end
+      assert_equal expected, event[:event_type], description
+      assert_equal event[:signed_amount_cents].abs, event[:expense_amount_cents]
+    end
+  end
+
+  test "positive ATM deposits import as income like other deposits" do
+    [ "Deposit", "ATM DEPOSIT" ].each do |description|
+      pages = pages_for("bank-descriptors.pdf")
+      run = pages.flat_map { |page| page[:runs] }.find { |item| item[:text].match?(/payroll/i) }
+      assert run
+      run[:text] = description
+      result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+      assert result.success?, result.error
+      event = result.data[:source_accounting][:events].find { |row| row.dig(:evidence, :raw_description) == description }
+      assert_equal "income", event[:event_type]
+      assert event[:signed_amount_cents].positive?
+    end
+  end
+
   test "a later invalid date aborts repair eligibility and never calls the provider" do
     [ "08/31", "09/31/2026" ].each do |invalid_date|
       pages = pages_for("continued-pages.pdf")

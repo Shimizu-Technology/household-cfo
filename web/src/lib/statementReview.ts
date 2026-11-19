@@ -114,6 +114,14 @@ export function lineSheetFromAttention(item: PlanAttention): SheetLine {
     kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
 }
 
+/** The sheet her answer opens. "No" to "Did this move between your own accounts?", "Is this a payment on your own card or loan?"
+ * or "Is this a refund?" opens on spending or money in, never on the kind she just said it isn't. */
+export function lineSheetForAnswer(item: PlanAttention): SheetLine {
+  const line = lineSheetFromAttention(item)
+  if (!['transfer', 'card_payment', 'refund'].includes(item.kind) || item.signed_amount_cents == null) return line
+  return { ...line, kind: item.signed_amount_cents > 0 ? 'money_in' : 'spending' }
+}
+
 export const LINE_KIND_OPTIONS: Array<{ value: LineKind; label: string }> = [
   { value: 'spending', label: 'Spending' },
   { value: 'money_in', label: 'Money in' },
@@ -131,6 +139,8 @@ export function lineKindFor(type: SourceEvent['event_type'], signedCents: number
     case 'cash_withdrawal': return 'cash'
     case 'refund': return 'refund'
     case 'interest': return (signedCents ?? -1) > 0 ? 'money_in' : 'spending'
+    // A line the reader could not classify opens on the direction the statement shows: money that came in is not spending.
+    case 'unknown': return (signedCents ?? -1) > 0 ? 'money_in' : 'spending'
     default: return 'spending'
   }
 }

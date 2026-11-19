@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
-  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
+  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
   type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine,
 } from '../lib/statementReview'
 import { useStatementReview } from '../lib/useStatementReview'
@@ -56,7 +56,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
     if (id === 'money_out' || id === 'money_in') return setSheet({ kind: 'line', line: lineSheetWithDirection(item, id === 'money_out' ? 'out' : 'in') })
-    if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: lineSheetFromAttention(item) })
+    if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: lineSheetForAnswer(item) })
     state.answer(item, index, id, categoryId)
   }
   async function saveSheet(entry: LineDecision) {
@@ -172,7 +172,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
                 const ready = readyById.get(event.id)
                 // A line that looks right shows the category the server will save for it, not only the reader's guess.
                 const category = facts ? categories.find((entry) => entry.id === facts.budget_category_id)?.name : ready ? readyCategoryLabel(ready) ?? undefined : event.transaction_draft?.category_name
-                const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : kind === 'spending' ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
+                const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : (kind === 'spending' || kind === 'cash') ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
                 return <tr key={event.id} data-needs-look={attention || undefined}>
                   <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</span></td>
                   <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</td>

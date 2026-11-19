@@ -152,6 +152,20 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     end
   end
 
+  test "the debt list totals the monthly minimums and says which are missing" do
+    @household.debts.create!(label: "Store card", debt_type: "credit_card", balance_cents: 0, balance_known: false, minimum_payment_cents: 0, minimum_payment_known: false)
+    assert_includes answer("List my household debts").answer, "This debt has no monthly minimum saved."
+    @household.debts.find_by!(label: "Store card").destroy!
+    @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 125_000, balance_known: true, minimum_payment_cents: 5_000, minimum_payment_known: true)
+    @household.debts.create!(label: "Truck loan", debt_type: "auto_loan", balance_cents: 900_000, balance_known: true, minimum_payment_cents: 31_000, minimum_payment_known: true)
+    listed = answer("List my household debts")
+    assert_includes listed.answer, "Together, the monthly minimums are $360."
+    assert_includes listed.answer, "Showing all 2 items."
+    assert_equal 2, listed.metadata[:shown_count], "the total line is not a debt"
+    @household.debts.create!(label: "Store card", debt_type: "credit_card", balance_cents: 0, balance_known: false, minimum_payment_cents: 0, minimum_payment_known: false)
+    assert_includes answer("List my household debts").answer, "The known monthly minimums total $360; 1 debt has no minimum saved."
+  end
+
   test "how much do we owe on the credit card answers from the saved debt summary and says it is not per card" do
     @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 320_000, debt_summary_balance_known: true, debt_summary_minimum_payment_cents: 9_500, debt_summary_minimum_payment_known: true)
     [ "how much do we owe on the credit card", "How much do we owe on the credit card again?", "how much do i still owe on my credit cards" ].each do |question|

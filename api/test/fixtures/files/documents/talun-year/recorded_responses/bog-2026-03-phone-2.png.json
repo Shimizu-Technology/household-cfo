@@ -1,0 +1,45 @@
+{
+  "sha256": "ce3b3fefe2d6db5b2de03bc1cdaf72578f247de7f11838c253d3505052415cdc",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "request_sha256": "f22a52702e01faaac1fbe96a9b9cac564ed801a0046fef19e39f663710ff0ddb",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": null,\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Partial bank activity screenshot (Capture 2) for account ****6824 showing 7 posted rows dated 2026-03-11 to 2026-03-22. No statement totals or balances are shown.\",\n  \"confidence\": 0.9,\n  \"warnings\": [\n    \"This is a partial capture of 2026-03 activity with no printed statement period, opening/closing balances, or totals, so the account cannot be reconciled.\",\n    \"The capture is labeled 'Capture 2', so earlier or later rows may exist outside this image.\",\n    \"Account basis is not stated; asset (bank/checking-style account) is assumed from the transaction pattern, not confirmed.\",\n    \"No printed row count; reported_row_count is null.\",\n    \"The transfer row references own checking ****4410, but no matching outflow row is visible in this capture.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"acct_6824\",\n        \"account_basis\": \"unknown\",\n        \"label\": \"Bank of Guam-style DEMO - Lina and Mateo Talun\",\n        \"masked_identifier\": \"****6824\",\n        \"period_start_on\": null,\n        \"period_end_on\": null,\n        \"opening_balance_cents\": null,\n        \"closing_balance_cents\": null,\n        \"printed_debit_cents\": null,\n        \"printed_credit_cents\": null,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Header: 'Bank of Guam-style DEMO', 'Lina and Mateo Talun | ****6824', '2026-03 activity | Capture 2'. Footer: 'Fictional account; crop has no statement totals'.\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 50000,\n        \"amount_column_cents\": 50000,\n        \"posted_on\": \"2026-03-11\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": null,\n        \"raw_description\": \"Transfer from own checking DEMO ****4410\",\n        \"evidence\": \"Posted 2026-03-11, +$500.00. Transfer from the participant's own checking account ****4410.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3100,\n        \"amount_column_cents\": -3100,\n        \"posted_on\": \"2026-03-12\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": \"Tasi Demo Market\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"Posted 2026-03-12, -$31.00. POS purchase at market in Mangilao GU.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -5200,\n        \"amount_column_cents\": -5200,\n        \"posted_on\": \"2026-03-14\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": \"Tasi Demo Fuel\",\n        \"raw_description\": \"Tasi Demo Fuel\",\n        \"evidence\": \"Posted 2026-03-14, -$52.00. Fuel purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 165000,\n        \"amount_column_cents\": 165000,\n        \"posted_on\": \"2026-03-16\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": \"Tasi Services DEMO\",\n        \"raw_description\": \"Tasi Services DEMO payroll Mateo\",\n        \"evidence\": \"Posted 2026-03-16, +$1,650.00. Payroll deposit for Mateo.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -8500,\n        \"amount_column_cents\": -8500,\n        \"posted_on\": \"2026-03-18\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 5},\n        \"merchant\": \"Tasi Demo Internet\",\n        \"raw_description\": \"Tasi Demo Internet\",\n        \"evidence\": \"Posted 2026-03-18, -$85.00. Internet bill.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3177,\n        \"amount_column_cents\": -3177,\n        \"posted_on\": \"2026-03-19\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 6},\n        \"merchant\": \"Tasi Demo Market\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"Posted 2026-03-19, -$31.77. Separate POS purchase at the same market; different date and amount from row 2.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -2850,\n        \"amount_column_cents\": -2850,\n        \"posted_on\": \"2026-03-22\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 7},\n        \"merchant\": \"Tasi Demo Noodle House\",\n        \"raw_description\": \"Tasi Demo Noodle House\",\n        \"evidence\": \"Posted 2026-03-22, -$28.50. Restaurant purchase.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4323,
+            "completion_tokens": 2166,
+            "total_tokens": 6489,
+            "cost": 0.030306,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.030306,
+              "upstream_inference_prompt_cost": 0.008646,
+              "upstream_inference_completions_cost": 0.02166
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

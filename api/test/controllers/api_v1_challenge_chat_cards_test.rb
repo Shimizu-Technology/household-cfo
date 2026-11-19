@@ -42,6 +42,25 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_empty response.parsed_body.dig("spending_patterns", "candidate_changes")
   end
 
+  test "a subscriptions question in the challenge chat lists what repeats instead of the spending packet" do
+    category = @savings_household.budget_categories.create!(name: "Streaming", stack_key: "discretionary", sort_order: 1)
+    year = @savings_household.budget_years.create!(year: 2026)
+    [ 8, 9, 10 ].each do |month|
+      period = year.budget_periods.create!(starts_on: Date.new(2026, month, 1), ends_on: Date.new(2026, month, 1).end_of_month)
+      row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, month, 8), source_type: "statement", status: "confirmed",
+        merchant: "Recurring Payment authorized on #{month.to_s.rjust(2, '0')}/08 Google Youtubeprem 650-····1111 CA S*····7788 Card 7302", total_amount_cents: 1399)
+      row.transaction_splits.create!(budget_category: category, amount_cents: 1399)
+    end
+    [ nil, "none", "month_balance", "spending_patterns" ].each_with_index do |intent, index|
+      run = -> { ask "What subscriptions am I paying for?", "challenge-subscriptions-#{index}" }
+      intent ? with_participant_reader_response({ care: "none", reply_intent: intent, question: true, correction: false, facts: [], setup_answer: { field: "none", value: "" }, spending_preferences: [] }, &run) : run.call
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert_includes reply, "From Aug to Oct, this repeats about monthly at a steady price, so it looks like a subscription: Google Youtubeprem ($13.99).", intent.inspect
+      refute_match(/Spending half|could free|everyday spending item/, reply)
+      assert_nil response.parsed_body["challenge_chat_card"]
+    end
+  end
+
   test "a patterns question never drops a completed purchase reported in the same turn" do
     message = "spent 10 at Payless today, what spending patterns do you see?"
     @participant_reader_fixtures[message] = { "care" => "none", "reply_intent" => "spending_patterns", "question" => true, "correction" => false,
@@ -418,7 +437,11 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_includes reply, "Ross ($200) and Kmart ($100)"
     refute_includes reply, "Only confirmed purchases"
     refute_includes reply, ".00"
-    assert_equal 3, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).length
+    # Each store appears in one month only, so neither is offered as a monthly cut.
+    refute_includes reply, "Spending half"
+    refute_includes reply, "cutting back on"
+    assert_empty response.parsed_body.dig("spending_patterns", "candidate_changes")
+    assert_equal 2, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).length
     assert_nil response.parsed_body.dig("spending_patterns", "coverage", "months", 1, "spending_cents")
   end
 

@@ -1,0 +1,45 @@
+{
+  "sha256": "b896d88c948ed3a2b9bedd2a40267dc991aefd5661b19078e919817882e74dd6",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "request_sha256": "b79f3ca5adfb667f21443e74835181f8e77540674f03c89605c327290d728b96",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"receipt\",\n  \"document_date\": \"2026-03-23\",\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Receipt from TASI DEMO OUTFITTERS (Tamuning, Guam) dated 2026-03-23 for a shirt and child trousers. A $15.00 coupon discount brings the $67.50 subtotal to a $52.50 total, paid by debit card 7302.\",\n  \"confidence\": 0.93,\n  \"warnings\": [\n    \"The $15.00 coupon/discount applies to the whole purchase and is not tied to a specific line, so it is not allocated to individual items. Both items are clothing, so one split covers the net total.\",\n    \"The receipt is marked as a synthetic test document with fictional amounts.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [\n    {\n      \"occurred_on\": \"2026-03-23\",\n      \"merchant\": \"TASI DEMO OUTFITTERS\",\n      \"total_amount\": 52.5,\n      \"source_type\": \"receipt\",\n      \"category_name\": \"Clothing\",\n      \"confidence\": 0.9,\n      \"evidence\": \"Shirt 45.00; Child trousers 22.50; Subtotal $67.50; Coupons/discounts -$15.00; Tax $0.00; TOTAL $52.50; Debit card 7302 $52.50; Balance due $0.00\",\n      \"raw_description\": \"Receipt SYN-COUPONS, Register DEMO-04, 2026-03-23 18:24, Tamuning, Guam. Paid by debit card 7302.\",\n      \"external_id\": \"SYN-COUPONS\",\n      \"warnings\": [\n        \"The coupon discount of -$15.00 is applied to the total, not to individual line items.\"\n      ],\n      \"splits\": [\n        {\n          \"amount\": 52.5,\n          \"category_name\": \"Clothing\",\n          \"notes\": \"Shirt 45.00 + Child trousers 22.50 less $15.00 coupons/discounts\",\n          \"confidence\": 0.9\n        }\n      ]\n    }\n  ],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4123,
+            "completion_tokens": 1063,
+            "total_tokens": 5186,
+            "cost": 0.018876,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018876,
+              "upstream_inference_prompt_cost": 0.008246,
+              "upstream_inference_completions_cost": 0.01063
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 346,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

@@ -77,6 +77,8 @@ class PlaidIntegrationTransactionStagerTest < ActiveSupport::TestCase
     atm = plaid_transaction(amount_cents: 6_000, name: "ATM WITHDRAWAL", primary_category: "TRANSFER_OUT", detailed_category: "TRANSFER_OUT_WITHDRAWAL")
 
     assert venmo.counts_as_spending? && atm.counts_as_spending?
+    assert_equal "cash_withdrawal", atm.movement_type
+    assert_includes PlaidTransaction.where(id: atm.id).counted_as_spending.pluck(:id), atm.id
     assert_includes PlaidTransaction.where(id: [ venmo.id, atm.id ]).stageable.pluck(:id), venmo.id
     drafts = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ venmo.id, atm.id ]).call.drafts
 

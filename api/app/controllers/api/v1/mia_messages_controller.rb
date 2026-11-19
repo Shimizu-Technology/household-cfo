@@ -251,6 +251,12 @@ module Api
           return render_savings_response(session, content, attached_imports, message_request: message_request)
         end
 
+        # "How much came in?" is a question about income, whatever the reader called it.
+        if !savings_program_selected? && attached_imports.empty? && @participant_reading&.care? != true && HouseholdFinance::MiaIncomeAnswer.question?(content)
+          answer = HouseholdFinance::MiaIncomeAnswer.new(current_household, message: content).response
+          return render_household_read_response(session, content, answer, message_request: message_request)
+        end
+
         if !savings_program_selected? && attached_imports.empty? && SpendingPatterns::Answerer.matches?(content) &&
            !(document_evidence_topic_present?(session) && HouseholdFinance::AttachedDocumentFollowupResolver.document_directed_reference?(content) && !(SpendingPatterns::Answerer.observation_question?(content) && reviewed_document_evidence?(conversation_context)))
           return render_household_patterns_response(session, content, message_request: message_request)

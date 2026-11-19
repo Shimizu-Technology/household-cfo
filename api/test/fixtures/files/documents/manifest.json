@@ -5,7 +5,7 @@
   "generator": "scripts/synthetic-documents/generate.py",
   "definitions": {
     "source_event_count": "Transaction/activity rows only, including pending; excludes printed headers, totals, and footers.",
-    "spending_draft_count": "Posted purchases, fees and interest only; refunds, income, transfers, cash withdrawals, card payments and pending rows excluded.",
+    "spending_draft_count": "Posted purchases, fees, interest and cash withdrawals; refunds, income, transfers, card payments and pending rows excluded.",
     "signed_amount_cents": "Negative is money out / charge; positive is money in / payment credit. Liability closing = opening - signed movements.",
     "budget_items": "Current financial setup proposals only; archive estimates and monthly schedules are supporting evidence, not duplicate items. Faithful optional profile notes are not counted as financial items.",
     "identifiers": "event_id is a fixture join key, not an application deduplication contract."
@@ -25,7 +25,7 @@
       ],
       "expected_source_event_count": 27,
       "expected_posted_event_count": 26,
-      "expected_spending_draft_count": 18,
+      "expected_spending_draft_count": 19,
       "expected_events": [
         {
           "event_id": "bog-00001234-202608-0001",
@@ -196,7 +196,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "page": 1,
@@ -465,7 +465,7 @@
         "printed_credit_cents": 751299,
         "printed_debit_cents": 278965,
         "closing_balance_cents": 747334,
-        "spending_draft_total_cents": 223965,
+        "spending_draft_total_cents": 233965,
         "pending_display_total_cents": 650
       },
       "account_basis": "asset",
@@ -492,7 +492,7 @@
       ],
       "expected_source_event_count": 27,
       "expected_posted_event_count": 26,
-      "expected_spending_draft_count": 18,
+      "expected_spending_draft_count": 19,
       "expected_events": [
         {
           "event_id": "bog-00001234-202608-0001",
@@ -653,7 +653,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "row": 12
@@ -905,7 +905,7 @@
         "printed_credit_cents": 751299,
         "printed_debit_cents": 278965,
         "closing_balance_cents": 747334,
-        "spending_draft_total_cents": 223965,
+        "spending_draft_total_cents": 233965,
         "pending_display_total_cents": 650
       },
       "account_basis": "asset",
@@ -939,7 +939,7 @@
       ],
       "expected_source_event_count": 27,
       "expected_posted_event_count": 26,
-      "expected_spending_draft_count": 18,
+      "expected_spending_draft_count": 19,
       "expected_events": [
         {
           "event_id": "bog-00001234-202609-0001",
@@ -1110,7 +1110,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "page": 1,
@@ -1379,7 +1379,7 @@
         "printed_credit_cents": 751299,
         "printed_debit_cents": 279965,
         "closing_balance_cents": 1218668,
-        "spending_draft_total_cents": 224965,
+        "spending_draft_total_cents": 234965,
         "pending_display_total_cents": 650
       },
       "account_basis": "asset",
@@ -1406,7 +1406,7 @@
       ],
       "expected_source_event_count": 27,
       "expected_posted_event_count": 26,
-      "expected_spending_draft_count": 18,
+      "expected_spending_draft_count": 19,
       "expected_events": [
         {
           "event_id": "bog-00001234-202609-0001",
@@ -1567,7 +1567,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "row": 12
@@ -1819,7 +1819,7 @@
         "printed_credit_cents": 751299,
         "printed_debit_cents": 279965,
         "closing_balance_cents": 1218668,
-        "spending_draft_total_cents": 224965,
+        "spending_draft_total_cents": 234965,
         "pending_display_total_cents": 650
       },
       "account_basis": "asset",
@@ -1853,7 +1853,7 @@
       ],
       "expected_source_event_count": 27,
       "expected_posted_event_count": 26,
-      "expected_spending_draft_count": 18,
+      "expected_spending_draft_count": 19,
       "expected_events": [
         {
           "event_id": "bog-00001234-202610-0001",
@@ -2024,7 +2024,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "page": 1,
@@ -2293,7 +2293,7 @@
         "printed_credit_cents": 751299,
         "printed_debit_cents": 280965,
         "closing_balance_cents": 1689002,
-        "spending_draft_total_cents": 225965,
+        "spending_draft_total_cents": 235965,
         "pending_display_total_cents": 650
       },
       "account_basis": "asset",
@@ -2320,7 +2320,7 @@
       ],
       "expected_source_event_count": 27,
       "expected_posted_event_count": 26,
-      "expected_spending_draft_count": 18,
+      "expected_spending_draft_count": 19,
       "expected_events": [
         {
           "event_id": "bog-00001234-202610-0001",
@@ -2481,7 +2481,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "row": 12
@@ -2733,7 +2733,7 @@
         "printed_credit_cents": 751299,
         "printed_debit_cents": 280965,
         "closing_balance_cents": 1689002,
-        "spending_draft_total_cents": 225965,
+        "spending_draft_total_cents": 235965,
         "pending_display_total_cents": 650
       },
       "account_basis": "asset",
@@ -2767,7 +2767,7 @@
       ],
       "expected_source_event_count": 4,
       "expected_posted_event_count": 4,
-      "expected_spending_draft_count": 1,
+      "expected_spending_draft_count": 2,
       "expected_events": [
         {
           "event_id": "bankpacific-00005678-202609-0001",
@@ -2826,7 +2826,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "page": 1,
@@ -2839,7 +2839,7 @@
         "printed_credit_cents": 30037,
         "printed_debit_cents": 12246,
         "closing_balance_cents": 97791,
-        "spending_draft_total_cents": 8246,
+        "spending_draft_total_cents": 12246,
         "pending_display_total_cents": 0
       },
       "account_basis": "asset",
@@ -2866,7 +2866,7 @@
       ],
       "expected_source_event_count": 4,
       "expected_posted_event_count": 4,
-      "expected_spending_draft_count": 1,
+      "expected_spending_draft_count": 2,
       "expected_events": [
         {
           "event_id": "bankpacific-00005678-202609-0001",
@@ -2922,7 +2922,7 @@
           "event_type": "cash_withdrawal",
           "status": "posted",
           "row_kind": "posted",
-          "expected_spending_draft": false,
+          "expected_spending_draft": true,
           "category": null,
           "locator": {
             "row": 5
@@ -2934,7 +2934,7 @@
         "printed_credit_cents": 30037,
         "printed_debit_cents": 12246,
         "closing_balance_cents": 97791,
-        "spending_draft_total_cents": 8246,
+        "spending_draft_total_cents": 12246,
         "pending_display_total_cents": 0
       },
       "account_basis": "asset",

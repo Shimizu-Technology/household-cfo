@@ -1,0 +1,45 @@
+{
+  "sha256": "f84c64740fcbd664d0559b1c583aebd734efbcef5cb0db26fcd88faea086e5e9",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "request_sha256": "486564a170ceb58ab3a8ccdcfe6efe9b88816a1d61f81b726228fa4334ded997",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": null,\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Partial screenshot of Bank of Guam-style DEMO account ****6824 showing 7 posted transactions from 2026-09-11 to 2026-09-22. No statement totals, balances or printed period are shown.\",\n  \"confidence\": 0.8,\n  \"warnings\": [\n    \"This is a partial capture (Capture 2) covering only part of September 2026. No printed statement period, opening/closing balances or totals are visible.\",\n    \"Monthly normalization is not possible from this crop; the observed row dates are 2026-09-11 to 2026-09-22.\",\n    \"The account type (asset or liability) is not stated; it is assumed to be an asset because it is a bank account with deposits and a payroll credit, but this is not confirmed.\",\n    \"The first row is a transfer from the participant's own checking ****4410. The counterpart account is not shown in this capture.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"6824\",\n        \"account_basis\": \"unknown\",\n        \"label\": \"Bank of Guam-style DEMO - Lina and Mateo Talun\",\n        \"masked_identifier\": \"****6824\",\n        \"period_start_on\": null,\n        \"period_end_on\": null,\n        \"opening_balance_cents\": null,\n        \"closing_balance_cents\": null,\n        \"printed_debit_cents\": null,\n        \"printed_credit_cents\": null,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Header reads 'Bank of Guam-style DEMO', 'Lina and Mateo Talun | ****6824', '2026-09 activity | Capture 2'. Footer: 'Fictional account; crop has no statement totals'.\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 50000,\n        \"amount_column_cents\": 50000,\n        \"posted_on\": \"2026-09-11\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": null,\n        \"raw_description\": \"Transfer from own checking DEMO ****4410\",\n        \"evidence\": \"POSTED 2026-09-11, +$500.00, transfer from the participant's own checking account ****4410.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3238,\n        \"amount_column_cents\": -3238,\n        \"posted_on\": \"2026-09-12\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": \"Tasi Demo Market\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"POSTED 2026-09-12, -$32.38, point-of-sale purchase at a market.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -5200,\n        \"amount_column_cents\": -5200,\n        \"posted_on\": \"2026-09-14\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": \"Tasi Demo Fuel\",\n        \"raw_description\": \"Tasi Demo Fuel\",\n        \"evidence\": \"POSTED 2026-09-14, -$52.00, fuel purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 165000,\n        \"amount_column_cents\": 165000,\n        \"posted_on\": \"2026-09-16\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": \"Tasi Services DEMO\",\n        \"raw_description\": \"Tasi Services DEMO payroll Mateo\",\n        \"evidence\": \"POSTED 2026-09-16, +$1,650.00, payroll deposit for Mateo. Pay frequency is not shown.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -8500,\n        \"amount_column_cents\": -8500,\n        \"posted_on\": \"2026-09-18\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 5},\n        \"merchant\": \"Tasi Demo Internet\",\n        \"raw_description\": \"Tasi Demo Internet\",\n        \"evidence\": \"POSTED 2026-09-18, -$85.00, internet service bill.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3315,\n        \"amount_column_cents\": -3315,\n        \"posted_on\": \"2026-09-19\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 6},\n        \"merchant\": \"Tasi Demo Market\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"POSTED 2026-09-19, -$33.15, point-of-sale purchase at a market. This is a separate row from the 2026-09-12 purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -2850,\n        \"amount_column_cents\": -2850,\n        \"posted_on\": \"2026-09-22\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 7},\n        \"merchant\": \"Tasi Demo Noodle House\",\n        \"raw_description\": \"Tasi Demo Noodle House\",\n        \"evidence\": \"POSTED 2026-09-22, -$28.50, restaurant purchase.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4323,
+            "completion_tokens": 2176,
+            "total_tokens": 6499,
+            "cost": 0.030406,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.030406,
+              "upstream_inference_prompt_cost": 0.008646,
+              "upstream_inference_completions_cost": 0.02176
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

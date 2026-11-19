@@ -2,8 +2,8 @@ class FinancialSourceEvent < ApplicationRecord
   KINDS = %w[posted informational unresolved].freeze
   TYPES = %w[purchase fee refund income transfer debt_payment cash_withdrawal interest adjustment unknown].freeze
   # Only these movement types are household spending; transfers, card/debt
-  # payments, income, refunds and cash withdrawals are not counted as spending.
-  EXPENSE_TYPES = %w[purchase fee interest].freeze
+  # payments, income and refunds are not counted as spending.
+  EXPENSE_TYPES = %w[purchase fee interest cash_withdrawal].freeze
   belongs_to :household
   belongs_to :financial_extraction_revision
   belongs_to :financial_source_account

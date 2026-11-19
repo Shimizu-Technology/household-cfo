@@ -1,0 +1,45 @@
+{
+  "sha256": "a20d456fc42a9579a5deed9ba1a46da10823f3a8348c8613477227f1bc31b65c",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "request_sha256": "d925b7eb4d7007267542d05b1b32684ca84339ec343c61bb81a511fceab4d85f",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-06-30\",\n  \"period_start_on\": \"2026-06-01\",\n  \"period_end_on\": \"2026-06-30\",\n  \"summary\": \"Mainland Visa credit card statement (***6074) for June 2026. The balance owed rose from $3,831.86 to $3,924.62 after $342.76 in debits and a $250.00 payment. All 7 transaction rows are captured.\",\n  \"confidence\": 0.95,\n  \"warnings\": [\n    \"The statement shows no APR, minimum payment, or due date, so the debt item has those fields set to null.\",\n    \"The statement printed no row count, so reported_row_count is null.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"debt\",\n      \"label\": \"Mainland Visa ***6074\",\n      \"amount\": null,\n      \"balance\": 3924.62,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": null,\n      \"debt_type\": \"credit_card\",\n      \"confidence\": 0.9,\n      \"evidence\": \"Ending balance: $3,924.62 as of the statement period ending 2026-06-30.\",\n      \"metadata\": {\"goal_type\": null}\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"card_6074\",\n        \"account_basis\": \"liability\",\n        \"label\": \"Mainland Visa\",\n        \"masked_identifier\": \"***6074\",\n        \"period_start_on\": \"2026-06-01\",\n        \"period_end_on\": \"2026-06-30\",\n        \"opening_balance_cents\": 383186,\n        \"closing_balance_cents\": 392462,\n        \"printed_debit_cents\": 34276,\n        \"printed_credit_cents\": 25000,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Account: ***6074; Statement period: 2026-06-01 through 2026-06-30; Beginning balance: $3,831.86; Ending balance: $3,924.62; Posted credits: $250.00; Posted debits: $342.76\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"card_6074\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -11977,\n        \"amount_column_cents\": 11977,\n        \"posted_on\": \"2026-06-04\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": \"Tasi Demo Market\",\n        \"raw_description\": \"Tasi Demo Market\",\n        \"evidence\": \"Debit 119.77 on 2026-06-04\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"card_6074\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -8425,\n        \"amount_column_cents\": 8425,\n        \"posted_on\": \"2026-06-09\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": \"Tasi Demo Outfitters\",\n        \"raw_description\": \"Tasi Demo Outfitters\",\n        \"evidence\": \"Debit 84.25 on 2026-06-09\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"card_6074\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"debt_payment\",\n        \"signed_amount_cents\": 25000,\n        \"amount_column_cents\": 25000,\n        \"posted_on\": \"2026-06-13\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": null,\n        \"raw_description\": \"Payment received from Talun checking ***4410\",\n        \"evidence\": \"Credit 250.00 on 2026-06-13. This is a card payment from the household's checking account ***4410.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"card_6074\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -7400,\n        \"amount_column_cents\": 7400,\n        \"posted_on\": \"2026-06-19\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": \"Tasi Demo Home Store\",\n        \"raw_description\": \"Tasi Demo Home Store\",\n        \"evidence\": \"Debit 74.00 on 2026-06-19\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"card_6074\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3799,\n        \"amount_column_cents\": 3799,\n        \"posted_on\": \"2026-06-22\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 5},\n        \"merchant\": \"Tasi Demo Online Shop\",\n        \"raw_description\": \"Tasi Demo Online Shop\",\n        \"evidence\": \"Debit 37.99 on 2026-06-22\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"card_6074\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"fee\",\n        \"signed_amount_cents\": -500,\n        \"amount_column_cents\": 500,\n        \"posted_on\": \"2026-06-27\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 6},\n        \"merchant\": null,\n        \"raw_description\": \"Card service fee\",\n        \"evidence\": \"Debit 5.00 on 2026-06-27\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"card_6074\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"interest\",\n        \"signed_amount_cents\": -2175,\n        \"amount_column_cents\": 2175,\n        \"posted_on\": \"2026-06-27\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 7},\n        \"merchant\": null,\n        \"raw_description\": \"Purchase interest charge\",\n        \"evidence\": \"Debit 21.75 on 2026-06-27\",\n        \"limitations\": null\n      }\n    ]\n  }\n}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2875,
+            "completion_tokens": 2617,
+            "total_tokens": 5492,
+            "cost": 0.03392,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.03192,
+              "upstream_inference_prompt_cost": 0.00575,
+              "upstream_inference_completions_cost": 0.02617
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 504,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

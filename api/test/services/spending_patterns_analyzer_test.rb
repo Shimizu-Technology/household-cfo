@@ -24,6 +24,33 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_includes replies[3], "Oct"
   end
 
+  test "Mia never offers medical care, family support, money sent to people or a one-off as a cut" do
+    medical = @household.budget_categories.create!(name: "Doctor and medical", stack_key: "discretionary", sort_order: 2)
+    support = @household.budget_categories.create!(name: "Money sent", stack_key: "discretionary", sort_order: 3)
+    dining = @household.budget_categories.create!(name: "Eating out and coffee", stack_key: "discretionary", sort_order: 4)
+    [ Date.new(2026, 9, 14), Date.new(2026, 10, 14) ].each do |date|
+      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Harbor Family Clinic Tamuning Gum S*····4410 Card 7302", 41_000, category: medical)
+      purchase(date, "Zelle to Reyes Ana on #{date.strftime('%m/%d')} Ref # Demo1A2B3C4D", 30_000, category: support)
+      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Reef Coffee Co Barrigada Gum S*····#{date.day}95 Card 7302", 9_000, category: dining)
+    end
+    purchase(Date.new(2026, 9, 17), "Money Transfer authorized on 09/17 Paypal *Jordan.Cruz San Jose CA S*····5519 Card", 69_000, category: @category)
+    purchase(Date.new(2026, 10, 3), "Ross", 50_000)
+    pharmacy = @household.budget_categories.create!(name: "Medication", stack_key: "discretionary", sort_order: 5)
+    [ Date.new(2026, 9, 20), Date.new(2026, 10, 20) ].each do |date|
+      purchase(date, "Mega Drug Tamuning", 12_000, category: pharmacy)
+      purchase(date, "PAYPAL *JANEDOE.SMITH", 8_000)
+      purchase(date, "Purchase: Venmo to Alex Rivera", 6_000)
+    end
+    result = analyze
+    labels = result[:candidate_changes].map { |row| row[:merchant] }
+    assert_equal [ "Reef Coffee Co" ], labels
+    assert_equal 9_000, result[:candidate_changes].first[:monthly_impact_cents] * 2
+    refute_includes result[:discretionary_categories].map { |row| row[:label] }, "Doctor and medical"
+    refute(result[:discretionary_merchants].any? { |row| row[:label].include?("Harbor Family") })
+    assert_equal 1, result[:discretionary_merchants].count { |row| row[:label] == "Reef Coffee Co" }
+    assert_equal 41_000 * 2 + 30_000 * 2 + 9_000 * 2 + 69_000 + 50_000 + (12_000 + 8_000 + 6_000) * 2, result[:observed_spending_cents]
+  end
+
   test "R2 current month reviewed purchases are visible without claiming a complete month" do
     purchase(Date.new(2026, 11, 3), "Ross", 6000)
     result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 7)).call
@@ -101,11 +128,13 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   test "coaching groups location parenthetical and store number variants with short names" do
     originals = [ "Island Table - Tamuning (includes tip)", "Island Table - Dededo", "Island Table (includes tip) #123" ]
     originals.each { |name| purchase(Date.new(2026, 10, 5), name, 2240) }
+    purchase(Date.new(2026, 9, 5), "Island Table - Dededo", 2240)
     purchase(Date.new(2026, 10, 6), "Ross #123", 5525)
     result = analyze
-    assert_equal [ [ "Island Table", 6720 ], [ "Ross", 5525 ] ], result[:discretionary_merchants].map { |row| [ row[:label], row[:total_cents] ] }
-    assert_equal "Island Table", result[:candidate_changes].first[:merchant]
-    assert_equal 3360, result[:candidate_changes].first[:monthly_impact_cents]
+    assert_equal [ [ "Island Table", 8960 ], [ "Ross", 5525 ] ], result[:discretionary_merchants].map { |row| [ row[:label], row[:total_cents] ] }
+    # Ross appears in one month only, so it is a one-off and never offered as a monthly cut.
+    assert_equal [ "Island Table" ], result[:candidate_changes].map { |row| row[:merchant] }
+    assert_equal 2240, result[:candidate_changes].first[:monthly_impact_cents]
     originals.each { |name| assert @household.household_transactions.exists?(merchant: name) }
   end
 
@@ -197,7 +226,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   test "repeated same-date same-amount purchases are possible subscriptions, never confirmed subscriptions" do
     [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 8), "Stream service", 1599) }
     result = analyze
-    assert_equal({ merchant: "Stream service", typical_amount_cents: 1599, observed_payments: 3, confirmed_subscription: false }, result[:possible_subscriptions].sole)
+    assert_equal({ merchant: "Stream service", typical_amount_cents: 1599, latest_amount_cents: 1599, last_charged_on: "2026-10-08", observed_payments: 3, confirmed_subscription: false }, result[:possible_subscriptions].sole)
     assert_raises(ArgumentError) { SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-11-01", to: "2026-12-01").call }
   end
 
@@ -245,6 +274,36 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     [ 6, 8, 10 ].each { |month| purchase(Date.new(2026, month, 8), "Software subscription", 1599) }
     result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-06-01").call
     assert_empty result[:possible_subscriptions]
+  end
+
+  test "known services and the bank's recurring marker read as subscriptions through a price rise or a missed statement" do
+    purchase(Date.new(2026, 8, 23), "Recurring Payment authorized on 08/23 Disney Plus 888-····4242 CA S*····8141 Card 7302", 1899)
+    purchase(Date.new(2026, 9, 23), "Recurring Payment authorized on 09/23 Disney Plus 888-····4242 CA S*····8141 Card 7302", 2149)
+    purchase(Date.new(2026, 10, 23), "Recurring Payment authorized on 10/23 Disney Plus 888-····4242 CA S*····8141 Card 7302", 2149)
+    # The bank marks it recurring, so one missed statement (July) still reads as monthly.
+    [ 5, 6, 8 ].each { |month| purchase(Date.new(2026, month, 8), "Recurring Payment authorized on #{month.to_s.rjust(2, '0')}/08 Google Youtubeprem 650-····1111 CA S*····7788 Card 7302", 1399) }
+    [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 5), "ROSS STORES #567", 20_000) }
+    found = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-05-01").call[:possible_subscriptions]
+    assert_equal [ "Disney Plus", "Google Youtubeprem" ], found.pluck(:merchant)
+    assert_equal [ 2149, 1399 ], found.pluck(:latest_amount_cents)
+    refute_includes found.pluck(:merchant), "Ross", "Repeated retail visits are not subscriptions"
+  end
+
+  test "two purchases two months apart, or a charge every two months, is not a monthly subscription" do
+    purchase(Date.new(2026, 8, 10), "NINTENDO *AMERICA", 5999)
+    purchase(Date.new(2026, 10, 12), "NINTENDO *AMERICA", 5999)
+    purchase(Date.new(2026, 6, 19), "Recurring Payment authorized on 06/19 GTA Teleguam", 37_468)
+    purchase(Date.new(2026, 8, 19), "Recurring Payment authorized on 08/19 GTA Teleguam", 37_468)
+    purchase(Date.new(2026, 10, 19), "Recurring Payment authorized on 10/19 GTA Teleguam", 37_468)
+    result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-06-01").call
+    assert_empty result[:possible_subscriptions]
+  end
+
+  test "a marked service seen once, or at a changing price, is not a monthly subscription" do
+    purchase(Date.new(2026, 10, 19), "Recurring Payment authorized on 10/19 Starlink Internet", 8500)
+    assert_empty analyze[:possible_subscriptions]
+    purchase(Date.new(2026, 9, 19), "Recurring Payment authorized on 09/19 Starlink Internet", 4000)
+    assert_empty analyze[:possible_subscriptions]
   end
 
   private

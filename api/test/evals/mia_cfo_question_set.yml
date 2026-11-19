@@ -1,0 +1,252 @@
+# The CFO question set: what a household asks its CFO, put to a richer synthetic
+# household (HouseholdFinance::MiaEvalCfoHousehold). Every case is checked for
+# numbers (expected_amounts, read from the household's ledger at run time where
+# possible) and the global rules in HouseholdFinance::MiaEvalRules.
+#
+# known_gap marks a question the app can't answer correctly today. It names the
+# checks expected to fail (and, with modes, the runs it applies to); any other
+# failure, such as a rule or a wrong amount it doesn't name, still fails the run.
+# reason says what is wrong. Narrow or remove a gap when the harness lists it as
+# closed. docs/testing/mia-evals.md has the format.
+#
+# The household (time frozen at 2026-07-15): $5,400 planned income a month from
+# January; April to mid-July of confirmed purchases including a prenatal clinic
+# ($205 a month), $200 a month sent to family, a one-off $690 nursery payment in
+# June, Netflix and Spotify; three debts with $440 of minimums.
+household: cfo
+cases:
+  # What came in
+  - id: cfo_income_last_month
+    route: controller
+    prompt: How much came in last month?
+    expected_amounts:
+      - { ledger: month_income, month: "2026-06" }
+    live_expected: [/income/]
+
+  - id: cfo_income_this_month
+    route: controller
+    prompt: How much came in this month?
+    expected_amounts:
+      - { ledger: month_income, month: "2026-07" }
+    live_expected: [/income/]
+
+  # Where it went, against the plan
+  - id: cfo_spent_last_month
+    route: controller
+    prompt: How much did we spend last month?
+    expected_phrases: [June 2026]
+    expected_amounts:
+      - { ledger: month_spending, month: "2026-06" }
+      - { ledger: month_planned, month: "2026-06" }
+
+  - id: cfo_june_against_plan
+    route: controller
+    prompt: How did we do in June?
+    expected_phrases: [June 2026, over]
+    expected_amounts:
+      - { ledger: month_spending, month: "2026-06" }
+      - { ledger: month_planned, month: "2026-06" }
+      - "$158.48"
+
+  - id: cfo_spent_this_month
+    route: controller
+    prompt: How much did I spend this month?
+    expected_amounts:
+      - { ledger: month_spending, month: "2026-07" }
+
+  - id: cfo_dining_out_june
+    route: controller
+    prompt: How much did we spend on dining out in June?
+    expected_amounts:
+      - { ledger: category_spending, category: Dining Out, month: "2026-06" }
+
+  - id: cfo_store_june
+    route: controller
+    prompt: How much did we spend at Reef Coffee Co in June?
+    expected_amounts: ["$38"]
+
+  - id: cfo_over_budget
+    route: controller
+    prompt: Am I over budget?
+    expected_phrases: [over the plan so far]
+    forbidden_phrases: [/\ANo\b/]
+    expected_amounts:
+      - { ledger: month_spending, month: "2026-07" }
+
+  - id: cfo_where_it_went_against_plan
+    route: controller
+    prompt: Where did our money go last month compared to the plan?
+    expected_amounts:
+      - { ledger: month_spending, month: "2026-06" }
+      - { ledger: month_planned, month: "2026-06" }
+    known_gap:
+      checks: [expected_amounts]
+      reason: Routed to the readiness plan ("let's make the plan from approved household numbers"); it never compares June's spending with June's plan.
+
+  - id: cfo_where_most_money_goes
+    route: controller
+    prompt: Where does most of our money go?
+    expected_phrases: [Rent]
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects ("Let's take this one step at a time"); no deterministic route reads where money goes.
+
+  # What to cut first
+  - id: cfo_spending_patterns_three_months
+    route: controller
+    prompt: What spending patterns do you see in my last 3 months?
+    expected_phrases: [Jamaican Grill]
+    expected_amounts:
+      - { ledger: month_spending, month: "2026-04", through: "2026-06" }
+
+  - id: cfo_where_cut_back
+    route: controller
+    prompt: Where can I cut back on spending?
+    expected_phrases: [Jamaican Grill]
+    forbidden_phrases: [Island Prenatal Clinic, Auntie Lina]
+
+  - id: cfo_cut_first
+    route: controller
+    prompt: What should we cut first?
+    expected_phrases: [[Jamaican Grill, Reef Coffee Co, Ross, Dining Out, Shopping]]
+    live_expected: [[Jamaican Grill, Reef Coffee Co, Ross, Dining Out, Shopping, dining, takeout]]
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects ("Let's take this one step at a time"); the read-only floor doesn't recognize "cut first".
+
+  - id: cfo_cut_prenatal_clinic
+    route: controller
+    prompt: Should we cut back on the prenatal clinic visits?
+    expected_phrases: [[medical, protect, keep]]
+    live_expected: [[medical, protect, keep, care, doctor]]
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects instead of saying medical care stays protected. The gap covers only that missing answer; protected_cut still fails any reply that offers the cut.
+
+  - id: cfo_stop_family_support
+    route: controller
+    prompt: Can we stop sending money to Auntie Lina so we can save more?
+    expected_phrases: [[family, your call, your decision, up to you]]
+    live_expected: [[family, your call, your decision, up to you, choice]]
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects; no answer says family support isn't a cut Mia suggests and that the choice is theirs. protected_cut still fails any reply that offers the cut.
+
+  - id: cfo_one_off_every_month
+    route: controller
+    prompt: Can we save on the PayPal nursery payment every month?
+    expected_phrases: [[one-time, one time, once, one-off]]
+    live_expected: [[one-time, one time, once, one-off, single]]
+    known_gap:
+      checks: [expected_phrases]
+      modes: [deterministic]
+      reason: Without the model reader Mia deflects instead of saying the $690 nursery payment happened once. one_month_saving still fails any reply that calls it a monthly saving.
+
+  # Subscriptions
+  - id: cfo_subscriptions
+    route: controller
+    prompt: What subscriptions am I paying for?
+    expected_phrases: [Netflix, Spotify]
+    expected_amounts: ["$15.49", "$11.99"]
+    live_expected: [Netflix, Spotify]
+
+  # Is our budget realistic
+  - id: cfo_budget_realistic
+    route: controller
+    prompt: We have a baby due soon. Is our budget realistic?
+    expected_amounts:
+      - { ledger: month_plan_left, month: "2026-07" }
+
+  - id: cfo_how_am_i_doing
+    route: controller
+    prompt: How am I doing this month?
+    expected_phrases: [plan leaves]
+    strict_amounts: true
+    expected_amounts:
+      - { ledger: month_plan_left, month: "2026-07" }
+      - { ledger: month_spending, month: "2026-07" }
+
+  # Savings-goal math
+  - id: cfo_savings_goal_by_march
+    route: controller
+    prompt: We want $3,000 saved by March. How much do we need to put away each month?
+    expected_phrases: [[$375, $333]]
+    expected_amounts: ["$3,000"]
+    live_expected: [[$375, $333, "375", "333"]]
+    known_gap:
+      checks: [expected_phrases, expected_amounts]
+      reason: >-
+        Read as a question about March 2026 spending ("Approved spending for March 2026 is not
+        known yet"). Nothing works out $3,000 over the months to March 2027 ($375 a month for
+        August to March).
+
+  # Debt order
+  - id: cfo_debt_order
+    route: controller
+    prompt: Which debt should we pay off first?
+    expected_phrases: [Store card first, Avalanche, Snowball]
+    expected_amounts:
+      - { ledger: debt_minimums }
+      - "$640"
+
+  - id: cfo_debt_minimums_total
+    route: controller
+    prompt: How much are our debt payments each month?
+    expected_amounts:
+      - { ledger: debt_minimums }
+
+  # Can I afford it
+  - id: cfo_afford_tv
+    route: controller
+    prompt: Can I afford a $650 TV?
+    strict_amounts: true
+    expected_amounts:
+      - "$650"
+      - { ledger: month_plan_left, month: "2026-07" }
+      - { ledger: month_plan_left, month: "2026-07", minus: "$650" }
+
+  - id: cfo_afford_trip_in_august
+    route: controller
+    prompt: Can we afford a $1,200 trip in August?
+    expected_phrases: [August 2026]
+    strict_amounts: true
+    expected_amounts:
+      - "$1,200"
+      - { ledger: month_plan_left, month: "2026-08" }
+      - { ledger: month_plan_left, month: "2026-08", minus: "$1,200" }
+
+  - id: cfo_bonus
+    route: controller
+    prompt: What should I do with a $1,000 bonus?
+    expected_amounts: ["$1,000"]
+    forbidden_phrases: [car registration]
+
+  # Will we make it to payday
+  - id: cfo_make_it_to_payday
+    route: controller
+    prompt: Will we make it to payday?
+    expected_phrases: [payday]
+    known_gap:
+      checks: [expected_phrases]
+      reason: Gives the generic bill-triage reply. Nothing reads a checking balance or pay dates to answer whether money lasts until payday.
+
+  - id: cfo_make_it_to_payday_with_numbers
+    route: controller
+    prompt: We have $400 in checking and payday is in 9 days. Will we make it?
+    expected_amounts: ["$400"]
+    expected_phrases: [[9 days, nine days]]
+    known_gap:
+      checks: [expected_phrases, expected_amounts]
+      reason: Ignores the $400 and the 9 days the participant gave and gives the same bill-triage reply.
+
+  - id: cfo_runway_if_job_lost
+    route: controller
+    prompt: How many months could we last if I lost my job?
+    expected_phrases: [0.6 months]
+    known_gap:
+      checks: [expected_phrases]
+      reason: Treated as distress ("This sounds hard"); it never gives the runway (0.6 months on $2,500 of savings).

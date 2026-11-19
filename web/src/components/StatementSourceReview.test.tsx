@@ -20,6 +20,29 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it.each([null, 70])('shows the category or No category on approved cash lines (%s)', async (categoryId) => {
+    const data = participantReviewFixture()
+    const event = data.events[1]
+    event.event_type = 'cash_withdrawal'
+    data.participant_review!.plan.ready = []
+    data.participant_review!.plan.attention = []
+    data.participant_review!.categories = [{ id: 70, name: 'Cash' }]
+    data.participant_review!.rows[event.id].approved = { id: 800, digest: 'fictional-cash', version_number: 1, current: true, reason: 'Reviewed fictional cash', projection: { action: 'none' }, actual: null, facts: {
+      source_account_identity_version_id: 100, posted_on: event.posted_on, merchant: event.evidence!.merchant!, overlap_disposition: 'distinct',
+      disposition: 'include', event_type: 'cash_withdrawal', signed_amount_cents: -10000,
+      purchase_amount_cents: categoryId ? 10000 : null, budget_category_id: categoryId,
+    } }
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByRole('heading', { level: 5 })
+    fireEvent.click(screen.getByText('See all 137 lines'))
+    const button = await screen.findByRole('button', { name: `Fictional entry ${event.id - 4000 + 1}` })
+    const row = button.closest('tr')!
+    expect(within(row).getByText(categoryId ? 'Cash' : 'No category')).toBeTruthy()
+    fireEvent.click(button)
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
   it('refreshes a coverage conflict to the newer answer and clears the old mutation error', async () => {
     const data = participantReviewFixture()
     data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: null }
@@ -295,6 +318,15 @@ describe('statement review a participant can finish', () => {
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4130, decision: 'edited', edit: { money_direction: 'out', kind: 'spending', merchant: 'Payless', posted_on: '2026-09-16', amount_cents: 1250, category_id: 10 } }] })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('opens No to "Did this move between your own accounts?" on spending, so Save does not keep it as a transfer', async () => {
+    mount()
+    const list = await screen.findByRole('list', { name: 'Lines that need a quick look' })
+    fireEvent.click(within(list).getByRole('button', { name: 'No: Fictional entry 2' }))
+    const sheet = await screen.findByRole('dialog')
+    expect((within(sheet).getByLabelText('What was this?') as HTMLSelectElement).value).toBe('spending')
+    expect(within(sheet).getByLabelText(/^Category/)).toBeTruthy()
   })
 
   it('reopens the account sheet with the type she already approved when the file never said', async () => {

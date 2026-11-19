@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
-import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, lineKindFor, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
+import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
 
 const ready = (count: number): StatementPlan['ready'] => Array.from({ length: count }, (_, index) => ({ event_id: index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), ready: ready(24), coverage: { question: null, answer: null }, totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
@@ -18,6 +18,21 @@ describe('a line whose direction she supplies', () => {
     const sheet = lineSheetFromAttention(unsigned('transfer'))
     expect(sheet).toMatchObject({ directionRequired: true, amountCents: 10_000, kind: 'moved' })
     expect(sheet.moneyDirection).toBeUndefined()
+  })
+})
+
+describe('the sheet her answer opens', () => {
+  const asked = (kind: 'transfer' | 'card_payment' | 'refund' | 'unclear', eventType: 'transfer' | 'debt_payment' | 'refund' | 'unknown', cents: number) => ({ ...plan().attention[0], kind, event_type: eventType, signed_amount_cents: cents })
+  it('opens on spending or money in after No, never on the kind she just said it is not', () => {
+    expect(lineSheetForAnswer(asked('transfer', 'transfer', -10_000)).kind).toBe('spending')
+    expect(lineSheetForAnswer(asked('transfer', 'transfer', 28_094)).kind).toBe('money_in')
+    expect(lineSheetForAnswer(asked('card_payment', 'debt_payment', -43_653)).kind).toBe('spending')
+    expect(lineSheetForAnswer(asked('refund', 'refund', 1_299)).kind).toBe('money_in')
+  })
+  it('opens a line the reader could not classify on the direction the statement shows', () => {
+    expect(lineSheetForAnswer(asked('unclear', 'unknown', 172_020)).kind).toBe('money_in')
+    expect(lineSheetForAnswer(asked('unclear', 'unknown', -5_463)).kind).toBe('spending')
+    expect(lineKindFor('unknown', null)).toBe('spending')
   })
 })
 

@@ -3,6 +3,26 @@ require "spreadsheet"
 require "zip"
 
 class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::TestCase
+  test "ATM purchases fees and cash back remain whole expenses distinct from withdrawals" do
+    descriptions = {
+      "ATM/POS Purchase Walmart" => "purchase", "Purchase with Cash Back $20" => "purchase",
+      "ATM Surcharge" => "fee", "ATM Fees" => "fee", "Branch Withdrawal Service Charge" => "fee",
+      "Non-WF ATM Withdrawal Fee" => "fee", "Non-WF ATM Balance Inquiry Fee" => "fee", "ATM Withdrawal Fee" => "fee",
+      "Branch withdrawal" => "cash_withdrawal", "ATM" => "cash_withdrawal"
+    }
+    file = Tempfile.new([ "cash-classification", ".csv" ])
+    file.write("date,description,debit,credit\n")
+    descriptions.each { |description, type| file.write("2026-08-04,#{description},#{type == "fee" ? "3.00" : "30.00"},\n") }
+    file.flush
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "cash-classification.csv", document_kind: "statement").call
+    assert result.success?, result.error
+    events = result.data.fetch(:source_accounting).fetch(:events)
+    assert_equal descriptions.values, events.map { |event| event[:event_type] }
+    assert_equal descriptions.values.map { |type| type == "fee" ? 300 : 3000 }, events.map { |event| event[:expense_amount_cents] }, "Cash back remains part of the full purchase; no cash split is inferred"
+  ensure
+    file&.close!
+  end
+
   test "skips generic export notes but retains dated and incomplete financial rows" do
     file = Tempfile.new([ "export-notes", ".csv" ])
     file.write(<<~CSV)

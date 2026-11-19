@@ -194,8 +194,9 @@ module HouseholdFinance
           source_changed = transaction.drafted_source_fingerprint.present? && transaction.source_fingerprint != transaction.drafted_source_fingerprint
           source_changed || (transaction.review_status != "ignored" && draft&.status != "ignored" && (draft.nil? || draft.pending?))
         end
-        merchants = posted_outflows.group_by { |transaction| transaction.merchant_name.presence || transaction.name }.map do |merchant, grouped|
-          { merchant: merchant, count: grouped.length, amount: Money.dollars(grouped.sum(&:amount_cents)) }
+        # One store's bank spellings ("ROSS STORES #497", "ROSS DRESS FOR LESS #123") are grouped before ranking.
+        merchants = posted_outflows.group_by { |transaction| SpendingPatterns::MerchantName.call(transaction.merchant_name.presence || transaction.name).to_s.downcase }.map do |_key, grouped|
+          { merchant: SpendingPatterns::MerchantName.call(grouped.first.merchant_name.presence || grouped.first.name), count: grouped.length, amount: Money.dollars(grouped.sum(&:amount_cents)) }
         end.sort_by { |row| -row.fetch(:amount) }.first(5)
 
         {

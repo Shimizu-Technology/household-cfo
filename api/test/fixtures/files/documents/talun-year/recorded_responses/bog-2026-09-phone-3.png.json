@@ -1,0 +1,45 @@
+{
+  "sha256": "1a89a5157afef63e280e0cd9e51fdb5f970f64d4a30cd708048bc2deb83eae06",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "request_sha256": "3c4ece767e03a5aaed70f3b34e6c75fc9ec34a169ae703fe95b5e4be13495948",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": null,\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Partial bank activity capture (Capture 3) for account ****6824, labeled 2026-09 activity, showing 4 posted debit rows. No statement totals, balances, or printed period dates are visible.\",\n  \"confidence\": 0.9,\n  \"warnings\": [\n    \"This is a partial crop of 2026-09 activity (Capture 3). It does not show a full statement period, opening or closing balances, or statement totals.\",\n    \"Printed statement period dates are not visible. Dates in rows are observed posting dates only.\",\n    \"No printed row count is shown, so reported_row_count is null.\",\n    \"Account basis is assumed to be asset because it appears to be a bank account, but this is not explicitly stated.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"acct_6824\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Bank of Guam-style DEMO - Lina and Mateo Talun\",\n        \"masked_identifier\": \"****6824\",\n        \"period_start_on\": null,\n        \"period_end_on\": null,\n        \"opening_balance_cents\": null,\n        \"closing_balance_cents\": null,\n        \"printed_debit_cents\": null,\n        \"printed_credit_cents\": null,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Header: 'Bank of Guam-style DEMO', 'Lina and Mateo Talun | ****6824', '2026-09 activity | Capture 3'. Footer: 'Fictional account; crop has no statement totals'.\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3315,\n        \"amount_column_cents\": -3315,\n        \"posted_on\": \"2026-09-19\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": \"Tasi Demo Market\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"Row 1 marked POSTED on 2026-09-19, amount -$33.15; POS purchase at market.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -2850,\n        \"amount_column_cents\": -2850,\n        \"posted_on\": \"2026-09-22\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": \"Tasi Demo Noodle House\",\n        \"raw_description\": \"Tasi Demo Noodle House\",\n        \"evidence\": \"Row 2 marked POSTED on 2026-09-22, amount -$28.50; restaurant purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3392,\n        \"amount_column_cents\": -3392,\n        \"posted_on\": \"2026-09-24\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": \"Tasi Demo Market\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"Row 3 marked POSTED on 2026-09-24, amount -$33.92; POS purchase at market, a separate row from row 1.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"fee\",\n        \"signed_amount_cents\": -500,\n        \"amount_column_cents\": -500,\n        \"posted_on\": \"2026-09-27\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": \"Monthly service fee\",\n        \"raw_description\": \"Monthly service fee\",\n        \"evidence\": \"Row 4 marked POSTED on 2026-09-27, amount -$5.00; bank monthly service fee.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4323,
+            "completion_tokens": 1523,
+            "total_tokens": 5846,
+            "cost": 0.023876,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.023876,
+              "upstream_inference_prompt_cost": 0.008646,
+              "upstream_inference_completions_cost": 0.01523
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

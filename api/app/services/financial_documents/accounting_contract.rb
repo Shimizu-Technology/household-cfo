@@ -159,7 +159,7 @@ module FinancialDocuments
       end
       displayed_amount = amount
       amount = nil if kind == "informational"
-      expense_amount = amount.to_i.negative? && type.in?(%w[purchase fee interest]) ? amount.abs : nil
+      expense_amount = amount.to_i.negative? && type.in?(FinancialSourceEvent::EXPENSE_TYPES) ? amount.abs : nil
       if raw[:purchase_total_cents].present?
         total = nonnegative_cents(raw[:purchase_total_cents])
         local = funding.select { |part| part[:source_key] == account[:source_key] }.sum { |part| part[:amount_cents].to_i }

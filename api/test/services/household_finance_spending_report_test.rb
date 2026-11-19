@@ -100,6 +100,35 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
     refute_includes status, "within budget: $0 confirmed against $0 planned"
   end
 
+  test "am I over budget answers yes when over and no when within, and replies name stores cleanly" do
+    travel_to HouseholdFinance::MiaEvalHousehold.eval_time do
+      _user, household = HouseholdFinance::MiaEvalHousehold.create!
+      report = -> { HouseholdFinance::SpendingReport.new(household, start_on: Date.new(2026, 7, 1), end_on: Date.new(2026, 7, 31)).as_json }
+      narrate = ->(prompt) { HouseholdFinance::SpendingReportNarrator.new(report.call, prompt: prompt).call }
+      assert narrate.call("Am I over budget?").start_with?("No —"), "within the plan, so not over"
+      assert narrate.call("Am I within budget?").start_with?("Yes —")
+
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+      dining = household.budget_categories.find_by!(name: "Dining Out")
+      transaction = household.household_transactions.create!(budget_period: manager.current_period_for(Date.new(2026, 7, 10)), occurred_on: Date.new(2026, 7, 10),
+        merchant: "Purchase authorized on 07/10 Reef Coffee Co Dededo Gum S*····4410 Card 7302", total_amount_cents: 800_000, source_type: "statement", status: "confirmed")
+      transaction.transaction_splits.create!(budget_category: dining, amount_cents: 800_000)
+      assert narrate.call("Am I over budget?").start_with?("Yes —"), narrate.call("Am I over budget?")
+      assert narrate.call("Are we within budget?").start_with?("No —")
+      assert narrate.call("Am I over budget? I want to stay on track.").start_with?("Yes —"), "the question's first budget words decide"
+      assert narrate.call("Is it true that I am not over budget?").start_with?("No —"), "a negated over question reads like within"
+      check = household.household_transactions.create!(budget_period: manager.current_period_for(Date.new(2026, 7, 11)), occurred_on: Date.new(2026, 7, 11),
+        merchant: "Check 1234", total_amount_cents: 2_000, source_type: "statement", status: "confirmed")
+      check.transaction_splits.create!(budget_category: dining, amount_cents: 2_000)
+      refute_includes narrate.call("Can you check how July went?"), "confirmed spending at Check", "an everyday word is not a store question"
+      reef = narrate.call("How much did we spend at Reef Coffee Co in July?")
+      assert_includes reef, "confirmed spending at Reef Coffee Co is $8,000"
+      general = narrate.call("How was spending in July?")
+      assert_includes general, "Reef Coffee Co"
+      refute_match(/authorized on|S\*····|Card 7302/, general)
+    end
+  end
+
   test "bank-observed spending leaves out transfers and card payments" do
     household = create_household
     user = household.created_by_user
@@ -122,6 +151,22 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
     assert_equal 2, payload.dig(:bank_activity, :not_counted_as_spending_count)
     assert_equal 3_078.5, payload.dig(:bank_activity, :not_counted_as_spending)
     refute_includes payload.dig(:bank_activity, :top_merchants).map { |row| row.fetch(:merchant) }, "AUTOMATIC PAYMENT - THANK"
+  end
+
+  test "bank merchants are grouped by store before the top five are chosen" do
+    household = create_household
+    user = household.created_by_user
+    item = household.plaid_items.create!(connected_by_user: user, plaid_item_id: "group-item-#{SecureRandom.hex(3)}", access_token: "group-secret", institution_name: "Sandbox Bank", environment: "sandbox", consented_at: Time.current, consent_policy_version: "test")
+    account = item.plaid_accounts.create!(plaid_account_id: "group-account-#{SecureRandom.hex(3)}", name: "Checking", account_type: "depository")
+    # Five other stores each outspend any single Ross spelling, but the Ross spellings together lead.
+    rows = [ [ "Store A", 3_000 ], [ "Store B", 2_900 ], [ "Store C", 2_800 ], [ "Store D", 2_700 ], [ "Store E", 2_600 ],
+      [ "ROSS STORES #497", 2_500 ], [ "ROSS DRESS FOR LESS #123", 2_400 ] ]
+    rows.each_with_index do |(name, cents), index|
+      item.plaid_transactions.create!(plaid_account: account, plaid_transaction_id: "group-#{index}-#{SecureRandom.hex(3)}", name: name, occurred_on: Date.new(2026, 7, 10), amount_cents: cents, pending: false, primary_category: "GENERAL_MERCHANDISE", source_fingerprint: SecureRandom.hex(32))
+    end
+
+    top = HouseholdFinance::SpendingReport.new(household, start_on: Date.new(2026, 7, 1), end_on: Date.new(2026, 7, 31)).as_json.dig(:bank_activity, :top_merchants)
+    assert_equal({ merchant: "Ross", count: 2, amount: 49.0 }, top.first.symbolize_keys)
   end
 
   test "a legacy pending card-payment draft is left out of pending totals before any later sync" do
