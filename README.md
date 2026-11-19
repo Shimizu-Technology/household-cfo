@@ -112,7 +112,7 @@ docs/design-system.md
 
 ## Mia eval harness
 
-Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-turn intent/reference fixtures live in `api/test/evals/mia_intent_cases.yml` and cover contextual pronouns, confirmations, recall, pending transaction corrections, clarification, and reuse of pending review cards. The test harness validates expected behavior and forbidden claims without frontend AI calls or live OpenRouter dependencies.
+Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-turn intent/reference fixtures live in `api/test/evals/mia_intent_cases.yml` and cover contextual pronouns, confirmations, recall, pending transaction corrections, clarification, and reuse of pending review cards. The test harness validates expected behavior and forbidden claims without frontend AI calls or live OpenRouter dependencies. It also checks money figures against the eval household's Budget and plan, and applies rules to every reply: no cut of protected spending, no monthly saving from a one-off, no raw bank descriptors, and no spending total for an income question. `api/test/evals/mia_cfo_question_set.yml` holds the CFO question set; known gaps are recorded there. A nightly workflow runs the live model against it. See [docs/testing/mia-evals.md](docs/testing/mia-evals.md).
 
 ## Next product direction
 

@@ -1,10 +1,13 @@
-# Live Mia evals against a real model. Never part of CI: it spends OpenRouter
-# credit and model wording varies run to run.
+# Live Mia evals against a real model. Never part of the CI gate: it spends OpenRouter
+# credit and model wording varies run to run. Only the scheduled workflow
+# .github/workflows/mia-live-evals.yml runs it in CI (see LiveRunner::NIGHTLY_OPT_IN).
 #
 #   RAILS_ENV=test MIA_LIVE_EVALS=1 OPENROUTER_API_KEY=sk-or-... \
 #     AI_MODEL=anthropic/claude-sonnet-5.5 bin/rails mia:evals:live
 #
-# Optional: CASES=id1,id2 to run a subset. Results go to tmp/evals/.
+# Optional: SET=cfo runs the CFO question set (test/evals/mia_cfo_question_set.yml)
+# instead of mia_eval_cases.yml; CASES=id1,id2 runs a subset. Results go to
+# tmp/evals/. docs/testing/mia-evals.md explains the checks.
 #
 # Compare several runs blind, graded by two judge models:
 #
