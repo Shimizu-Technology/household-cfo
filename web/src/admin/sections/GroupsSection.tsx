@@ -11,7 +11,7 @@ import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { useMatchMedia } from '../../lib/useMatchMedia'
 import { AdminDialog } from '../AdminDialog'
 import { GroupTools } from './GroupTools'
-import { cancelGroupOpen, handOffGroupOpen, takeGroupOpen } from './groupOpenHandoff'
+import { handOffGroupOpen, takeGroupOpen } from './groupOpenHandoff'
 import { groupLine, groupStatusLabel, runsChallenge, shortDay } from '../adminWords'
 import { joinedCount, useAdminRoster } from '../useAdminRoster'
 import './sections.css'
@@ -55,7 +55,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
         <strong>{group.name}</strong>
         <span>{groupLine(group, joinedCount(people, group.id)).replace(`${group.name} · `, '')}</span>
       </button></li>)}</ul>}
-    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} userId={currentUser.id} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id); cancelGroupOpen(group.id) }} />}
+    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} userId={currentUser.id} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id) }} />}
   </section>
 }
 

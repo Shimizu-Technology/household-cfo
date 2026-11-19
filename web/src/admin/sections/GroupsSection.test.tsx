@@ -134,6 +134,26 @@ describe('Groups', () => {
     expect(await screen.findByRole('heading', { name: 'Switched group' })).toBeTruthy()
     expect(selectCoachWorkspace).toHaveBeenCalledWith(5)
   })
+  it('still opens the new group when the old screen reloads before the remount renders', async () => {
+    auth.workspaceId = null
+    const created = group(9, 'Fast reload group')
+    api.createAdminCohort.mockResolvedValue(created)
+    api.fetchAdminCohorts.mockResolvedValue([bog, household, created])
+    const view = render(<GroupsSection key="platform" currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    // React applies the switch on a later render; let the old screen's reload finish first.
+    selectCoachWorkspace.mockImplementation((id: number) => {
+      auth.workspaceId = id
+      setTimeout(() => view.rerender(<GroupsSection key={`program-${id}`} currentUser={adminUser()} onDirtyChange={vi.fn()} />), 50)
+    })
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Fast reload group' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
+    // After the remount, the fresh Groups (not the old one) has the group open.
+    await waitFor(() => expect(selectCoachWorkspace).toHaveBeenCalledWith(5))
+    await new Promise(resolve => setTimeout(resolve, 150))
+    expect(await screen.findByRole('heading', { name: 'Fast reload group' })).toBeTruthy()
+  })
   it('does not move an admin to another program when the create reply arrives after she left Groups', async () => {
     auth.workspaceId = null
     let finish: (created: AdminCohort) => void = () => undefined
