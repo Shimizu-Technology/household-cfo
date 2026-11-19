@@ -121,3 +121,4 @@ bundle exec bundler-audit check --update
 - `PATCH /api/v1/admin/personas/:persona_id/content_packs` — replaces a persona draft's exact pack-version links, advances its draft revision, and invalidates any prior preview.
 - `GET /api/demo/*` — demo-safe Household CFO screens; public only outside production when no sign-in provider is selected or configured (local preview).
 - `POST /api/demo/mia/messages` — demo Mia response endpoint; uses OpenRouter when configured and deterministic fallback otherwise.
+
