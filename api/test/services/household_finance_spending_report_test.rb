@@ -153,6 +153,22 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
     refute_includes payload.dig(:bank_activity, :top_merchants).map { |row| row.fetch(:merchant) }, "AUTOMATIC PAYMENT - THANK"
   end
 
+  test "bank merchants are grouped by store before the top five are chosen" do
+    household = create_household
+    user = household.created_by_user
+    item = household.plaid_items.create!(connected_by_user: user, plaid_item_id: "group-item-#{SecureRandom.hex(3)}", access_token: "group-secret", institution_name: "Sandbox Bank", environment: "sandbox", consented_at: Time.current, consent_policy_version: "test")
+    account = item.plaid_accounts.create!(plaid_account_id: "group-account-#{SecureRandom.hex(3)}", name: "Checking", account_type: "depository")
+    # Five other stores each outspend any single Ross spelling, but the Ross spellings together lead.
+    rows = [ [ "Store A", 3_000 ], [ "Store B", 2_900 ], [ "Store C", 2_800 ], [ "Store D", 2_700 ], [ "Store E", 2_600 ],
+      [ "ROSS STORES #497", 2_500 ], [ "ROSS DRESS FOR LESS #123", 2_400 ] ]
+    rows.each_with_index do |(name, cents), index|
+      item.plaid_transactions.create!(plaid_account: account, plaid_transaction_id: "group-#{index}-#{SecureRandom.hex(3)}", name: name, occurred_on: Date.new(2026, 7, 10), amount_cents: cents, pending: false, primary_category: "GENERAL_MERCHANDISE", source_fingerprint: SecureRandom.hex(32))
+    end
+
+    top = HouseholdFinance::SpendingReport.new(household, start_on: Date.new(2026, 7, 1), end_on: Date.new(2026, 7, 31)).as_json.dig(:bank_activity, :top_merchants)
+    assert_equal({ merchant: "Ross", count: 2, amount: 49.0 }, top.first.symbolize_keys)
+  end
+
   test "a legacy pending card-payment draft is left out of pending totals before any later sync" do
     household = create_household
     user = household.created_by_user
