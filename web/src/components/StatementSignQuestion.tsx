@@ -57,21 +57,30 @@ function AccountSignQuestions({ state, disabled, questions }: { state: ReviewSta
     }
   }, [changing])
   const current = questions.find(question => question.answerable && question.source_account_id === changing) ?? questions.find(question => question.answerable && question.choice === null)
-  const answered = questions.filter(question => question.choice !== null && question !== current)
+  const answered = questions.filter(question => question.choice !== null)
   const busy = disabled || state.busy || state.refreshing
+  // While she answers, the account just before this one shows what her last answer did.
+  const previous = current && answered.filter(question => questions.indexOf(question) < questions.indexOf(current) && question !== current).at(-1)
+  const lines = answered.reduce((sum, question) => sum + question.lines, 0)
   return <div className="statement-question-row">
-    {current && <>
+    {current ? <>
       {questions.length > 1 && <p>Account {questions.indexOf(current) + 1} of {questions.length}</p>}
       <p ref={questionRef} tabIndex={-1} className="statement-question" data-sign-next="">{current.single_sign
         ? <>Every amount in {current.label} is shown the same way. Is it all money out, all money in, or a mix?</>
         : <>In {current.label}, is money you spent shown as a negative amount (with a minus sign or parentheses)?</>}</p>
       <p>Your answer applies only to this account’s lines whose direction was unclear. You’ll still review the lines before approving them.</p>
       <SignAnswers singleSign={current.single_sign} disabled={busy} answer={(choice) => { setChanging(null); void state.answerSign(choice, current.source_account_id) }} />
+      {previous && <p className="statement-sign-result" tabIndex={-1} role="status">{previous.effect}</p>}
+    </> : answered.length > 0 && <>
+      <p className="statement-sign-result" tabIndex={-1} role="status">{answered.length === 1 ? answered[0].effect : `You answered money in or out for ${answered.length} accounts. That set the direction of ${lines} ${lines === 1 ? 'line' : 'lines'}.`}</p>
+      <details className="statement-sign-accounts">
+        <summary>{answered.some(question => question.answerable) ? 'See or change each account' : 'See each account'}</summary>
+        {answered.map(question => <div key={question.source_account_id} className="statement-question-row">
+          <p>{question.effect}</p>
+          {question.answerable && <Button variant="ghost" disabled={busy} onClick={() => { revealFocus.current = true; setChanging(question.source_account_id) }}>{`Change ${question.label}`}</Button>}
+        </div>)}
+      </details>
     </>}
-    {answered.map(question => <div key={question.source_account_id} className="statement-question-row">
-      <p className="statement-sign-result" tabIndex={-1} role="status">{question.effect}</p>
-      {!current && question.answerable && <Button variant="ghost" disabled={busy} onClick={() => { revealFocus.current = true; setChanging(question.source_account_id) }}>{`Change ${question.label}`}</Button>}
-    </div>)}
     {state.signError && <p role="alert">{state.signError}</p>}
   </div>
 }

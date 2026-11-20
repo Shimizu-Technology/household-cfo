@@ -350,7 +350,7 @@ for (const answer of [true, false]) it(`asks once for a file sign convention and
 
 it('asks a multi-account file once per account and keeps lines back until each account is answered', async () => {
   const line = question(4001, 'Readable amount', 'direction', { signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })
-  const account = (id: number, label: string, choice: boolean | null) => ({ source_account_id: id, label, account_basis: 'asset' as const, single_sign: false, choice, answerable: true, effect: choice === null ? null : `You said spending in ${label} is shown as negative. That set the direction of 2 lines.` })
+  const account = (id: number, label: string, choice: boolean | null) => ({ source_account_id: id, label, account_basis: 'asset' as const, single_sign: false, choice, answerable: true, lines: choice === null ? 0 : 2, effect: choice === null ? null : `You said spending in ${label} is shown as negative. That set the direction of 2 lines.` })
   serve(review(planWith([line], { signed_amount_question: true, account_sign_questions: [account(7, 'Talun checking', null), account(8, 'Talun card', null)] })))
   vi.mocked(answerSpreadsheetSign).mockImplementation(async () => {
     serve(review(planWith([line], { signed_amount_question: true, account_sign_questions: [account(7, 'Talun checking', true), account(8, 'Talun card', null)] })))

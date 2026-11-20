@@ -92,8 +92,9 @@ module FinancialDocuments
           basis = tracked&.account_basis || account.account_basis
           label = tracked&.label || AccountMatch.default_label(account, basis)
           choice = question[:answer]&.fetch("choice", nil)
+          lines = question[:lines].count { |event| event.signed_amount_cents.present? }
           { source_account_id: account.id, label: label, account_basis: basis, single_sign: question[:single_sign], choice: choice, answerable: question[:answerable],
-            effect: question[:answer] && account_sign_effect(label, question[:answer], question[:lines].count { |event| event.signed_amount_cents.present? }) }
+            lines: question[:answer] ? lines : 0, effect: question[:answer] && account_sign_effect(label, question[:answer], lines) }
         end
       end
 

@@ -26,7 +26,7 @@ it('offers no whole-file change after a saved decision', () => {
   expect(screen.queryByRole('button')).toBeNull()
 })
 
-const account = (id: number, label: string, choice: boolean | 'all_in' | null = null, extra: object = {}) => ({ source_account_id: id, label, account_basis: 'asset', single_sign: false, choice, answerable: true, effect: choice === null ? null : `You said spending in ${label} is shown as negative. That set the direction of 3 lines.`, ...extra })
+const account = (id: number, label: string, choice: boolean | 'all_in' | null = null, extra: object = {}) => ({ source_account_id: id, label, account_basis: 'asset', single_sign: false, choice, answerable: true, lines: choice === null ? 0 : 3, effect: choice === null ? null : `You said spending in ${label} is shown as negative. That set the direction of 3 lines.`, ...extra })
 const accountState = (questions: object[]) => ({ needBasis: [], plan: { signed_amount_question: questions.some(question => (question as { choice: unknown }).choice === null), account_sign_questions: questions }, answerSign: vi.fn() }) as unknown as ComponentProps<typeof StatementSignQuestion>['state']
 it('asks a multi-account file once per account, the next unanswered account first', () => {
   const model = accountState([account(11, 'Talun checking ····4410', true), account(12, 'Talun card ····6074'), account(13, 'Talun savings ····8642', null, { single_sign: true })])
@@ -49,13 +49,16 @@ it('asks an account whose amounts share one sign whether they are all in or all 
 it('lets her change one account after every account is answered, and only while nothing is approved', () => {
   const model = accountState([account(11, 'Talun checking ····4410', true), account(12, 'Talun card ····6074', true)])
   render(<StatementSignQuestion state={model} />)
-  expect(screen.getAllByRole('status')).toHaveLength(2)
+  expect(screen.getByRole('status').textContent).toBe('You answered money in or out for 2 accounts. That set the direction of 6 lines.')
+  fireEvent.click(screen.getByText('See or change each account'))
+  expect(screen.getByText('You said spending in Talun checking ····4410 is shown as negative. That set the direction of 3 lines.')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Change Talun card ····6074' }))
   expect(document.activeElement?.textContent).toBe('In Talun card ····6074, is money you spent shown as a negative amount (with a minus sign or parentheses)?')
   fireEvent.click(screen.getByRole('button', { name: 'I’m not sure' }))
   expect(model.answerSign).toHaveBeenCalledWith('individual', 12)
   cleanup()
   render(<StatementSignQuestion state={accountState([account(11, 'Talun checking ····4410', true, { answerable: false }), account(12, 'Talun card ····6074', true, { answerable: false })])} />)
-  expect(screen.getAllByRole('status')).toHaveLength(2)
+  expect(screen.getByRole('status').textContent).toBe('You answered money in or out for 2 accounts. That set the direction of 6 lines.')
+  expect(screen.getByText('See each account')).toBeTruthy()
   expect(screen.queryByRole('button')).toBeNull()
 })
