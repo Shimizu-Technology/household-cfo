@@ -5,12 +5,14 @@ import { statementCents } from './participantSourceReview'
 
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
-export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in'
+export type PlanAnswerId = 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in'
 export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null }
+/** A purchase she already confirmed (a receipt, chat, form or linked-account purchase) that this bank line may be. */
+export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
   event_id: number
   amount_cents?: number | null
-  kind: 'direction' | 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
+  kind: 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
@@ -20,6 +22,8 @@ export type PlanAttention = {
   category_id: number | null
   category_name: string | null
   expected_head?: ExpectedLineHead
+  /** Only on "Same purchase as …?": the purchase "Same purchase" counts this line as. */
+  purchase_match?: PurchaseMatch
 }
 /** A line that looks right: the kind and category the server will save for it, exactly as she is shown them. */
 export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
@@ -49,7 +53,7 @@ export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 're
 export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
-export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
+export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead; match_transaction_id?: number }
 export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; expected_tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
 export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
@@ -77,6 +81,9 @@ export function answerInput(item: PlanAttention, id: PlanAnswerId, categoryId?: 
       ? { event_id: item.event_id, decision: 'edited', edit: attentionEdit(item, categoryId) }
       : id === 'leave_out'
         ? { event_id: item.event_id, decision: id }
+        // "Same purchase" names the purchase she was shown; the server refuses it if that purchase changed.
+        : id === 'same_purchase'
+          ? { event_id: item.event_id, decision: id, shown, match_transaction_id: item.purchase_match?.transaction_id }
         // Every answer that saves the line as the statement reads it says what she was shown, so the server can check it.
         : { event_id: item.event_id, decision: id, shown }
   entry.expected_head = item.expected_head

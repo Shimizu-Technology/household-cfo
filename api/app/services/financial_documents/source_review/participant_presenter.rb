@@ -95,7 +95,8 @@ module FinancialDocuments
               filename: subject.financial_source_event.financial_extraction_revision.financial_document_import&.filename,
               locator: subject.financial_source_event.locator, source_available: subject.financial_source_event.financial_extraction_revision.financial_document_import&.source_available? == true },
             actual: actual(subject), recognized_account: recognized_account(subject.source_account_identity_version_id),
-            current: current_version?(subject), matched_target: include_matched_target ? matched_target(subject.matched_version_id) : nil }
+            current: current_version?(subject), matched_target: include_matched_target ? matched_target(subject.matched_version_id) : nil
+          }.merge(subject.matched_transaction_id ? { matched_purchase: matched_purchase(subject) } : {})
         when SourceAccountIdentityVersion
           { id: subject.id, digest: subject.digest, version_number: subject.version_number, statement_facts: subject.statement_facts,
             tracked_account: { id: subject.source_tracked_account_id, label: subject.source_tracked_account.label,
@@ -121,6 +122,7 @@ module FinancialDocuments
         answers = line.kind == :duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS[:duplicate].first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
         question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
         question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
+        question = line.purchase_match.question if line.kind == :same_purchase
         # A refund names where its money goes back: the purchase's category, or the one she chose for this store before.
         refund_names = Array(line.refund_to).filter_map { |id| category_names[id] }
         question = "Is this a refund? It goes back to #{refund_names.to_sentence}." if line.kind == :refund && refund_names.any?
@@ -134,6 +136,7 @@ module FinancialDocuments
           amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
           merchant: saved&.merchant.present? ? AccountNumberMask.display(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head }
+          .merge(line.kind == :same_purchase ? { purchase_match: line.purchase_match.summary } : {})
       end
 
       # A refund can go back to a purchase's category that is no longer active, so this includes every category.
@@ -175,6 +178,14 @@ module FinancialDocuments
       def matched_target(version_id)
         target = SourceReviewVersion.where(household: household).find_by(id: version_id)
         record(target, include_matched_target: false) if target
+      end
+
+      # The purchase she said this line is: it counts, with its own categories, and the line doesn't.
+      def matched_purchase(version)
+        transaction = version.matched_transaction_id && household.household_transactions.includes(transaction_splits: :budget_category).find_by(id: version.matched_transaction_id)
+        return unless transaction
+
+        ConfirmedPurchaseMatch::Match.new(transaction: transaction, score: nil).summary.merge(current: ConfirmedPurchaseMatch.current?(household, version))
       end
 
       def current_version?(version)

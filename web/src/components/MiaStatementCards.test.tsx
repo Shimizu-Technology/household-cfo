@@ -93,6 +93,17 @@ describe('Mia’s statement cards in the chat', () => {
     expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4002, decision: 'as_read', shown: { event_type: 'purchase', category_id: null } }] })
   })
 
+  it('asks on the card whether a bank line is a purchase she already has, and saves Same purchase for that purchase', async () => {
+    serve(review(planWith([question(4003, 'TASI DEMO HOME STORE', 'same_purchase', { question: 'Same purchase as your receipt from Tasi Demo Home Store on Jun 23 ($34.88)?',
+      answers: [{ id: 'same_purchase', label: 'Same purchase' }, { id: 'different', label: 'Different purchase' }],
+      purchase_match: { transaction_id: 55, merchant: 'Tasi Demo Home Store', occurred_on: '2026-06-23', amount_cents: 3488, source_type: 'receipt', categories: ['Household'] } })])))
+    mount([statement(1)])
+    expect(await screen.findByText('Same purchase as your receipt from Tasi Demo Home Store on Jun 23 ($34.88)?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Same purchase: TASI DEMO HOME STORE' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4003, decision: 'same_purchase', match_transaction_id: 55, shown: { event_type: 'purchase', category_id: null }, expected_head: head }] })
+  })
+
   it('moves focus to the next inert question after one is answered', async () => {
     serve(review(planWith([question(4002, 'Own savings', 'transfer'), question(4003, 'Rent transfer', 'transfer')])))
     mount([statement(1)])

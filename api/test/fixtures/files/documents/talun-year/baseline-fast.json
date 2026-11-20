@@ -822,29 +822,31 @@
       ],
       "decisions": 11,
       "decisions_by_kind": {
+        "receipt_confirmation": 1,
         "account_identity": 1,
         "approve_page": 1,
         "still_category": 1,
-        "no_category": 2,
+        "no_category": 1,
         "transfer": 4,
         "card_payment": 1,
-        "receipt_match": 1
+        "same_purchase": 1
       },
-      "manual_correction": 2,
+      "manual_correction": 1,
       "manual_exclusion": 0,
-      "accepted_as_proposed": 21,
+      "accepted_as_proposed": 22,
       "corrections_by_field": {
         "type": 0,
         "amount": 0,
         "date": 0,
-        "category": 2,
+        "category": 1,
         "direction": 0
       },
       "questions_by_kind": {
         "still_category": 1,
-        "no_category": 2,
+        "no_category": 1,
         "transfer": 4,
-        "card_payment": 1
+        "card_payment": 1,
+        "same_purchase": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -1769,9 +1771,9 @@
     "transfer_leakage_spending_cents": 0,
     "transfer_leakage_income_cents": 0,
     "decisions": 82,
-    "manual_correction": 21,
+    "manual_correction": 20,
     "manual_exclusion": 21,
-    "accepted_as_proposed": 55,
+    "accepted_as_proposed": 56,
     "unmapped_spending_cents": 0,
     "unmapped_spending_count": 0,
     "decisions_by_kind": {
@@ -1782,15 +1784,16 @@
       "direction": 24,
       "duplicate": 3,
       "manual_correction": 1,
-      "no_category": 15,
-      "receipt_match": 1,
+      "no_category": 14,
+      "receipt_confirmation": 1,
       "refund_category": 1,
+      "same_purchase": 1,
       "still_category": 1,
       "transfer": 12
     },
     "corrections_by_field": {
       "amount": 0,
-      "category": 20,
+      "category": 19,
       "date": 0,
       "direction": 3,
       "type": 4
@@ -1799,8 +1802,9 @@
       "card_payment": 3,
       "direction": 24,
       "duplicate": 3,
-      "no_category": 15,
+      "no_category": 14,
       "refund_category": 1,
+      "same_purchase": 1,
       "still_category": 1,
       "transfer": 12
     },
@@ -2650,27 +2654,29 @@
         ],
         "decisions": 10,
         "decisions_by_kind": {
+          "receipt_confirmation": 1,
           "account_identity": 1,
           "approve_page": 1,
-          "no_category": 2,
+          "no_category": 1,
           "transfer": 4,
           "card_payment": 1,
-          "receipt_match": 1
+          "same_purchase": 1
         },
-        "manual_correction": 2,
+        "manual_correction": 1,
         "manual_exclusion": 0,
-        "accepted_as_proposed": 20,
+        "accepted_as_proposed": 21,
         "corrections_by_field": {
           "type": 0,
           "amount": 0,
           "date": 0,
-          "category": 2,
+          "category": 1,
           "direction": 0
         },
         "questions_by_kind": {
-          "no_category": 2,
+          "no_category": 1,
           "transfer": 4,
-          "card_payment": 1
+          "card_payment": 1,
+          "same_purchase": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -3595,9 +3601,9 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "decisions": 94,
-      "manual_correction": 41,
+      "manual_correction": 40,
       "manual_exclusion": 0,
-      "accepted_as_proposed": 54,
+      "accepted_as_proposed": 55,
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0,
       "decisions_by_kind": {
@@ -3608,14 +3614,15 @@
         "direction": 24,
         "duplicate": 3,
         "duplicate_guard": 14,
-        "no_category": 15,
-        "receipt_match": 1,
+        "no_category": 14,
+        "receipt_confirmation": 1,
         "refund_category": 1,
+        "same_purchase": 1,
         "transfer": 12
       },
       "corrections_by_field": {
         "amount": 0,
-        "category": 32,
+        "category": 31,
         "date": 0,
         "direction": 24,
         "type": 20
@@ -3624,8 +3631,9 @@
         "card_payment": 3,
         "direction": 24,
         "duplicate": 3,
-        "no_category": 15,
+        "no_category": 14,
         "refund_category": 1,
+        "same_purchase": 1,
         "transfer": 12
       },
       "receipt_extraction_absolute_error_cents": 0,

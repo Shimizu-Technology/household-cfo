@@ -9,7 +9,7 @@ module FinancialDocuments
     class LineApprover
       REASON = "Approved from the statement review.".freeze
       TOOLS = %w[source_review.account.link source_review.draft.stage source_review.draft.approve source_review.revision.approve].freeze
-      DECISIONS = %w[as_read different leave_out edited].freeze
+      DECISIONS = %w[as_read different same_purchase leave_out edited].freeze
       KINDS = { "spending" => "purchase", "money_in" => "income", "moved" => "transfer", "card" => "debt_payment", "cash" => "cash_withdrawal", "refund" => "refund" }.freeze
       MAX_LINES = 100
       NOT_REVIEWED = %w[unreviewed_source_rows unreviewed_source_accounts account_identity_changed].freeze
@@ -202,8 +202,12 @@ module FinancialDocuments
           # "Yes" to "Still Dining out?" confirms the category she was asked about and nothing else: the line keeps its kind.
           check_shown!(line, entry)
         when "different"
-          raise stale unless line.kind == :duplicate
+          raise stale unless line.kind.in?(%i[duplicate same_purchase])
           raise ArgumentError, "That line is already in your numbers, so it can only be left out." if line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] }
+          check_shown!(line, entry)
+        when "same_purchase"
+          # "Same purchase" names the purchase she was shown; one that changed since is asked about again.
+          raise stale unless line.kind == :same_purchase && !line.done && entry[:match_transaction_id].to_i == line.purchase_match&.transaction&.id
           check_shown!(line, entry)
         end
       end
@@ -218,6 +222,9 @@ module FinancialDocuments
         case decision
         when "as_read" then line.kind == :refund_category ? base.merge(budget_category_id: line.category_id) : base
         when "different" then base.merge(overlap_disposition: "distinct")
+        # The same purchase as one she confirmed: the line is the bank's record of it and counts nowhere itself.
+        # No match any more (the purchase changed) is refused as stale by check_allowed!, never saved.
+        when "same_purchase" then base.merge(disposition: "match", matched_transaction_id: line.purchase_match&.transaction&.id, budget_category_id: nil, overlap_disposition: "match")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
         else edited_facts(base, edit, saved: saved&.disposition == "include")
         end
@@ -260,8 +267,8 @@ module FinancialDocuments
 
       def same_facts?(version, facts)
         return false unless version
-        version.reviewed_facts.slice(*%i[disposition event_type signed_amount_cents purchase_amount_cents posted_on merchant budget_category_id overlap_disposition]).stringify_keys ==
-          facts.slice(*%i[disposition event_type signed_amount_cents purchase_amount_cents posted_on merchant budget_category_id overlap_disposition]).stringify_keys
+        keys = %i[disposition event_type signed_amount_cents purchase_amount_cents posted_on merchant budget_category_id overlap_disposition matched_transaction_id]
+        version.reviewed_facts.slice(*keys).stringify_keys == facts.slice(*keys).stringify_keys
       end
 
       def stage_and_approve!(event, head, facts)

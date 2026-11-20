@@ -8,7 +8,8 @@ module FinancialDocuments
       # as_before: the category is only what she chose for this merchant on an earlier statement; the reader guessed nothing.
       # saved: the approved version of a line saved with no category, so she is shown (and changes) what she saved.
       # refund_to: for a refund whose purchase was found, the categories it goes back to (shown, never saved on the line).
-      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :saved, :expected_head, :refund_to, keyword_init: true) do
+      # purchase_match: a purchase she already confirmed (a receipt, chat, form or Plaid purchase) this bank line may be.
+      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :saved, :expected_head, :refund_to, :purchase_match, keyword_init: true) do
         def ready? = kind.nil?
       end
 
@@ -17,6 +18,8 @@ module FinancialDocuments
         unclear: "We couldn’t read this line clearly.",
         direction: "Was this money out or money in?",
         duplicate: "Is this the same charge as one you already have?",
+        # Asked with the purchase: "Same purchase as your receipt from Payless on Aug 3 ($103.42)?"
+        same_purchase: nil,
         transfer: "Did this move between your own accounts?",
         card_payment: "Is this a payment on your own card or loan?",
         refund: "Is this a refund?",
@@ -31,6 +34,7 @@ module FinancialDocuments
         direction: [ { id: "money_out", label: "Money out" }, { id: "money_in", label: "Money in" } ],
         unclear: [ { id: "edit", label: "Fix it" }, { id: "leave_out", label: "Leave it out" } ],
         duplicate: [ { id: "leave_out", label: "Same charge" }, { id: "different", label: "Different charge" } ],
+        same_purchase: [ { id: "same_purchase", label: "Same purchase" }, { id: "different", label: "Different purchase" } ],
         transfer: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         card_payment: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         refund: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
@@ -134,13 +138,14 @@ module FinancialDocuments
           # Only spending carries a category; nothing else is shown or saved with one.
           category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
-          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && policy&.dig(:reason) != "confirmed_spending_purpose" && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
+          purchase_match = purchase_matches.best(signed_amount_cents: event.signed_amount_cents, posted_on: event.posted_on, merchant: merchant, event_type: event.event_type, head_id: heads[event.id]&.id) if overlaps.empty?
+          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], purchase_match: purchase_match, disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && policy&.dig(:reason) != "confirmed_spending_purpose" && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
           without_category = without_category?(heads[event.id]&.approved_version)
           # Saved with no category: show and ask exactly that, not the reader's earlier guess.
           kind, category_id = :no_category, nil if without_category
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
-            done: done?(heads[event.id]&.approved_version), without_category: without_category, saved: (heads[event.id].approved_version if without_category))
+            done: done?(heads[event.id]&.approved_version), without_category: without_category, saved: (heads[event.id].approved_version if without_category), purchase_match: purchase_match)
         end.tap { |lines| refund_lines!(lines, heads, earlier, categories) }
       end
 
@@ -186,17 +191,23 @@ module FinancialDocuments
 
       def refund_credits = @refund_credits ||= HouseholdFinance::RefundCredits.new(household)
 
-      # A row only counts as finished while its account is still the one it was approved against.
+      # A row only counts as finished while its account is still the one it was approved against. A line saved as the same
+      # purchase as one she confirmed stays finished only while that purchase still counts; otherwise it is asked about again.
       def done?(version)
         return false unless version
+        return false if version.matched_transaction_id && !ConfirmedPurchaseMatch.current?(household, version)
         version.source_account_identity_version.source_account_review_head.approved_version_id == version.source_account_identity_version_id
+      end
+
+      def purchase_matches
+        @purchase_matches ||= ConfirmedPurchaseMatch.new(household, dates: revision.financial_source_events.where(event_type: "purchase").where("signed_amount_cents < 0").pluck(:posted_on))
       end
 
       def without_category?(version)
         done?(version) && version.disposition == "include" && version.expense? && version.budget_category_id.nil?
       end
 
-      def classify(event, merchant, category_id, overlaps, account, disagrees: false, confirm_suggestion: false)
+      def classify(event, merchant, category_id, overlaps, account, purchase_match: nil, disagrees: false, confirm_suggestion: false)
         return nil if event.row_kind == "informational"
         amount = event.signed_amount_cents
         if event.limitations.include?("transaction_direction_unclear") && HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true).to_i.positive?
@@ -212,6 +223,8 @@ module FinancialDocuments
         if self.class.expense?(event)
           return :unclear unless merchant && event.expense_projection_eligible? && event.expense_amount_cents == amount.abs &&
             HouseholdFinance::AnnualBudgetManager.supported_year?(event.posted_on.year)
+          # Before its category: if it is the purchase she already has, it needs none.
+          return :same_purchase if purchase_match
           return :no_category unless category_id
           return :still_category if disagrees
           return :suggested_category if confirm_suggestion

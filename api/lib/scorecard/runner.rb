@@ -74,6 +74,7 @@ module Scorecard
             simulator = ApprovalSimulator.new(household: household, user: user, answer_key: @key, categories: categories, correct_proposals: @correct_proposals)
             documents = @limit ? @key.documents.first(@limit) : @key.documents
             documents = documents.select { |doc| @paths.include?(doc.fetch("path")) } if @paths
+            documents = receipts_first(documents)
             if @fast
               documents = documents.map { |doc| doc.fetch("path").end_with?(".csv") ? doc.merge("lines" => doc.fetch("lines").first(FAST_CSV_ROWS)) : doc }
             end
@@ -110,6 +111,18 @@ module Scorecard
     end
 
     private
+
+    # A receipt is imported before the first statement that covers its day, so its purchase is confirmed before the
+    # bank line for it is reviewed (the line then asks "Same purchase as your receipt …?"). Order is otherwise the manifest's.
+    def receipts_first(documents)
+      receipts, others = documents.partition { |doc| doc["kind"] == "receipt" }
+      receipts.each do |receipt|
+        day = receipt.fetch("period").fetch("start_on")
+        index = others.index { |doc| doc["kind"] != "receipt" && doc.fetch("period").fetch("start_on") <= day && day <= doc.fetch("period").fetch("end_on") }
+        others.insert(index || others.length, receipt)
+      end
+      others
+    end
 
     def import(household, user, doc, index)
       path = @key.source(doc)

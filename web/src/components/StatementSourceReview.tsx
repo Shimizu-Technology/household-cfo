@@ -14,6 +14,11 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
+/** A line saved as the same purchase as one she confirmed counts through that purchase, not as a second one. */
+function matchedPurchaseLabel(purchase?: { source_type: string }) {
+  return purchase && ['receipt', 'screenshot'].includes(purchase.source_type) ? 'Counted with your receipt' : 'Already counted'
+}
+
 export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onProgress, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
   onSignAnswered?: (revisionId: number) => void
@@ -183,7 +188,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
                 const ready = readyById.get(event.id)
                 // A line that looks right shows the category the server will save for it, not only the reader's guess.
                 const category = facts ? categories.find((entry) => entry.id === facts.budget_category_id)?.name : ready ? readyCategoryLabel(ready) ?? undefined : event.transaction_draft?.category_name
-                const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : (kind === 'spending' || kind === 'cash') ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
+                const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : facts?.matched_transaction_id ? matchedPurchaseLabel(row?.approved?.matched_purchase) : (kind === 'spending' || kind === 'cash') ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
                 return <tr key={event.id} data-needs-look={attention || undefined}>
                   <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</span></td>
                   <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</td>

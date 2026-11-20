@@ -101,11 +101,22 @@ module HouseholdFinance
     # while the draft is still the receipt's new money or its full total. An
     # amount she typed herself is compared as typed.
     def self.match_amount_cents(draft)
-      payment = draft.draft_payload.to_h[PAYLOAD_KEY]
-      return draft.total_amount_cents unless payment.is_a?(Hash)
+      amount_for(draft.draft_payload, draft.total_amount_cents)
+    end
+
+    # The same for a purchase she already confirmed: its new money while it still counts the receipt's new money or
+    # its full total ("Count all"), read from the receipt entry that confirmed it. Anything else, as it counts.
+    def self.transaction_match_amount_cents(transaction, drafts = transaction.transaction_drafts)
+      amounts = drafts.map { |draft| amount_for(draft.draft_payload, transaction.total_amount_cents) }.uniq
+      amounts.one? ? amounts.first : transaction.total_amount_cents
+    end
+
+    def self.amount_for(payload, total_cents)
+      payment = payload.to_h[PAYLOAD_KEY]
+      return total_cents unless payment.is_a?(Hash)
 
       new_money = payment["new_money_cents"].to_i
-      return draft.total_amount_cents unless new_money.positive? && draft.total_amount_cents.in?([ new_money, payment["receipt_total_cents"].to_i ])
+      return total_cents unless new_money.positive? && total_cents.in?([ new_money, payment["receipt_total_cents"].to_i ])
 
       new_money
     end

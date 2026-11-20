@@ -4,11 +4,13 @@ export type ReviewedFacts = {
   source_account_identity_version_id: number; disposition: 'include' | 'match' | 'exclude' | 'informational'
   event_type: SourceEvent['event_type']; signed_amount_cents: number | null; purchase_amount_cents: number | null
   posted_on: string | null; authorized_on?: string | null; merchant: string | null; budget_category_id: number | null
-  overlap_disposition: 'new' | 'distinct' | 'canonical' | 'match' | 'excluded'; matched_version_id?: number | null; external_reference?: string | null
+  overlap_disposition: 'new' | 'distinct' | 'canonical' | 'match' | 'excluded'; matched_version_id?: number | null; matched_transaction_id?: number; external_reference?: string | null
 }
 export type ReviewHead = { id: number | null; approved_version_id: number | null; lock_version: number }
 export type ReviewedSourceLocation = { document_import_id: number | null; filename: string | null; locator: SourceEvent['locator']; source_available: boolean }
-export type ReviewedRow = { id: number; digest: string; version_number: number; facts: ReviewedFacts; reason: string; projection: { action: string }; actual: { id: number; digest: string; amount_cents: number } | null; current?: boolean; recognized_account?: ReviewedRecognizedAccount; matched_target?: ReviewedRow | null; source?: ReviewedSourceLocation }
+export type ReviewedRow = { id: number; digest: string; version_number: number; facts: ReviewedFacts; reason: string; projection: { action: string }; actual: { id: number; digest: string; amount_cents: number } | null; current?: boolean; recognized_account?: ReviewedRecognizedAccount; matched_target?: ReviewedRow | null; source?: ReviewedSourceLocation
+  /** "Same purchase" as one she confirmed: that purchase counts, with its own categories, and this line doesn't. */
+  matched_purchase?: { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[]; current: boolean } }
 export type PendingSourceDraft = { id: number; digest: string; lock_version: number; status: string; facts: ReviewedFacts; projection: { action: string; transaction_id?: number | null; expected_digest?: string | null }; reason: string; recognized_account?: ReviewedRecognizedAccount; matched_target?: ReviewedRow | null }
 export type AccountStatementFacts = { period_start_on: string | null; period_end_on: string | null; opening_balance_cents: number | null; closing_balance_cents: number | null; printed_debit_cents: number | null; printed_credit_cents: number | null; printed_row_count: number | null; printed_row_count_basis?: 'posted' | 'all' }
 export type TrackedSourceAccount = { id: number; label: string; account_basis: 'asset' | 'liability'; account_id: number | null }

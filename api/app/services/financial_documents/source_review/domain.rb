@@ -230,6 +230,7 @@ module FinancialDocuments
         identity = current_identity!(event, facts[:source_account_identity_version_id])
         overlaps = OverlapDetector.new(household, event, facts, context: overlap_context || OverlapDetector::Context.new(household)).call
         validate_overlaps!(facts, overlaps)
+        validate_confirmed_purchase!(head, facts)
         category = household.budget_categories.find(facts[:budget_category_id]) if facts[:budget_category_id]
         raise ArgumentError, "Choose an active category" if category && !category.active?
         attributes = facts.except(:source_account_identity_version_id).merge(source_account_identity_version: identity,
@@ -295,6 +296,8 @@ module FinancialDocuments
           if overlaps.any? { |row| row[:strength] == "ambiguous" } && facts[:overlap_disposition] != "distinct"
             raise ArgumentError, "These rows may overlap. Explicitly confirm they are distinct or match an approved row."
           end
+        elsif facts[:disposition] == "match" && facts[:matched_transaction_id]
+          # Checked with the purchase she matched it to (validate_confirmed_purchase!).
         elsif facts[:disposition] == "match"
           target = versions.find(facts[:matched_version_id])
           raise StaleReview, "The matched source version changed" unless target.source_review_head.reload.approved_version_id == target.id && target.disposition == "include"
@@ -303,6 +306,23 @@ module FinancialDocuments
           unless target.source_tracked_account.id == own && target.signed_amount_cents == facts[:signed_amount_cents] && target.posted_on&.iso8601 == facts[:posted_on] && target.event_type == facts[:event_type] && target.purchase_amount_cents == facts[:purchase_amount_cents]
             raise ArgumentError, "A duplicate match must have the same reviewed account, amount, posted date and classification."
           end
+        end
+      end
+
+      # A bank line that may be a purchase she already confirmed is never counted again without her answer. "Same purchase"
+      # must name that purchase while it is still the line's match; "Different purchase" is saved as distinct. A line she
+      # already counted before this question existed is left as she saved it: correcting it does not ask now.
+      def validate_confirmed_purchase!(head, facts)
+        matcher = ConfirmedPurchaseMatch.new(household, dates: [ facts[:posted_on] ].compact)
+        found = -> { matcher.candidates(signed_amount_cents: facts[:signed_amount_cents], posted_on: facts[:posted_on], merchant: facts[:merchant], event_type: facts[:event_type], head_id: head.id) }
+        if facts[:disposition] == "match" && facts[:matched_transaction_id]
+          unless found.call.any? { |match| match.transaction.id == facts[:matched_transaction_id] }
+            raise StaleReview, "That purchase changed or no longer matches this line. Nothing was saved. Refresh and look again."
+          end
+        elsif facts[:disposition] == "include" && facts[:overlap_disposition] != "distinct" && ConfirmedPurchaseMatch.applies?(facts[:event_type], facts[:signed_amount_cents])
+          counted_before = head.approved_version&.disposition == "include"
+          match = found.call.first unless counted_before
+          raise ArgumentError, "#{match.question} Answer Same purchase or Different purchase first. Nothing was saved." if match
         end
       end
 
@@ -339,12 +359,15 @@ module FinancialDocuments
         elsif disposition == "informational"
           raise ArgumentError, "Informational rows have no posted account movement" if amount || purchase
         end
-        match = disposition == "match" ? versions.find(input.fetch(:matched_version_id)).id : nil
+        # A match is to another statement line, or to a purchase she already confirmed (never both).
+        matched_transaction = household.household_transactions.find(input[:matched_transaction_id]) if disposition == "match" && input[:matched_transaction_id].present?
+        match = disposition == "match" && !matched_transaction ? versions.find(input.fetch(:matched_version_id)).id : nil
         overlap = input.fetch(:overlap_disposition).to_s
         raise ArgumentError, "Choose a reviewed overlap disposition" unless overlap.in?(%w[new distinct canonical match excluded])
         { source_account_identity_version_id: identity.id, disposition: disposition, event_type: type, signed_amount_cents: amount,
           posted_on: posted, authorized_on: authorized, merchant: merchant, purchase_amount_cents: purchase, budget_category_id: category&.id,
           matched_version_id: match, external_reference: text(input[:external_reference], 160), overlap_disposition: overlap }
+          .merge(matched_transaction ? { matched_transaction_id: matched_transaction.id } : {})
       end
 
       def statement_facts(raw)

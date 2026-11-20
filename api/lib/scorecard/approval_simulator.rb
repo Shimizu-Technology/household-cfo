@@ -14,6 +14,7 @@ module Scorecard
       @receipt_observations = {}
       @included_legs = Set.new
       @same_charge_ids = Set.new
+      @receipt_paths = {}
     end
 
     def call(document, doc)
@@ -98,7 +99,7 @@ module Scorecard
     def approve(revision, input)
       @household.with_lock { REVIEW::LineApprover.new(@domain, revision, input).call }
     rescue ArgumentError => error
-      raise unless error.message.include?("rows may overlap") && input[:lines].present?
+      raise unless distinct_question?(error) && input[:lines].present?
       # Reuse the displayed page plan when retrying its answers individually.
       # Rebuilding a 298-row CSV plan for each answer obscures CI runtime with
       # harness work. apply! is the same production validation/stage/approve
@@ -111,10 +112,15 @@ module Scorecard
           begin
             @household.with_lock { form.send(:apply!, plan, entry, Hash.new(0)) }
           rescue ArgumentError => line_error
-            raise unless line_error.message.include?("rows may overlap")
+            raise unless distinct_question?(line_error)
             answer = row_answers.fetch(entry.fetch(:event_id))
             count_for(answer, :duplicate_guard)
             if !@correct_proposals && answer && @same_charge_ids.include?(entry.fetch(:event_id))
+              excluded = entry.merge(decision: "leave_out").except(:edit)
+              @household.with_lock { form.send(:apply!, plan, excluded, Hash.new(0)) }
+            elsif answer && corrected_same_purchase?(entry, answer)
+              # Corrected to a purchase she already confirmed for this same event: the app has no "Same purchase" for an
+              # edited line, so the careful answer is to leave the bank line out and let her confirmed purchase count once.
               excluded = entry.merge(decision: "leave_out").except(:edit)
               @household.with_lock { form.send(:apply!, plan, excluded, Hash.new(0)) }
             else
@@ -126,6 +132,21 @@ module Scorecard
       ensure
         @domain.overlap_context = nil
       end
+    end
+
+    # A corrected line the app now matches to a purchase she confirmed, when that purchase is the same answer-key event.
+    def corrected_same_purchase?(entry, answer)
+      edit = entry[:edit]
+      return false unless edit && edit[:amount_cents].to_i.positive? && edit[:posted_on].present?
+      match = REVIEW::ConfirmedPurchaseMatch.new(@household, dates: [ edit[:posted_on].to_date ])
+        .best(signed_amount_cents: -edit[:amount_cents].to_i, posted_on: edit[:posted_on].to_date, merchant: edit[:merchant])
+      match && transaction_answers[match.transaction.id]&.fetch("event_id") == answer.fetch("event_id")
+    end
+
+    # The app refuses to count a line that may be another charge or a purchase she already confirmed until she says it
+    # is different. A correction to such a line is that answer and the correction together.
+    def distinct_question?(error)
+      error.message.include?("rows may overlap") || error.message.include?("Answer Same purchase or Different purchase first")
     end
 
     def approve_distinct(revision, entry, line:)
@@ -155,6 +176,8 @@ module Scorecard
         # An unmapped proposal must remain visible in the question-only output
         # when the app accepts it; the answer key cannot silently remove it.
         # A refund with no category to go back to can't be answered "Yes", like a line with no category.
+        # "Same purchase as …?" with no answer to go on: she keeps the line, as the app shows it.
+        return base.merge(decision: "different") if !@correct_proposals && line.kind == :same_purchase
         if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate]) && !(line.kind == :refund_category && line.category_id.nil?)
           return base.merge(decision: "as_read")
         end
@@ -162,6 +185,14 @@ module Scorecard
         return base.merge(decision: "leave_out")
       end
       return base.merge(decision: "as_read") if row.row_kind == "informational"
+      # "Same purchase as your receipt …?" Both views answer from the answer key, like any other duplicate question.
+      if line.kind == :same_purchase
+        purchase = line.purchase_match.transaction
+        if transaction_answers[purchase.id]&.fetch("event_id") == answer.fetch("event_id")
+          receipt_observations[@receipt_paths[purchase.id]]["matched"] = true if @receipt_paths[purchase.id]
+          return base.merge(decision: "same_purchase", match_transaction_id: purchase.id)
+        end
+      end
       expected = @key.event(answer)
       excluded = @included_legs.include?(leg_key(answer)) || answer["status"] == "pending"
       @same_charge_ids << row.id if excluded
@@ -202,7 +233,7 @@ module Scorecard
         quality[month]["manual_correction"] += 1
         changes.each { |field| quality[month]["corrections_by_field"][field] += 1 }
       end
-      return base.merge(decision: line.kind == :duplicate ? "different" : "as_read") if changes.empty? && !line.kind.in?(%i[direction unclear no_category])
+      return base.merge(decision: line.kind.in?(%i[duplicate same_purchase]) ? "different" : "as_read") if changes.empty? && !line.kind.in?(%i[direction unclear no_category])
       proposed_kind = { "income" => "money_in", "transfer" => "moved", "debt_payment" => "card", "cash_withdrawal" => "cash", "refund" => "refund" }[row.event_type] || "spending"
       edit = { kind: changes.include?("type") || line.kind == :direction ? kind : proposed_kind,
         category_id: changes.include?("category") ? category : line.category_id,
@@ -288,6 +319,7 @@ module Scorecard
           count(doc, :receipt_confirmation)
           raise "Receipt confirmation failed: #{result.errors.join(', ')}" unless result.success?
           transaction_answers[result.transaction.id] = doc.fetch("lines").first
+          @receipt_paths[result.transaction.id] = doc.fetch("path")
         end
       end
     end
