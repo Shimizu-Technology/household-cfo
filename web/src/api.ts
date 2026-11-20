@@ -565,6 +565,22 @@ export type TransactionDraft = {
   matches?: TransactionDraftMatch[]
   matched_transaction_id?: number | null
   draft_payload?: Record<string, unknown>
+  /** Part of the receipt was paid with a gift card, voucher, store credit or rewards, which is not new money. */
+  receipt_payment?: ReceiptPayment | null
+}
+
+export type ReceiptPayment = {
+  receipt_total: number
+  receipt_total_cents: number
+  new_money: number
+  new_money_cents: number
+  /** Whether the draft counts only the new money, all of the receipt, or an amount she typed. */
+  counting: 'new_money' | 'all' | 'changed'
+  message: string
+  count_all_label?: string
+  count_new_money_label?: string
+  count_all_splits?: Array<{ id: number; amount: number }>
+  count_new_money_splits?: Array<{ id: number; amount: number }>
 }
 
 export type RecentTransaction = {

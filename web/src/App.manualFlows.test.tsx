@@ -80,6 +80,59 @@ describe('transaction review cards', () => {
     await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(possible, { differentPurchase: true }))
   })
 
+  it('says a voucher paid part of a receipt, counts only the new money, and offers to count it all', async () => {
+    const receipt = draft({
+      id: 230,
+      merchant: 'Tasi Demo Home Store',
+      amount: 34.88,
+      amount_cents: 3488,
+      occurred_on: '2026-06-23',
+      source_type: 'receipt',
+      financial_document_import_id: 12,
+      splits: [{ id: 41, budget_category_id: 7, category_name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 34.88, amount_cents: 3488, notes: null, confidence: null, metadata: { receipt_amount_cents: 18488 } }],
+      receipt_payment: {
+        receipt_total: 184.88,
+        receipt_total_cents: 18488,
+        new_money: 34.88,
+        new_money_cents: 3488,
+        counting: 'new_money',
+        message: '$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts. The receipt total was $184.88.',
+        count_all_label: 'Count all $184.88',
+        count_all_splits: [{ id: 41, amount: 184.88 }],
+        count_new_money_splits: [{ id: 41, amount: 34.88 }],
+      },
+    })
+    const props = stackProps([receipt])
+    render(<TransactionDraftReviewStack {...props} />)
+
+    expect(screen.getByRole('region', { name: 'How Tasi Demo Home Store $34.88 on Jun 23 was paid' }).textContent).toContain('$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts.')
+    expect(screen.queryByRole('button', { name: /^Count only/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Count all $184.88' }))
+    await waitFor(() => expect(props.onUpdate).toHaveBeenCalledWith(receipt, { amount: 184.88, splits: [{ id: 41, amount: 184.88 }] }))
+    expect(props.onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('offers the new money back after she counts all of a receipt', async () => {
+    const receipt = draft({
+      id: 231,
+      merchant: 'Tasi Demo Home Store',
+      amount: 184.88,
+      amount_cents: 18488,
+      source_type: 'receipt',
+      receipt_payment: {
+        receipt_total: 184.88, receipt_total_cents: 18488, new_money: 34.88, new_money_cents: 3488, counting: 'all',
+        message: 'Counting all $184.88, including the $150.00 paid with a voucher or gift card.',
+        count_new_money_label: 'Count only $34.88',
+      },
+    })
+    const props = stackProps([receipt])
+    render(<TransactionDraftReviewStack {...props} />)
+
+    expect(screen.queryByRole('button', { name: /^Count all/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Count only $34.88' }))
+    await waitFor(() => expect(props.onUpdate).toHaveBeenCalledWith(receipt, { amount: 34.88 }))
+  })
+
   it('leaves a possible duplicate out of a group confirmation', () => {
     const possible = draft({ id: 221, merchant: 'Payless', matches: [{ id: 92, status: 'proposed', confidence: 0.97, match_reason: 'same amount', transaction: { id: 502, occurred_on: '2026-10-04', merchant: 'Payless', amount: 25, source_type: 'statement', categories: [] } }] })
     const onBulkConfirm = vi.fn()
