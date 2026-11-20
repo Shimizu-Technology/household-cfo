@@ -69,6 +69,21 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     end
   end
 
+  test "the receipt reply keeps the failed-file notice and leaves an unmatched category to the row answer" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    failed = @document_import.dup
+    failed.assign_attributes(s3_key: "test/unread-receipt.jpg", filename: "Second receipt.jpg", status: "failed", extraction_error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE)
+    failed.save!
+    answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(@household, message: "I paid cash", document_imports: [ @document_import, failed ]).call
+    assert_includes answer, "Your receipt from Ross reads $184.88"
+    assert_includes answer, "Second receipt.jpg: #{FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE}"
+
+    dining = answer_for("How much did I spend in the Dining category?")
+    assert_includes dining, "I found no attached transaction row matching the named merchant or category."
+    refute_includes dining, "Your receipt from Ross"
+  end
+
   test "a receipt the reader saw a voucher on says what was read, what counts and how to count all" do
     @document_import.update!(document_kind: "receipt", status: "processing")
     HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, [ {

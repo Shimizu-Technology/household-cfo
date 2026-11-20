@@ -45,7 +45,8 @@ module SpendingPatterns
     def self.call(value)
       full = FinancialDocuments::MerchantNormalizer.call(value)
       return full if full.blank?
-      short = full.sub(BANK_PREFIX, "").sub(CARD_LEAD, "").sub(CARD_TAIL, "").sub(CARD_WORD_TAIL, "").sub(REFERENCE_TAIL, "").squish
+      # The reference comes off first: a card reference before it ("… S····5237 on 10/15 Ref # …") is then a tail.
+      short = full.sub(BANK_PREFIX, "").sub(CARD_LEAD, "").sub(REFERENCE_TAIL, "").sub(CARD_TAIL, "").sub(CARD_WORD_TAIL, "").squish
       short = short.gsub(/\([^)]*\)/, " ").split(" - ", 2).first.to_s.squish.sub(STORE_NUMBER, "").squish
       4.times do
         trimmed = short.sub(PLACE_TAIL, "").sub(STORE_NUMBER, "").squish

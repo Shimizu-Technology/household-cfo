@@ -124,6 +124,28 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
       response: "Spending half as much at Coral Crib Outlet could free about $235 a month.", ledger: snapshot).pluck("rule")
   end
 
+  test "a one-off split across categories is still one payment, and three times usual is not yet a one-off" do
+    toys = @household.budget_categories.create!(name: "Toys", stack_key: "discretionary", sort_order: 2)
+    gifts = @household.budget_categories.create!(name: "Gifts", stack_key: "discretionary", sort_order: 3)
+    purchase(Date.new(2026, 8, 6), "Seabreeze Snack Bar", 6_000)
+    purchase(Date.new(2026, 9, 6), "Seabreeze Snack Bar", 7_000)
+    split = purchase(Date.new(2026, 10, 6), "Seabreeze Snack Bar", 69_000)
+    split.transaction_splits.sole.update!(amount_cents: 23_000)
+    [ toys, gifts ].each { |category| split.transaction_splits.create!(budget_category: category, amount_cents: 23_000) }
+    # Exactly three times the middle of the others ($65) stays a usual payment.
+    purchase(Date.new(2026, 8, 9), "Reef Coffee Co", 6_000)
+    purchase(Date.new(2026, 9, 9), "Reef Coffee Co", 7_000)
+    purchase(Date.new(2026, 10, 9), "Reef Coffee Co", 19_500)
+    result = analyze
+    seabreeze = result[:discretionary_merchants].find { |row| row[:label] == "Seabreeze Snack Bar" }
+    assert_equal 3, seabreeze[:purchase_count]
+    assert_equal 82_000, seabreeze[:total_cents]
+    assert_equal 3_250, result[:candidate_changes].find { |row| row[:merchant] == "Seabreeze Snack Bar" }[:monthly_impact_cents]
+    assert_equal (6_000 + 7_000 + 19_500) / 3 / 2, result[:candidate_changes].find { |row| row[:merchant] == "Reef Coffee Co" }[:monthly_impact_cents]
+    # Category totals still read each split.
+    assert_equal 23_000, result[:discretionary_categories].find { |row| row[:label] == "Toys" }[:total_cents]
+  end
+
   test "stores that are care are protected names in the eval ledger" do
     [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
       purchase(date, "Island Nursery", 30_000)
@@ -172,6 +194,12 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
       assert SpendingPatterns::Answerer.observation_question?("Where is my money going?")
       [ "What should we cut first?", "Where can I cut back on spending?", "What can I cut?" ].each { |message| assert SpendingPatterns::Answerer.cut_question?(message), message }
       [ "What if I cut dining out to cover it?", "where can we cut back weekend shifts" ].each { |message| refute SpendingPatterns::Answerer.cut_question?(message), message }
+      [ "Which of these should I cut?", "What else can we cut?" ].each { |message| assert SpendingPatterns::Answerer.cut_question?(message), message }
+      # Work, not spending: never routed to the spending answer with the reader unavailable.
+      [ "Which weekend shifts should we cut?", "Where can we cut back weekend shifts?" ].each do |message|
+        refute SpendingPatterns::Answerer.cut_question?(message), message
+        refute SpendingPatterns::Answerer.matches?(message), message
+      end
       cut = reply.call("What should I cut first?")
       where = reply.call("Where is my money going?")
       refute_equal cut, where

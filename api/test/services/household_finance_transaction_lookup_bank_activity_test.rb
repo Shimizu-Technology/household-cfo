@@ -40,9 +40,16 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
 
     category = HouseholdFinance::TransactionLookupAnswerer.new(@household, "How much did I spend on Shopping this month?", today: Date.new(2026, 8, 16)).call
     assert_includes category, "Top merchants: Coral Market $80 (2 times)."
+    kmart = @household.household_transactions.create!(budget_period: @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 8, 1)),
+      occurred_on: Date.new(2026, 8, 12), merchant: "Kmart", total_amount_cents: 5_000, source_type: "statement", status: "confirmed")
+    kmart.transaction_splits.create!(budget_category: @category, amount_cents: 5_000)
     comparison = HouseholdFinance::TransactionLookupAnswerer.new(@household,
-      "Did I spend more at purchase authorized on 08/03 coral market tamuning gu s····5237 card 5237 or purchase authorized on 08/10 coral market tamuning gu s····5237 card 5237?", today: Date.new(2026, 8, 16)).call
-    refute_match(/Purchase authorized|S····|Card 5237/i, comparison.to_s)
+      "Did I spend more at purchase authorized on 08/03 coral market tamuning gu s····5237 card 5237, purchase authorized on 08/10 coral market tamuning gu s····5237 card 5237 or kmart?", today: Date.new(2026, 8, 16)).call
+    # Both bank spellings are one store, totalled together.
+    assert_includes comparison, "Coral Market is higher at $80."
+    assert_includes comparison, "Coral Market $80 confirmed / $0 bank-observed"
+    assert_includes comparison, "Kmart $50 confirmed / $0 bank-observed"
+    refute_match(/Purchase authorized|S····|Card 5237/i, comparison)
   end
 
   test "a store named in full is matched on its own name, never the shorter name it reads as" do

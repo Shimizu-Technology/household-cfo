@@ -36,6 +36,23 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     assert_equal 3_250, result[:candidate_changes].sole[:monthly_impact_cents]
   end
 
+  test "where the money went says when refunds bring a month's purchases to nothing" do
+    purchase("Seabreeze Snack Bar", 10_000)
+    reviewed("Seabreeze Snack Bar", 10_000)
+    _patterns, reply = SpendingPatterns::WhereMoneyGoes.reply(@savings_household, "Where did my money go in October?", today: Date.new(2026, 11, 4))
+    assert_equal "Your reviewed purchases for October 2026 come to $0 after the refunds you approved, so no category has money going to it. This counts only purchases you’ve reviewed or confirmed.", reply
+  end
+
+  test "a month with only a refund is not set against its plan" do
+    @savings_household.update_column(:created_at, Time.zone.local(2026, 1, 5))
+    planned = HouseholdFinance::AnnualBudgetManager.new(@savings_household, year: 2026).create_category!(name: "Snacks", stack_key: "discretionary", monthly_amount: 300)
+    purchase("Seabreeze Snack Bar", 5_000, on: Date.new(2026, 9, 14)).transaction_splits.sole.update!(budget_category: planned)
+    reviewed("Seabreeze Snack Bar", 2_000)
+    _patterns, reply = SpendingPatterns::WhereMoneyGoes.reply(@savings_household, "Where is my money going?", today: Date.new(2026, 11, 4))
+    assert_includes reply, "Against your plan for September: Snacks $30 of $300."
+    assert_includes reply, "In all, $30 went out against $300 planned for spending."
+  end
+
   test "a linked refund is deducted only once even when more purchases share its merchant" do
     original = reviewed("Amazon Marketplace", -3899, type: "purchase")
     purchase("Amazon Marketplace", 1000)

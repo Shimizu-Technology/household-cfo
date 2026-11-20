@@ -82,6 +82,8 @@ module SpendingPatterns
         row[:merchant] = MerchantName.call(row[:merchant])
       end
       rows.reject! { |row| row[:amount_cents].zero? }
+      # Split rows below keep this, so a purchase split across categories is still one payment.
+      rows.each_with_index { |row, index| row[:row_id] = index }
       purchases = rows.reject { |row| row[:refund] }
       # All source classifications inform observed coverage; income-only months
       # are not represented as months with no spending. A month can net below zero
@@ -142,7 +144,9 @@ module SpendingPatterns
 
     def group_totals(rows, key)
       rows.group_by { |row| row[key].to_s.unicode_normalize(:nfkc).squish.downcase }.map do |_, group|
-        bought = group.reject { |row| row[:refund] }
+        # One payment per purchase, however many categories it was split across.
+        bought = group.reject { |row| row[:refund] }.group_by { |row| row[:row_id] }
+          .map { |_, parts| parts.first.merge(amount_cents: parts.sum { |part| part[:amount_cents] }) }
         months = (bought.presence || group).map { |row| row[:date].strftime("%Y-%m") }.uniq
         total = group.sum { |row| row[:amount_cents] }
         one_offs = one_off_payments(bought)
@@ -164,11 +168,14 @@ module SpendingPatterns
     def one_off_payments(bought)
       return [] if bought.length < 2
 
-      bought.each_with_index.filter_map do |row, index|
-        # By position: two purchases of the same amount on the same day are equal hashes.
-        rest = bought.each_with_index.filter_map { |other, other_index| other[:amount_cents] unless other_index == index }.sort
-        middle = rest.length.odd? ? rest[rest.length / 2] : (rest[rest.length / 2 - 1] + rest[rest.length / 2]) / 2.0
-        row if row[:amount_cents] > middle * ONE_OFF_MULTIPLE
+      sorted = bought.map { |row| row[:amount_cents] }.sort
+      rest_length = sorted.length - 1
+      bought.select do |row|
+        # The middle of the others, read from one sorted list with this payment skipped.
+        skipped = sorted.bsearch_index { |amount| amount >= row[:amount_cents] }
+        rest = ->(position) { sorted[position < skipped ? position : position + 1] }
+        middle = rest_length.odd? ? rest.call(rest_length / 2) : (rest.call(rest_length / 2 - 1) + rest.call(rest_length / 2)) / 2.0
+        row[:amount_cents] > middle * ONE_OFF_MULTIPLE
       end
     end
 

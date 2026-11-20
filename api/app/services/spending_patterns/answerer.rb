@@ -13,7 +13,10 @@ module SpendingPatterns
     # "What should we cut first?", "Where can I cut back on spending?": asking Mia to pick a cut. Not "What
     # if I cut dining out to cover it?" (a cut she already has in mind) or "where can we cut back weekend
     # shifts" (work, not spending).
-    CUT_QUESTION = /\b(?:what|which|where)\b[^.?!]{0,25}\b(?:should|can|could|do)\s+(?:i|we)\s+(?:cut|trim)(?:\s+(?:back|down|first))?(?:\s+on\s+(?:my\s+|our\s+)?(?:spending|purchases|shopping|expenses))?\s*[?.!]*\z/i.freeze
+    # Between the question word and "should we cut" only words about spending may come ("which of these",
+    # "what else"), so "Which weekend shifts should we cut?" is about work, not spending.
+    CUT_PREFIX = /(?:\s+(?:else|first|of\s+(?:these|those|them|this|my|our)|these|those|stores?|purchases?|expenses?|spending|subscriptions?|categor(?:y|ies)|things?|one|ones)){0,3}/i
+    CUT_QUESTION = /\b(?:what|which|where)#{CUT_PREFIX.source}\s+(?:should|can|could|do)\s+(?:i|we)\s+(?:cut|trim)(?:\s+(?:back|down|first))?(?:\s+on\s+(?:my\s+|our\s+)?(?:spending|purchases|shopping|expenses))?\s*[?.!]*\z/i.freeze
     # Says only what the analyzer does: it leaves out stores and categories whose names look like these.
     UNSUPPORTED_PERIOD = "I couldn’t identify a supported spending period. Try a month and year, like January 2025, or the last 3 months (up to 12). Nothing changed.".freeze
     PROTECTED_NOTE = "I left out stores and categories that look like rent, bills, medical care, childcare or money for family.".freeze

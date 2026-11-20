@@ -51,7 +51,8 @@ module HouseholdFinance
 
       # Only past the date and risk checks: "Is this fraudulent? I paid with debit" is never a receipt reply.
       receipt_reply = receipt_draft_reply(rows) unless invalid_date_scope? || unsupported_risk_or_advice_question?
-      return receipt_reply if receipt_reply
+      # A second receipt that couldn't be read still needs her to send it again.
+      return [ receipt_reply, failed_import_notice ].compact.join(" ") if receipt_reply
 
       parts = direct_answer_parts(rows, setup)
       if parts.empty?
@@ -81,10 +82,18 @@ module HouseholdFinance
     def receipt_draft_reply(rows)
       return unless evidence_imports.any? && evidence_imports.all? { |document_import| document_import.document_kind == "receipt" }
       return unless rows.one? && rows.first.fetch(:status) == "pending"
-      unmatched = transaction_question? && explicit_transaction_scope?(rows) && scoped_transaction_rows(rows).empty?
-      return unless payment_only? || unmatched
+      return unless payment_only? || (transaction_question? && unmatched_store_named?(rows))
 
       ReceiptDraftReply.call(rows.first.fetch(:record), message: message)
+    end
+
+    # "How much did I spend at Kmart?" about a Ross receipt. A category she names that the receipt
+    # doesn't have ("in the Dining category") still gets the no-matching-row answer.
+    def unmatched_store_named?(rows)
+      return false if matching_transaction_entities(rows).any? || message.match?(/\bcategor(?:y|ies)\b/i)
+
+      candidate = message.match(/\b(?:at|from)\s+([^?.,;]{2,60})/i)&.[](1)
+      candidate.present? && !generic_attachment_reference?(candidate) && !date_like_scope?(candidate)
     end
 
     # "voucher $150 plus debit $34.88": only how she paid. A question beside it ("Does this fit in my

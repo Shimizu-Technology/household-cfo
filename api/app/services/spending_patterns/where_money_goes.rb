@@ -46,7 +46,12 @@ module SpendingPatterns
 
     def call
       categories = @patterns[:categories].first(3)
-      return "I don’t have reviewed purchases to show where your money went yet. You can review a statement or tell me about a few purchases to start." if categories.empty?
+      if categories.empty?
+        return "I don’t have reviewed purchases to show where your money went yet. You can review a statement or tell me about a few purchases to start." if @patterns[:purchase_count].zero?
+
+        # Bought and then refunded: there were purchases, they just net to nothing.
+        return "Your reviewed purchases#{" for #{@period_label}" if @period_label} come to #{money(@patterns[:observed_spending_cents])} after the refunds you approved, so no category has money going to it. This counts only purchases you’ve reviewed or confirmed."
+      end
 
       months = @patterns[:coverage][:months]
       present = months.select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }
@@ -86,8 +91,9 @@ module SpendingPatterns
       "Against your plan #{span}: #{compared.to_sentence}. In all, #{money(total)} went out against #{money(all_planned)} planned for spending."
     end
 
-    # Months with no reviewed purchases are unknown, not $0 against their plan.
-    def recorded_months = @patterns[:coverage][:months].select { |row| row[:spending_cents] }
+    # Months with no reviewed purchases are unknown, not $0 against their plan. A month with only a
+    # refund has no purchases either; its refund still counts in the total.
+    def recorded_months = @patterns[:coverage][:months].select { |row| row[:purchase_count].positive? }
 
     def planned_by_category
       months = recorded_months.map { |row| Date.iso8601("#{row[:month]}-01") }

@@ -419,19 +419,19 @@ module SavingsChallenge
         end
       end
       return false unless self.class.patterns_question?(@message)
-      @patterns = SpendingPatterns::Analyzer.new(@household, today: @enrollment.local_today).call
-      if SpendingPatterns::Answerer.subscriptions_question?(@message)
-        @answer = SpendingPatterns::Answerer.subscriptions_reply(@patterns)
-        @topic = { type: "challenge_patterns", choices: [] }
-        return true
-      end
-      if SpendingPatterns::WhereMoneyGoes.question?(@message)
+      if SpendingPatterns::WhereMoneyGoes.question?(@message) && !SpendingPatterns::Answerer.subscriptions_question?(@message)
         # "Where did my money go in June?" reads June, not the recent months.
         begin
           @patterns, @answer = SpendingPatterns::WhereMoneyGoes.reply(@household, @message, today: @enrollment.local_today)
         rescue SpendingPatterns::RequestedPeriod::Unsupported
           @answer = SpendingPatterns::Answerer::UNSUPPORTED_PERIOD
         end
+        @topic = { type: "challenge_patterns", choices: [] }
+        return true
+      end
+      @patterns = SpendingPatterns::Analyzer.new(@household, today: @enrollment.local_today).call
+      if SpendingPatterns::Answerer.subscriptions_question?(@message)
+        @answer = SpendingPatterns::Answerer.subscriptions_reply(@patterns)
         @topic = { type: "challenge_patterns", choices: [] }
         return true
       end
