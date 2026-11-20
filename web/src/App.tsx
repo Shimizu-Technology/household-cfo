@@ -3385,6 +3385,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const { message, workspace } = await answerCashPurchaseQuestion(question.transaction_draft_id, answer, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       setData({ type: 'shared_financial_mutation', update: workspace })
+      // The answer's plan is for the purchase's year; Home, Review and Mia read the current year's.
+      await refreshCurrentHouseholdView(workspace.budget, workspace)
       await restoreSelectedBudgetPlan(workspace.budget)
       void refreshSpendingReport(selectedBudgetPeriodRef.current)
       replaceMiaHistory(workspace.mia)

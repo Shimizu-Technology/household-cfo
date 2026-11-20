@@ -18,7 +18,8 @@ module HouseholdFinance
     NOT_CASH = /(?:\bcash\s*(?:-\s*)?(?:back|app|card)\b|\bapple\s*cash\b)/i
     # "paid with cash", "paid $40 cash", "in cash", "with cash", "cash purchase". Not cash back, Cash App or Apple Cash.
     SAID = /\b(?:paid|pay|paying|used|using)\s+(?:(?:in|with|by|using)\s+)?(?:\$?\d[\d,]*(?:\.\d{1,2})?\s+(?:in\s+)?)?cash\b|\b(?:in|with|by)\s+cash\b|\bcash\s+(?:purchase|payment)\b/i
-    MONEY = /\$\s?\d|\b\d+(?:\.\d{2})\b/
+    # One whole amount, separators and cents included: "$1,200.00" is one amount, not "$1" and "200.00".
+    MONEY = /\$\s?\d[\d,]*(?:\.\d{2})?|\b\d{1,3}(?:,\d{3})+(?:\.\d{2})?\b|\b\d+\.\d{2}\b/
 
     module_function
 

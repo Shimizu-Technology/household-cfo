@@ -188,9 +188,11 @@ module HouseholdFinance
     def card_answered?(transaction)
       return false unless transaction&.metadata.to_h&.key?("paid_by_card")
 
-      @card_purchase_ids ||= SourceReviewVersion.joins(source_review_head: { financial_source_event: :financial_extraction_revision })
+      # Only a match that still stands: its line is approved and so is the account it was approved against.
+      @card_purchase_ids ||= SourceReviewVersion.joins(source_review_head: { financial_source_event: :financial_extraction_revision }, source_account_identity_version: :source_account_review_head)
         .where(household_id: household.id, disposition: "match").where.not(matched_transaction_id: nil)
         .where("source_review_heads.approved_version_id = source_review_versions.id")
+        .where("source_account_review_heads.approved_version_id = source_review_versions.source_account_identity_version_id")
         .where(financial_extraction_revisions: { financial_document_import_id: household.financial_document_imports.current_picture.select(:id) })
         .pluck(:matched_transaction_id).to_set
       @card_purchase_ids.include?(transaction.id)

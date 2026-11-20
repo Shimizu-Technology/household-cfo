@@ -31,6 +31,9 @@ class HouseholdFinanceCashPaymentTest < ActiveSupport::TestCase
     assert said.call("Lunch at Tasi Demo Cafe, $40, paid with cash")
     assert said.call("spent $12 at the market in cash")
     assert said.call("used cash for gas $30")
+    assert said.call("I paid $1,200.00 in cash for the crib"), "A thousands separator is one amount"
+    assert said.call("I paid $1200.00 in cash for the crib")
+    refute said.call("paid $1,200.00 in cash and $35.50 on my card"), "Still two amounts"
     refute said.call("Lunch at Tasi Demo Cafe $40")
     refute said.call("paid $40 with Cash App at Tasi Demo Cafe")
     refute said.call("Apple Cash purchase $18.75 at Tasi Demo Market")

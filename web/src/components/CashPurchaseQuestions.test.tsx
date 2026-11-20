@@ -71,4 +71,18 @@ describe('CashPurchaseQuestions', () => {
     rerender(<CashPurchaseQuestions questions={[question()]} totalCount={1} onAnswer={vi.fn()} />)
     expect(screen.queryByText(/Showing the newest/)).toBeNull()
   })
+
+  it('keeps keyboard focus on the next question after one is answered', async () => {
+    const first = question()
+    const second = question({ transaction_draft_id: 311, merchant: 'Hafa Demo Deli' })
+    const onAnswer = vi.fn().mockResolvedValue(undefined)
+    const view = render(<CashPurchaseQuestions questions={[first, second]} onAnswer={onAnswer} />)
+    const yes = screen.getByRole('button', { name: 'Yes: Tasi Demo Cafe on Aug 5 was paid with the $100 you took out on Aug 3' })
+    yes.focus()
+    fireEvent.click(yes)
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledOnce())
+    view.rerender(<CashPurchaseQuestions questions={[second]} onAnswer={onAnswer} />)
+    await waitFor(() => expect(document.activeElement?.classList.contains('cash-purchase-question__title')).toBe(true))
+    expect(document.activeElement?.textContent).toContain('Hafa Demo Deli')
+  })
 })

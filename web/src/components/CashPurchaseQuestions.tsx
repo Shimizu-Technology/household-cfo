@@ -1,5 +1,5 @@
 import { cashCoverage } from '../lib/cashCoverage'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CashPurchaseAnswer, CashPurchaseQuestion } from '../api'
 import { formatHouseholdDay } from '../lib/householdDate'
 import { formatReviewMoney } from '../lib/reviewMoney'
@@ -20,13 +20,29 @@ type Props = {
  */
 export function CashPurchaseQuestions({ questions, totalCount = questions.length, disabled = false, errors = {}, onAnswer }: Props) {
   const [busy, setBusy] = useState<number | null>(null)
+  const sectionRef = useRef<HTMLElement>(null)
+  // After an answer saves, its question goes away; keyboard focus moves to the question that takes its place.
+  const focusAfter = useRef<number | null>(null)
+  useEffect(() => {
+    const index = focusAfter.current
+    if (index === null) return
+    focusAfter.current = null
+    const section = sectionRef.current
+    const active = document.activeElement
+    if (!section || (active && active !== document.body && !section.contains(active))) return
+    const titles = section.querySelectorAll<HTMLElement>('.cash-purchase-question__title')
+    ;(titles[Math.min(index, titles.length - 1)] ?? section.querySelector<HTMLElement>('h3'))?.focus()
+  }, [questions])
   if (questions.length === 0) return null
 
   async function answer(question: CashPurchaseQuestion, choice: CashPurchaseAnswer) {
     setBusy(question.transaction_draft_id)
+    // Set before saving: the list can drop this question before the save resolves.
+    focusAfter.current = questions.findIndex(row => row.transaction_draft_id === question.transaction_draft_id)
     try {
       await onAnswer(question, choice)
     } catch {
+      focusAfter.current = null
       // The error is shown beside this question.
     } finally {
       setBusy(null)
@@ -34,7 +50,7 @@ export function CashPurchaseQuestions({ questions, totalCount = questions.length
   }
 
   return (
-    <section className="cash-purchase-questions" aria-labelledby="cash-purchase-questions-heading">
+    <section ref={sectionRef} className="cash-purchase-questions" aria-labelledby="cash-purchase-questions-heading">
       <h3 id="cash-purchase-questions-heading" className="ui-section">Paid with cash</h3>
       <p className="cash-purchase-questions__intro">Cash counts when you take it out. Say which cash paid for {questions.length === 1 ? 'this purchase' : 'these purchases'} so it isn’t counted twice.</p>
       {totalCount > questions.length && <p className="cash-purchase-questions__intro">Showing the newest {questions.length} of {totalCount}. The rest appear as you answer these.</p>}
@@ -46,7 +62,7 @@ export function CashPurchaseQuestions({ questions, totalCount = questions.length
           const error = errors[`cash:${question.transaction_draft_id}`]
           return (
             <li key={question.transaction_draft_id} className="cash-purchase-question transaction-cash-question" data-review-item={question.transaction_draft_id}>
-              <p className="cash-purchase-question__title">
+              <p className="cash-purchase-question__title" tabIndex={-1}>
                 <strong>{question.merchant}</strong>
                 <span>{formatHouseholdDay(question.occurred_on)} · {formatReviewMoney(question.amount_cents)}</span>
               </p>

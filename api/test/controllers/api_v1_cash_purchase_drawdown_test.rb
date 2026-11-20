@@ -543,6 +543,23 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_equal 0, home_cash_question_count
   end
 
+  test "a card match stops answering the cash question once its account is approved again" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    statement = build_source([ [ "POS PURCHASE TASI DEMO CAFE", -4000, "purchase", "2026-08-05" ] ])
+    line = statement[:revision].financial_source_events.sole
+    same_purchase(statement, line, plan(statement).fetch("attention").sole)
+    assert_response :success, response.body
+    assert_equal 0, home_cash_question_count
+    account = statement[:revision].financial_source_accounts.sole
+    approve(statement, [], accounts: [ { source_account_id: account.id, label: "Talun Demo Joint ····4410", account_basis: "asset" } ])
+    assert_response :success, response.body
+    refute_equal SourceReviewHead.find_by!(financial_source_event: line).approved_version.source_account_identity_version_id,
+      SourceAccountReviewHead.find_by!(financial_source_account: account).approved_version_id, "The account was approved again"
+    assert_equal 1, home_cash_question_count, "The old card match no longer stands, so the cash question is asked again"
+  end
+
   test "removing the matching statement asks again without silently restoring cash" do
     withdrawal = withdraw(10_000, "2026-08-03")
     draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
