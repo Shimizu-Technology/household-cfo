@@ -312,6 +312,25 @@ describe('statement review a participant can finish', () => {
     expect(mutate.mock.calls[1][3]).toEqual({ lines: [{ event_id: 4007, decision: 'leave_out' }] })
   })
 
+  it('asks whether a bank line is a purchase she already confirmed, and names that purchase when she says it is', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.attention = [{ event_id: 4008, kind: 'same_purchase', event_type: 'purchase', question: 'Same purchase as your receipt from Payless Supermarkets on Aug 3 ($103.42)?',
+      answers: [{ id: 'same_purchase', label: 'Same purchase' }, { id: 'different', label: 'Different purchase' }],
+      merchant: 'POS PURCHASE PAYLESS SUPERMARKET #12', posted_on: '2026-08-04', signed_amount_cents: -10342, category_id: null, category_name: null,
+      purchase_match: { transaction_id: 77, merchant: 'Payless Supermarkets', occurred_on: '2026-08-03', amount_cents: 10342, source_type: 'receipt', categories: ['Groceries', 'Household', 'Medical'] } }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    const item = (await screen.findByRole('list', { name: 'Lines that need a quick look' })).querySelector('li')!
+    expect(within(item).getByText('Same purchase as your receipt from Payless Supermarkets on Aug 3 ($103.42)?')).toBeTruthy()
+    fireEvent.click(within(item).getByRole('button', { name: 'Same purchase: POS PURCHASE PAYLESS SUPERMARKET #12' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4008, decision: 'same_purchase', match_transaction_id: 77, shown: { event_type: 'purchase', category_id: null } }] })
+    await waitFor(() => expect((within(item).getByRole('button', { name: 'Different purchase: POS PURCHASE PAYLESS SUPERMARKET #12' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(within(item).getByRole('button', { name: 'Different purchase: POS PURCHASE PAYLESS SUPERMARKET #12' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).toEqual({ lines: [{ event_id: 4008, decision: 'different', shown: { event_type: 'purchase', category_id: null } }] })
+  })
+
   it('opens a line in a sheet to fix it and sends the corrected facts', async () => {
     mount()
     const list = await screen.findByRole('list', { name: 'Lines that need a quick look' })
