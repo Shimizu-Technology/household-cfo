@@ -14,6 +14,8 @@ module HouseholdFinance
           require_legacy_draft!(draft)
           source_type = normalized_source_type(input[:source_type])
           normalized = { draft_id: draft.id, source_type: source_type, year: draft.occurred_on.year }
+          # Her answer to "Same purchase as …?". Only present when she said it is a different purchase.
+          normalized[:different_purchase] = true if ActiveModel::Type::Boolean.new.cast(input[:different_purchase]) == true
           if input[:occurred_on].present?
             occurred_on = parsed_date(input[:occurred_on])
             normalized[:occurred_on] = occurred_on.iso8601
@@ -81,7 +83,10 @@ module HouseholdFinance
               split.merge(amount: Money.dollars(split.fetch(:amount_cents))).except(:amount_cents, :confidence, :metadata)
             end
           end
-          result = TransactionDraftConfirmer.new(draft, attributes).call
+          result = TransactionDraftConfirmer.new(draft, attributes, different_purchase: input[:different_purchase] == true).call
+          if result.possible_matches.present?
+            raise TransactionDraftConfirmer::PossibleDuplicate.new(result.errors.to_sentence, result.possible_matches)
+          end
           raise ArgumentError, result.errors.to_sentence unless result.success?
 
           result.draft

@@ -5259,6 +5259,52 @@ test('confirmed import history does not project the same draft into budget impac
   await expect(card.getByRole('region', { name: /Budget impact if approved/ })).toHaveCount(0)
 })
 
+for (const detailReloads of [true, false]) {
+  test(`a receipt purchase refused as a possible duplicate ${detailReloads ? 'asks Same purchase once its receipt reloads' : 'keeps the refusal when its receipt fails to reload'}`, async ({ page }) => {
+    const pendingDraft = {
+      id: 506, occurred_on: `${currentYear}-08-05`, merchant: 'Tasi Demo Home Store', amount: 34.88, amount_cents: 3_488,
+      status: 'pending', source_type: 'receipt', financial_document_import_id: 507, category_id: 2, category_name: 'Dining out',
+      splits: [{ id: 508, budget_category_id: 2, category_name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 34.88, amount_cents: 3_488, notes: null, confidence: 0.9, metadata: {} }],
+      matches: [] as Array<Record<string, unknown>>,
+    }
+    const receipt = {
+      id: 507, household_id: 77, document_kind: 'receipt', status: 'needs_review', filename: 'talun-voucher-receipt.jpg', content_type: 'image/jpeg', byte_size: 2_048,
+      document_date: pendingDraft.occurred_on, period_start_on: null, period_end_on: null, extracted_summary: 'One purchase to review.', extraction_error: null,
+      processed_at: `${currentYear}-08-16T01:00:00Z`, applied_at: null, source_deleted_at: null, updated_at: `${currentYear}-08-16T01:00:00Z`,
+      source_available: false, details_included: true, uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [],
+      transaction_drafts: [pendingDraft], attempts: [],
+    }
+    const refusal = 'This looks like Tasi Demo Home Store on Aug 5 ($34.88), which you already have. Is it the same purchase or a different one? Nothing was added to your spending.'
+    const bankLine = { id: 509, status: 'proposed', confidence: 0.94, match_reason: 'same amount', transaction: { id: 510, occurred_on: pendingDraft.occurred_on, merchant: 'Purchase authorized on 08/05 Tasi Demo Home Store Tamuning Gum', store_name: 'Tasi Demo Home Store', amount: 34.88, source_type: 'statement', categories: ['Dining out'] } }
+    let detailRequests = 0
+    await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+    await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [receipt] } }))
+    await page.route('http://api.test/api/v1/document_imports/507', (route) => {
+      detailRequests++
+      // The server saved the suggestion when it refused; only the receipt's own details carry it to this card.
+      if (!detailReloads) return route.fulfill({ status: 503, json: { errors: ['Try again shortly.'] } })
+      return route.fulfill({ status: 200, json: { document_import: { ...receipt, transaction_drafts: [{ ...pendingDraft, matches: [bankLine] }] } } })
+    })
+    await page.route('http://api.test/api/v1/transaction_drafts/506/confirm', (route) => route.fulfill({ status: 409, json: { errors: [refusal], code: 'possible_duplicate', possible_matches: [{ transaction_id: 510 }] } }))
+
+    await page.goto('/?pilot_e2e_role=participant#Statements')
+    const card = page.locator('[data-review-item="506"]')
+    await card.getByRole('button', { name: /^Confirm / }).click()
+    await expect.poll(() => detailRequests).toBe(1)
+
+    if (detailReloads) {
+      await expect(card).toContainText('Same purchase as Tasi Demo Home Store on Aug 5 ($34.88)?')
+      await expect(card.getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+      await expect(card).not.toContainText(refusal)
+    } else {
+      // The card still shows the old Confirm, so the refusal must stay visible beside it.
+      await expect(card).toContainText(refusal)
+      await expect(card.locator('.transaction-duplicate-question')).toHaveCount(0)
+    }
+    await expect(page.getByText(/Your change was saved/)).toHaveCount(0)
+  })
+}
+
 test('PDF document preview keeps keyboard focus inside accessible controls', async ({ page }) => {
   const pdfImport = {
     id: 606,
@@ -18005,12 +18051,72 @@ test('BOG UI F2 fix1 duplicate keeps the created purchase in review without conf
   await page.goto('/?pilot_e2e_role=participant#Review')
   await fix1EnterPurchase(page)
   await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
-  await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('Possible duplicate')
+  await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('This may be a purchase you already have')
   await expect(page.locator('.manual-transaction-capture [role=status]')).toHaveClass(/warning/)
-  await expect(page.locator('[data-review-item="7801"]')).toContainText('Match existing')
+  await expect(page.locator('[data-review-item="7801"]')).toContainText('Same purchase as')
+  await expect(page.locator('[data-review-item="7801"]').getByRole('button', { name: /^Confirm / })).toHaveCount(0)
   await expect(page.getByText('1 review', { exact: true })).toBeVisible()
   await expect(page.getByText('0 reviews', { exact: true })).toHaveCount(0)
   expect(calls).toEqual({ creates: 1, confirms: 0 })
+})
+
+test('BOG UI F2 a confirm the server refuses as a possible duplicate turns into the Same purchase question', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  const draft = { id: 7891, occurred_on: '2026-11-14', merchant: 'Payless', amount: 103.42, amount_cents: 10342, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Flexible spending', splits: [{ id: 7892, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', amount: 103.42, amount_cents: 10342, metadata: {} }], matches: [] as Array<Record<string, unknown>> }
+  workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+  const confirmBodies: unknown[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts/7891/confirm', async route => {
+    const body = route.request().postDataJSON()
+    confirmBodies.push(body)
+    if (!body.transaction_draft?.different_purchase) {
+      // Its bank line was approved since she logged it: the server saved the suggestion and refused.
+      draft.matches = [{ id: 7893, status: 'proposed', confidence: 0.92, match_reason: 'same amount', transaction: { id: 7894, occurred_on: '2026-11-13', merchant: 'POS PURCHASE PAYLESS SUPERMARKET TAMUNING GU', store_name: 'Payless Supermarket', amount: 103.42, source_type: 'statement', categories: ['Flexible spending'] } }]
+      f2SyncSnapshot(workspace)
+      return route.fulfill({ status: 409, json: { errors: ['This looks like Payless Supermarket on Nov 13 ($103.42), which you already have. Is it the same purchase or a different one? Nothing changed.'], code: 'possible_duplicate', possible_matches: [{ transaction_id: 7894 }] } })
+    }
+    workspace.budget.annual_plan.rows[0].months[10].actual = 103.42
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    f2SyncSnapshot(workspace)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const card = page.locator('[data-review-item="7891"]')
+  await card.getByRole('button', { name: /^Confirm / }).click()
+  await expect(card).toContainText('Same purchase as Payless Supermarket on Nov 13 ($103.42)?')
+  await expect(card.getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+  await expect(card.locator('.chat-error')).toHaveCount(0)
+  await card.getByRole('button', { name: /^Different purchase:/ }).click()
+  await expect(card.locator('[data-review-result]')).toBeVisible()
+  expect(confirmBodies).toEqual([{ transaction_draft: {} }, { transaction_draft: { different_purchase: true } }])
+})
+
+test('BOG UI F2 a retried confirm that is refused as a possible duplicate still asks Same purchase', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  const draft = { id: 7895, occurred_on: '2026-11-14', merchant: 'Market', amount: 45.2, amount_cents: 4520, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Flexible spending', splits: [{ id: 7896, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', amount: 45.2, amount_cents: 4520, metadata: {} }], matches: [] as Array<Record<string, unknown>> }
+  await page.route('http://api.test/api/v1/transaction_drafts', async route => {
+    workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
+    await route.fulfill({ json: { transaction_draft: draft, workspace } })
+  })
+  const keys: string[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts/7895/confirm', async route => {
+    keys.push(route.request().headers()['idempotency-key'])
+    // The first response is lost on the way back.
+    if (keys.length === 1) return route.abort('connectionreset')
+    // Meanwhile its bank line was approved: the server saved the suggestion and refused.
+    draft.matches = [{ id: 7897, status: 'proposed', confidence: 0.92, match_reason: 'same amount', transaction: { id: 7898, occurred_on: '2026-11-14', merchant: 'POS PURCHASE MARKET', store_name: 'Market', amount: 45.2, source_type: 'statement', categories: ['Flexible spending'] } }]
+    f2SyncSnapshot(workspace)
+    return route.fulfill({ status: 409, json: { errors: ['This looks like Market on Nov 14 ($45.20), which you already have. Is it the same purchase or a different one? Nothing was added to your spending.'], code: 'possible_duplicate', possible_matches: [{ transaction_id: 7898 }] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await fix1EnterPurchase(page)
+  await page.getByLabel('Date', { exact: true }).fill('2026-11-14')
+  await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
+  await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('This may be a purchase you already have')
+  await expect(page.locator('.manual-transaction-capture [role=status]')).not.toContainText('Confirmation did not finish')
+  await expect(page.locator('[data-review-item="7895"]')).toContainText('Same purchase as Market on Nov 14 ($45.20)?')
+  expect(keys).toHaveLength(2)
+  expect(keys[1]).toBe(keys[0])
 })
 
 test('BOG UI F2 fix1 double tap then Undo replaces the manual confirmation notice', async ({ page }) => {
@@ -18267,9 +18373,9 @@ test('BOG UI F2 fix2 previous-year duplicate stays in Review and Match replaces 
   await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
   await expect(page.locator('.manual-transaction-capture [role=status]')).toHaveClass(/warning/)
   const card = page.locator('[data-review-item="7881"]')
-  await card.getByRole('button', { name: /Match existing/ }).click()
+  await card.getByRole('button', { name: /^Same purchase:/ }).click()
   await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('Matched Year end market')
-  await expect(page.locator('.manual-transaction-capture [role=status]')).not.toContainText('Possible duplicate')
+  await expect(page.locator('.manual-transaction-capture [role=status]')).not.toContainText('may be a purchase you already have')
 })
 
 test('BOG UI F2 fix2 Ask Mia keeps the last purchase heading and finished result in position', async ({ page }) => {

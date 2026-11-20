@@ -13,6 +13,11 @@ module HouseholdFinance
     end
 
     def call
+      # Keep only suggestions that still fit: a purchase that stopped counting
+      # (ignored after its own entry was reopened), moved out of the date or
+      # amount window, or was taken by another line of the same file is no
+      # longer a possible duplicate. Rejected answers stay as she gave them.
+      draft.transaction_draft_matches.proposed.where.not(household_transaction_id: candidates.map(&:id)).destroy_all
       candidate_results.first(5).each do |result|
         next if result.confidence < MIN_CONFIDENCE
 
@@ -45,7 +50,22 @@ module HouseholdFinance
         .where(status: %w[confirmed reconciled])
         .where(occurred_on: (draft.occurred_on - SEARCH_WINDOW_DAYS)..(draft.occurred_on + SEARCH_WINDOW_DAYS))
         .where(total_amount_cents: amount_range)
+        .where.not(id: claimed_transaction_ids)
         .to_a
+    end
+
+    # Purchases another line of the same receipt or statement file is already
+    # matched to. TransactionDraftMatchAccepter refuses a second line of one
+    # file, so never offer it. Typed-in purchases have no file and can match.
+    def claimed_transaction_ids
+      return [] if draft.financial_document_import_id.nil?
+
+      @claimed_transaction_ids ||= begin
+        others = household.transaction_drafts.where(financial_document_import_id: draft.financial_document_import_id).where.not(id: draft.id)
+        matched = others.where(status: "matched").where.not(matched_transaction_id: nil).pluck(:matched_transaction_id)
+        accepted = TransactionDraftMatch.accepted.where(transaction_draft_id: others.select(:id)).pluck(:household_transaction_id)
+        (matched + accepted).uniq
+      end
     end
 
     def amount_range
@@ -76,15 +96,31 @@ module HouseholdFinance
       [ 0.0, 1.0 - (delta_days.to_f / (SEARCH_WINDOW_DAYS + 1)) ].max
     end
 
+    # Bank lines carry boilerplate the receipt doesn't ("POS PURCHASE PAYLESS
+    # SUPERMARKET #12 TAMUNING GU"), so also compare the cleaned store names.
     def merchant_score(transaction)
-      left = normalized(transaction.merchant)
-      right = normalized(draft.merchant)
+      raw = text_score(normalized(transaction.merchant), normalized(draft.merchant))
+      left = cleaned_name(transaction.merchant)
+      return raw if left.blank? || draft_cleaned_name.blank?
+
+      [ raw, text_score(left, draft_cleaned_name, min_contained_length: 4) ].max
+    end
+
+    def text_score(left, right, min_contained_length: 1)
       return 0.4 if left.blank? || right.blank?
       return 1.0 if left == right
-      return 0.88 if left.include?(right) || right.include?(left)
+      return 0.88 if [ left.length, right.length ].min >= min_contained_length && (left.include?(right) || right.include?(left))
 
       overlap = token_overlap(left, right)
       overlap >= 0.5 ? overlap : 0.2
+    end
+
+    def cleaned_name(value)
+      normalized(SpendingPatterns::MerchantName.call(value))
+    end
+
+    def draft_cleaned_name
+      @draft_cleaned_name ||= cleaned_name(draft.merchant)
     end
 
     def category_score(transaction)

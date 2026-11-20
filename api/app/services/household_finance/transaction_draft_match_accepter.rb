@@ -1,5 +1,6 @@
 module HouseholdFinance
   class TransactionDraftMatchAccepter
+    COUNTED_STATUSES = %w[confirmed reconciled].freeze
     Result = Data.define(:success, :draft, :match, :errors) do
       def success?
         success == true
@@ -26,7 +27,11 @@ module HouseholdFinance
           matched_transaction = accepted_match.household_transaction
           matched_transaction.lock!
           raise ArgumentError, "Matched transaction belongs to another household" unless matched_transaction.household_id == draft.household_id
-          raise ArgumentError, "Matched transaction is already linked to another draft" if matched_elsewhere?(matched_transaction)
+          # Matching to a purchase that no longer counts would leave this one out of spending too.
+          unless matched_transaction.status.in?(COUNTED_STATUSES)
+            raise ArgumentError, "That purchase no longer counts in your spending, so this one can't be matched to it. Nothing changed."
+          end
+          raise ArgumentError, "That purchase is already matched to another line from this file. Nothing changed." if matched_elsewhere?(matched_transaction)
 
           accepted_match.update!(status: "accepted")
           draft.transaction_draft_matches.where.not(id: accepted_match.id).update_all(status: "rejected", updated_at: Time.current)
@@ -48,7 +53,13 @@ module HouseholdFinance
       match_id.present? ? scope.find_by(id: match_id) : scope.first
     end
 
+    # Two lines of one statement or receipt are two purchases, so they can't
+    # both be one existing purchase. Purchases she typed in (no file) can: the
+    # same purchase logged twice is matched twice, and matching never adds
+    # spending.
     def matched_elsewhere?(matched_transaction)
+      return false if draft.financial_document_import_id.nil?
+
       matched_drafts_for_same_import(matched_transaction).exists? ||
         accepted_matches_for_same_import(matched_transaction).exists?
     end

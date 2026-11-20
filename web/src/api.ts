@@ -303,6 +303,8 @@ export type TransactionDraftMatch = {
     id: number
     occurred_on: string
     merchant: string
+    // The store without bank wording, for "Same purchase as …?".
+    store_name?: string
     amount: number
     source_type: string
     categories: string[]
@@ -4747,11 +4749,13 @@ export async function updateTransactionDraft(id: number, values: TransactionDraf
   })
 }
 
-export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string): Promise<AppData> {
+// differentPurchase: she answered "Different purchase" to the app's "Same purchase as …?" question.
+// Without it the server refuses to confirm a purchase that looks like one she already has.
+export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string, options: { differentPurchase?: boolean } = {}): Promise<AppData> {
   const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ transaction_draft: values }),
+    body: JSON.stringify({ transaction_draft: options.differentPurchase ? { ...values, different_purchase: true } : values }),
   })
   return payload.workspace
 }

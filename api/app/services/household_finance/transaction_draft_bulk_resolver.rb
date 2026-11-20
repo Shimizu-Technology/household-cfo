@@ -24,6 +24,8 @@ module HouseholdFinance
         if action == "confirm"
           drafts.each do |draft|
             result = TransactionDraftConfirmer.new(draft, reconcile_import: false).call
+            # Never answer "Same purchase as …?" for her in a group: she answers it on that purchase.
+            raise BulkResolutionError, possible_duplicate_message(draft, result.possible_matches, resolved_drafts) if result.possible_matches.present?
             raise BulkResolutionError, result.errors.to_sentence unless result.success?
 
             resolved_drafts << result.draft
@@ -53,6 +55,23 @@ module HouseholdFinance
       raise ArgumentError, "Unsupported bulk transaction action" unless action.in?(ACTIONS)
       raise ArgumentError, "Select at least one pending transaction review" if draft_ids.empty?
       raise ArgumentError, "Select no more than #{MAX_DRAFTS} transaction reviews at once" if draft_ids.length > MAX_DRAFTS
+    end
+
+    def possible_duplicate_message(draft, possible_matches, confirmed_in_group)
+      described = "#{draft.merchant} for #{money(draft.total_amount_cents)}"
+      matched_ids = possible_matches.map { |match| match.fetch(:transaction_id) }
+      # It only looks like another purchase in this same group, which isn't
+      # saved yet, so its card has nothing to ask. One at a time, it will.
+      twin = confirmed_in_group.find { |other| matched_ids.include?(other.confirmed_transaction_id) }
+      if twin
+        "#{described} looks like #{twin.merchant} in the same group. Confirm them one at a time so you can say if they're the same purchase. Nothing changed."
+      else
+        "#{described} may be a purchase you already have. Answer “Same purchase?” on that purchase first. Nothing changed."
+      end
+    end
+
+    def money(cents)
+      ActiveSupport::NumberHelper.number_to_currency(Money.dollars(cents))
     end
 
     def reconcile_document_imports!(drafts)

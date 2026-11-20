@@ -935,6 +935,7 @@ module Api
             id: transaction.id,
             occurred_on: transaction.occurred_on.iso8601,
             merchant: transaction.merchant,
+            store_name: HouseholdFinance::TransactionDraftConfirmer.store_name(transaction.merchant),
             amount: dollars_or_nil(transaction.total_amount_cents),
             source_type: transaction.source_type,
             categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }

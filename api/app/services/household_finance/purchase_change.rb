@@ -99,11 +99,28 @@ module HouseholdFinance
         split = draft.transaction_draft_splits.reload.order(:id).sole
         amount = payload.fetch("new_amount_cents").to_i
         dollars = format("%d.%02d", amount / 100, amount % 100)
-        runner.run(operation_key: "transaction.draft.confirm", idempotency_key: "#{key}:confirm", source: "mia",
-          input: { draft_id: draft.id, source_type: "manual_chat", amount: dollars,
-                   splits: [ { id: split.id, budget_category_id: payload["new_category_id"] || split.budget_category_id, amount: dollars } ] })
+        begin
+          runner.run(operation_key: "transaction.draft.confirm", idempotency_key: "#{key}:confirm", source: "mia",
+            input: { draft_id: draft.id, source_type: "manual_chat", amount: dollars,
+                     splits: [ { id: split.id, budget_category_id: payload["new_category_id"] || split.budget_category_id, amount: dollars } ] })
+        rescue TransactionDraftConfirmer::PossibleDuplicate
+          # With the change it would look like another purchase she already
+          # has. The change card can't ask "Same purchase?", so leave it alone.
+          raise Stale, reopen_to_change_message(draft)
+        end
       end
     end
+
+    # The change card can't ask "Same purchase?", and the purchase stays
+    # confirmed, so it isn't waiting in Review. Name the real steps: reopen it
+    # from Review's confirmed list, then change it on its card.
+    def self.reopen_to_change_message(draft, today: Date.current)
+      month = draft.occurred_on.beginning_of_month == today.beginning_of_month ? "" : " (pick #{draft.occurred_on.strftime('%B')} in Budget first)"
+      "With that change, #{draft.merchant} would look like another purchase you already have, so I left it as it was. " \
+        "To change it, open Review#{month}, choose See all under Confirmed this month and tap Reopen next to it. " \
+        "Then tap Change on it, and you can say if it's the same purchase. Nothing changed."
+    end
+    private_class_method :reopen_to_change_message
 
     def initialize(household, request, message:, today:)
       @household = household
