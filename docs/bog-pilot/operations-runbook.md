@@ -12,7 +12,7 @@ Verify the host, exact commit, current sealed cohort release, selected cohort ID
 
 For local rehearsal use a named disposable database, fixed clock and synthetic identities. Never allow an unset URL to fall back to development. `api/bin/ci` replants seeds and must not run against a preserved development or production database. Apply local-dev-lifecycle: record baseline, claim each exact server/tab/DB/storage delta and clean only that delta. Preserve shared services.
 
-Set `BOG_DISPOSABLE_DATABASE_NAME` and `BOG_DISPOSABLE_DATABASE_URL` to a verified, task-owned test database before using these examples; neither may be empty, and both must identify the same database. Use the repository-supported Ruby (3.3.7 for E06) and run the existing gates from `api/` or `web/` as appropriate:
+Set `BOG_DISPOSABLE_DATABASE_NAME` and `BOG_DISPOSABLE_DATABASE_URL` to a verified, task-owned test database before using these examples; neither may be empty, and both must identify the same database. Use the repository-supported Ruby (`api/.ruby-version`; it was 3.3.7 for E06) and run the existing gates from `api/` or `web/` as appropriate:
 
 ```sh
 RAILS_ENV=test DATABASE_URL="$BOG_DISPOSABLE_DATABASE_URL" DATABASE_TEST_NAME="$BOG_DISPOSABLE_DATABASE_NAME" PARALLEL_WORKERS=1 bin/rails db:prepare
