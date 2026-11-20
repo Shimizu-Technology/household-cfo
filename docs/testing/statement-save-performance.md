@@ -118,3 +118,34 @@ Final gates on the rebased source:
 No fresh browser, production-latency or mobile-Safari verification was performed; affected persisted journeys were exercised through the real backend batch and related controller tests. The implementation worker leaves independent review and merge to the lead. Backend-only changes do not require a production frontend build; Netlify previews remain off.
 
 All seven owned databases (`hcfo_c2_final_test`, `hcfo_c2_score_test`, `hcfo_c2_full_test` and its four worker copies) were dropped. No owned background job, server or browser remains; the shared PostgreSQL service is preserved. The clean branch/clone are retained for the lead. The shared-guidance checker still cannot run because this host lacks `~/.config/shimizu-technology/agent-context.json`; synced skills were read directly.
+
+## Review fixes, round 4
+
+Base `d297da5c8`, reviewed head `db50a2266`. Agent-executed backend acceptance uses fictional statement data and the real locked `LineApprover` path. The four required regression scenarios cover persisted coverage flags, atomic duplicate refusal, and annual Budget allocations:
+
+1. Pairing marks coverage pending only for the linked members and previous group dependencies. Refreshing the page's dependency cache no longer marks unrelated rows' aliases pending.
+2. A counterpart discovered outside the page captures and locks its old version's alias/group dependencies in `line_head`, before staging or approval can replace them. Unpairing therefore marks its old alias import pending.
+3. Overlap preloads record their amount/date/artifact scope. Counterpart facts outside that scope use fresh candidates; fallback discards the superset because its head/draft maps have also changed. When a page needs a preload, it includes all page amounts to avoid repeated fallback reads on ordinary lines.
+4. Creating Family support clears cached annual provisioning. A prior spending projection followed by a someone-else answer now creates all twelve zero-amount allocations for the new category.
+
+Each regression failed without its fix: three initial failures demonstrated the coverage/allocation defects, and the narrowed-preload counterpart case saved without raising until the overlap fix was restored. All four then passed (4 tests / 12 assertions). An initial duplicate fixture did not activate the preload and was strengthened with a separate purchase copy. The first performance run caught 310 queries for 22 lines; preloading the whole page restored 289 without loosening the existing budget.
+
+Accepted behavior changes retained: no-checksum imports permit identical same-day lines within one statement, since the page never showed a duplicate question for those rows; a request naming the same `event_id` twice is refused before writes.
+
+| Lines | Queries | Local seconds | Queries/line |
+| --- | --- | --- | --- |
+| 1 | 94 | 0.459 | 94.00 |
+| 22 | 289 | 0.720 | 13.14 |
+| 100 | 991 | 1.802 | 9.91 |
+
+Final related domain/controller/CashPayment/Budget/statement approval/refund/confirmed-purchase gate: 292 tests / 2,398 assertions, no failures/errors/skips. RuboCop: 1,505 files, no offenses. Brakeman: zero warnings. Zeitwerk passed. Both full and fast offline scorecards passed `RATCHET=1`: parsed JSON and complete JSON bytes match the committed baselines, which are unchanged. SHA-256: full `65356d4c00b9adb5541729a957f29573c6c63241b65c0ae30976cf03536c23d8`; fast `c328e48f33131545145172af19ebca720c64aba534a0cc1fd06bae51bbcb2102`. Final full-suite results are recorded below.
+
+No fresh browser, production-latency or mobile-Safari verification is claimed for this backend review follow-up. Netlify previews remain off; no production frontend build is expected. This worker leaves #341 open for the lead's review and does not merge.
+
+CodeRabbit posted two valid inline findings before completion. Its allocation finding duplicates finding 4 above. Its second finding exposed a no-checksum screen/save mismatch: an excluded external row could activate the page preload and make same-statement siblings appear as overlaps. The default `ParticipantPlan` context now excludes its own revision, matching the save context. A fifth regression failed with the old default and verifies the screen has no sibling overlaps and both lines save. The final gate was repeated after this correction.
+
+The first round-4 full run, before the additional CodeRabbit screen-context correction, completed 5,683 tests / 84,193 assertions in 274.9 seconds with four workers (`PGGSSENCMODE=disable`). Its only failure was the unchanged persona deadline test at 173.9 ms against 150 ms; there were no errors/skips or PostgreSQL fork crash. The completed final-source rerun and isolated deadline result follow below.
+
+Final-source full suite: **5,684 tests / 84,200 assertions**, **277.4 seconds**, zero failures/errors/skips, four workers with `PGGSSENCMODE=disable`; no PostgreSQL fork crash. The known persona deadline test passed in this run. Subsequent isolated reruns both failed unchanged at **232.5 ms** and **221.4 ms** against 150 ms (**1 test / 2 assertions** each); these failures remain visible and no deadline assertion was weakened. Final related gate and query measurements are above. Both scorecards were repeated after the CodeRabbit correction and again matched both committed baselines byte for byte. Final RuboCop (1,505 files) and Brakeman (zero warnings) passed; Zeitwerk and diff whitespace checks passed.
+
+Both valid CodeRabbit threads were addressed with regression coverage and replied to/resolved on #341. No final-head independent review or new CI result is claimed by this worker. All eight task-owned databases (`hcfo_c2_r4_test`, `hcfo_c2_r4_repro_test`, `hcfo_c2_r4_score_test`, `hcfo_c2_r4_full_test` and its four worker copies) were dropped. All started jobs finished; no owned server/browser/runtime remains, and shared PostgreSQL remains available. The branch/checkout are retained for the lead; no merge. The shared-guidance check remains unavailable because this host lacks `~/.config/shimizu-technology/agent-context.json`; synced guidance was read directly.

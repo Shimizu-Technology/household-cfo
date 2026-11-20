@@ -30,11 +30,25 @@ module FinancialDocuments
           dated = events.select { |event| event.signed_amount_cents && event.posted_on }
           days = dated.map(&:posted_on)
           window = ((days.min - CROSS_FILE_DAYS)..(days.max + CROSS_FILE_DAYS)) if days.any?
+          @preloaded_amounts = dated.map(&:signed_amount_cents).uniq
+          @preloaded_days = window
+          @preloaded_artifact = artifact
           @preloaded = read_candidates({ signed_amount_cents: dated.map(&:signed_amount_cents).uniq }, artifact, nil, days: window, all_physical: true, known_events: events)
         end
 
         def candidates(facts, artifact, locator)
-          @preloaded || read_candidates(facts, artifact, locator)
+          if @preloaded
+            day = facts[:posted_on]&.to_date
+            covered = @preloaded_amounts.include?(facts[:signed_amount_cents]) && day && @preloaded_days &&
+              @preloaded_days.cover?(day - CROSS_FILE_DAYS) && @preloaded_days.cover?(day + CROSS_FILE_DAYS) &&
+              artifact == @preloaded_artifact && facts[:external_reference].blank?
+            return @preloaded if covered
+
+            # read_candidates also replaces the head/draft maps. Discard the
+            # superset so later lines cannot combine it with those narrower maps.
+            @preloaded = nil
+          end
+          read_candidates(facts, artifact, locator)
         end
 
         def record_approval!(event, head)

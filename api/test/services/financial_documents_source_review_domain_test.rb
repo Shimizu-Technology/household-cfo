@@ -860,6 +860,18 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal 2, result[:approved]
   end
 
+  test "round four no checksum page ignores siblings when an excluded external row activates preload" do
+    external = source([ movement(-1763) ])
+    identity = link(external)
+    approve(stage(external[:events].sole, identity: identity, amount: -1763, disposition: "exclude", overlap: "excluded"))
+    fresh = source([ movement(-1763), movement(-1763, row: 2) ], checksum: nil)
+    link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    assert_empty plan.lines.flat_map(&:overlaps)
+    result = bulk_save(fresh, fresh[:events].map { |event| edit_entry(event) })
+    assert_equal 2, result[:approved]
+  end
+
   test "bulk refuses the same line twice before voiding its spending" do
     event = @source[:events].sole
     version = approve(stage(event))
@@ -1018,6 +1030,68 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     save_final_page(page, only: [ page[:events].first.id ]) { |_line| { decision: "unpair_transfer" } }
     assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
     assert_equal expected, @household.household_transactions.where(status: "confirmed").sum(:total_amount_cents)
+  end
+
+  test "round four pairing leaves unrelated alias coverage untouched" do
+    page = source([ movement(-5000, type: "transfer"), movement(-1300, row: 2) ])
+    identity = link(page)
+    original = approve(stage(page[:events].last, identity: identity, amount: -1300))
+    copy = source([ movement(-1300) ])
+    copy_identity = link(copy, tracked: identity.source_tracked_account)
+    approve(stage(copy[:events].sole, identity: copy_identity, amount: -1300, disposition: "match", overlap: "match", matched_version_id: original.id))
+    credit = source([ movement(5000, type: "transfer") ])
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings"))
+    copy[:import].update!(metadata: copy[:import].metadata.merge("source_accounting_review_pending" => false))
+    save_final_page(page, only: [ page[:events].first.id ]) { |line| pair_answer(line) }
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_equal false, copy[:import].reload.metadata.fetch("source_accounting_review_pending")
+  end
+
+  test "round four unpair retains the outside counterpart old alias dependencies" do
+    debit = source([ movement(-5000, type: "transfer") ])
+    link(debit)
+    credit = source([ movement(5000, type: "transfer") ])
+    identity = run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings"))
+    save_final_page(debit) { |line| pair_answer(line) }
+    original = SourceReviewHead.find_by!(financial_source_event: credit[:events].sole).approved_version
+    copy = source([ movement(5000, type: "transfer") ])
+    copy_identity = link(copy, tracked: identity.source_tracked_account)
+    approve(stage(copy[:events].sole, identity: copy_identity, amount: 5000, purchase: nil, event_type: "transfer", category: nil, disposition: "match", overlap: "match", matched_version_id: original.id))
+    copy[:import].update!(metadata: copy[:import].metadata.merge("source_accounting_review_pending" => false))
+    save_final_page(debit) { |_line| { decision: "unpair_transfer" } }
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(debit[:events].sole)
+    assert_equal true, copy[:import].reload.metadata.fetch("source_accounting_review_pending")
+  end
+
+  test "round four counterpart approval checks copies outside page amounts" do
+    debit = source([ movement(-50_000, type: "transfer"), movement(-1200, row: 2) ])
+    link(debit)
+    credit = source([ movement(50_000, type: "transfer") ])
+    identity = run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings"))
+    copy = source([ movement(50_000, type: "transfer") ])
+    copy_identity = link(copy, tracked: identity.source_tracked_account)
+    stage(copy[:events].sole, identity: copy_identity, amount: 50_000, purchase: nil, event_type: "transfer", category: nil)
+    # A separate purchase copy makes the page build a narrowed preload for
+    # -1200, while the counterpart's +50000 stays outside that candidate set.
+    purchase_copy = source([ movement(-1200) ])
+    link(purchase_copy)
+    error = assert_raises(ArgumentError) { save_final_page(debit, only: [ debit[:events].first.id ]) { |line| pair_answer(line) } }
+    assert_includes error.message, "These rows may overlap"
+    assert_nil SourceReviewHead.find_by(financial_source_event: debit[:events].first)&.approved_version_id
+    assert_nil SourceReviewHead.find_by(financial_source_event: credit[:events].sole)&.approved_version_id
+  end
+
+  test "round four new Family support gets allocations after earlier projection" do
+    page = source([ movement(-1300), movement(-3500, row: 2).merge(merchant: "Zelle to Lina Talun") ])
+    link(page)
+    save_final_page(page) do |line|
+      line.event.id == page[:events].first.id ? { decision: "edited", edit: { kind: "spending", category_id: @category.id } } : { decision: "someone_else" }
+    end
+    category = @household.budget_categories.find_by!(name: "Family support")
+    allocations = BudgetAllocation.where(budget_category: category)
+    assert_equal 12, allocations.count
+    assert_equal [ 0 ], allocations.distinct.pluck(:planned_amount_cents)
+    assert_equal 4800, @household.household_transactions.where(status: "confirmed").sum(:total_amount_cents)
   end
 
   def pair_answer(line)

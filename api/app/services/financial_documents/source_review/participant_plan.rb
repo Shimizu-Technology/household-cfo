@@ -130,7 +130,7 @@ module FinancialDocuments
         suggestions, earlier = suggested_categories(events)
         accounts = @source_accounts ||= revision.financial_source_accounts.index_by(&:id)
         candidates = overlap_candidates(events)
-        overlap_context.preload!(events.select { |event| candidates.include?(event.id) }, revision.financial_document_import&.checksum_sha256) if candidates.any?
+        overlap_context.preload!(events, revision.financial_document_import&.checksum_sha256) if candidates.any?
         events.map do |event|
           merchant = self.class.merchant_for(event)
           if event.event_type == "cash_withdrawal"
@@ -341,7 +341,7 @@ module FinancialDocuments
         events.select { |event| event.locator.present? && event.locator["row"].to_i.positive? && locators.include?(event.locator) }.map(&:id).to_set
       end
 
-      def overlap_context = @overlap_context ||= OverlapDetector::Context.new(household)
+      def overlap_context = @overlap_context ||= OverlapDetector::Context.new(household, excluded_revision_id: revision.id)
 
       def overlaps_for(event, merchant, category_id)
         identity = overlap_context.accounts[event.financial_source_account_id]&.approved_version_id

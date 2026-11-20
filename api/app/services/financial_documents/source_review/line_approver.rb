@@ -332,7 +332,10 @@ module FinancialDocuments
         if category && !category.active?
           raise ArgumentError, "Restore Family support in Budget, then save this answer."
         end
-        category ||= household.budget_categories.create!(name: "Family support", stack_key: "non_discretionary")
+        unless category
+          category = household.budget_categories.create!(name: "Family support", stack_key: "non_discretionary")
+          domain.projection_periods&.clear
+        end
         domain.line_batch[:categories][category.id] = category if domain.line_batch
         category
       end

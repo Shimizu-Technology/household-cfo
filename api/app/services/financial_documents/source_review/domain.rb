@@ -14,8 +14,8 @@ module FinancialDocuments
       end
 
       # Only a page save enables this cache, while holding the household lock.
-      # Projection writes cannot change plan inputs; each year's provisioning
-      # therefore has the same result once as it would for every line.
+      # Reuse annual provisioning until plan inputs change. Creating a category
+      # mid-request clears this cache so its allocations are provisioned too.
       def projection_period_for(date)
         manager = HouseholdFinance::AnnualBudgetManager.new(household, year: date.year)
         return manager.current_period_for(date) unless projection_periods
@@ -102,6 +102,9 @@ module FinancialDocuments
         return line_batch[:heads][event.id] if line_batch[:heads].key?(event.id) || (line_batch[:known_event_ids].include?(event.id) && !line_batch[:invalidated_events]&.include?(event.id))
         head = heads.includes(:approved_version, :source_review_drafts).find_by(financial_source_event_id: event.id)
         line_batch[:version_numbers][head.id] = head.source_review_versions.maximum(:version_number).to_i if head
+        # A counterpart may first be discovered during pairing/unpairing. Keep
+        # its old aliases and group members before staging replaces that version.
+        line_batch[:related_revisions][event.id] ||= lock_revisions!(related_revision_ids([ event.id ]))
         line_batch[:heads][event.id] = head
       end
 
@@ -221,7 +224,7 @@ module FinancialDocuments
           authorize! unless line_batch
           # A replaced/unpaired group can lose its old members. Capture and
           # lock those dependencies before writing, then rediscover the new ones.
-          affected_revision_ids = line_batch && action.to_s != "economic_link" ? [] : revision_ids(action, input)
+          affected_revision_ids = line_batch && !action.to_s.in?(%w[account_link economic_link]) ? [] : revision_ids(action, input)
           lock_revisions!(affected_revision_ids) if affected_revision_ids.any?
           result = case action.to_s
           when "account_link" then link_account!(input)
@@ -240,7 +243,6 @@ module FinancialDocuments
             related = line_revision_dependencies(line_batch[:events].values, line_batch[:heads])
             locked = lock_revisions!(related.values.flatten.uniq).index_by(&:id)
             line_batch[:related_revisions] = related.transform_values { |ids| ids.uniq.map { |id| locked.fetch(id) } }
-            related.values.flatten.uniq.each { |id| line_batch[:revisions][id] = locked.fetch(id) }
           end
           affected_revision_ids.each { |id| mark_review_pending!(revision(id)) } if action.to_s.in?(%w[account_link approve economic_link])
           result
