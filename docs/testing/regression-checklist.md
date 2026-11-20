@@ -42,6 +42,7 @@ Use the fictional people `bin/local-stack status` lists. Check each at 1366, 390
 | M7 | Admin with no program creates a group; admin with one program opens Groups and Coaching. | No program: offered "Start a program". One program: starts inside it, no picker step. |
 | M8 | Join a savings challenge with an invite code, check in "How was today?", set a goal and an amount set aside, reload. | The day, goal and amount set aside are kept; the coach sees check-ins but no amounts. |
 | M9 | At 390 and 320, upload the fictional CSV from A1 and answer each kind of question (coverage, account type, own-account transfer, cash category, card payment, refund), then approve the rest. | Every control is reachable without sideways scrolling; the saved result is the same as A1 ($2,326.66 for August 2026). |
+| M10 | Approve a fictional $100 ATM withdrawal, then log a $40 cash lunch on the form with "Paid with cash" and Add and confirm. Log a second cash purchase and answer "No, other cash". Then a purchase next month paid from that cash. | Confirm is replaced by "Paid with the $100 you took out on …?"; Yes leaves the month at $100 ($40 in the lunch's category, $60 Cash) in Budget and Mia's month answer; No adds its amount; a next-month purchase counts in the withdrawal's month and adds nothing to its own. |
 
 ## 3. On production, after a release that touches money
 
