@@ -107,7 +107,8 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
       reply = ->(message) { SpendingPatterns::Answerer.new(household: @household, message: message, persona: Mia::Persona.neutral, history: [], approved_content: []).call }
       assert SpendingPatterns::Answerer.observation_question?("What should I cut first?")
       assert SpendingPatterns::Answerer.observation_question?("Where is my money going?")
-      refute SpendingPatterns::Answerer.cut_question?("What if I cut dining out to cover it?")
+      [ "What should we cut first?", "Where can I cut back on spending?", "What can I cut?" ].each { |message| assert SpendingPatterns::Answerer.cut_question?(message), message }
+      [ "What if I cut dining out to cover it?", "where can we cut back weekend shifts" ].each { |message| refute SpendingPatterns::Answerer.cut_question?(message), message }
       cut = reply.call("What should I cut first?")
       where = reply.call("Where is my money going?")
       refute_equal cut, where

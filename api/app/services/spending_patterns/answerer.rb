@@ -10,9 +10,10 @@ module SpendingPatterns
     ACTION_REQUEST = /\b(?:draft|prepare|log|record|transfer|cancel)\s+(?:a|an|the|my|our|this|that|these|those|it|them|me|\$|\d)/i.freeze
     # The subscriptions must be what she's asking about: "what subscriptions do we pay for?",
     # not "how are we doing after cancelling the gym membership?" or "a Costco membership?".
-    # "What should we cut first?", "What can I cut?": asking what to cut, not "What if I cut dining out
-    # to cover it?", which weighs a cut she already has in mind.
-    CUT_QUESTION = /\b(?:what|which|where)\b[^.?!]{0,25}\b(?:should|can|could|do)\s+(?:i|we)\s+(?:cut|trim)\b|\b(?:cut|trim)\s+first\b/i.freeze
+    # "What should we cut first?", "Where can I cut back on spending?": asking Mia to pick a cut. Not "What
+    # if I cut dining out to cover it?" (a cut she already has in mind) or "where can we cut back weekend
+    # shifts" (work, not spending).
+    CUT_QUESTION = /\b(?:what|which|where)\b[^.?!]{0,25}\b(?:should|can|could|do)\s+(?:i|we)\s+(?:cut|trim)(?:\s+(?:back|down|first))?(?:\s+on\s+(?:my\s+|our\s+)?(?:spending|purchases|shopping|expenses))?\s*[?.!]*\z/i.freeze
     PROTECTED_NOTE = "Rent, bills, medical care and money for family aren’t on this list.".freeze
     SUBSCRIPTIONS_QUESTION = /\b(?:what|which|any|list|show|check|tell\s+me|how\s+many|how\s+much|too\s+many)\b[^.?!]{0,40}\b(?:subscriptions|memberships|subscription\s+(?:charges|services)|streaming\s+services|recurring\s+(?:charges|payments|bills))\b|\bwhich\s+subscription\b|\b(?:do|am|are)\s+(?:i|we)\s+(?:have|paying|pay(?:ing)?\s+for)\s+(?:any\s+|too\s+many\s+|an?\s+[\w+.]+\s+)?(?:subscriptions?|memberships|streaming\s+services)\b/i.freeze
 
