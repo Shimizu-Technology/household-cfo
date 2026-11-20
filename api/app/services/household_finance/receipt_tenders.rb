@@ -53,7 +53,12 @@ module HouseholdFinance
       "rewards" => "rewards or points"
     }.freeze
 
-    def self.read(total_cents:, texts:)
+    # cut: some of the receipt's text was left out before it reached here (the
+    # document reader keeps only so much). Cash back or a refund could be in
+    # the part that is missing, so the receipt stays exactly as read.
+    def self.read(total_cents:, texts:, cut: false)
+      return nil if cut
+
       new(total_cents: total_cents, texts: texts).call
     end
 

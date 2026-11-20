@@ -149,7 +149,7 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
 
   def receipt_import
     FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "receipt", status: "processing",
-      filename: "receipt.jpg", content_type: "image/jpeg", byte_size: 100, s3_key: "household-cfo/test/receipt.jpg")
+      filename: "receipt.jpg", content_type: "image/jpeg", byte_size: 100, s3_key: "household-cfo/test/receipt-#{SecureRandom.hex(4)}.jpg")
   end
 
   def voucher_receipt(**overrides)
@@ -231,6 +231,60 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
       summary: "Receipt dated 2026-06-23, total $184.88. Paid with a $150.00 voucher/gift card and $34.88 on debit card 7302.").call
 
     assert_equal 3_488, document.transaction_drafts.sole.total_amount_cents
+  end
+
+  # Invented receipt text. The reader keeps only so much evidence, warning and
+  # summary text, so cash back past those limits never reaches ReceiptTenders.
+  def extracted(drafts, summary:)
+    FinancialDocuments::Extractor.new.send(:normalize_extraction,
+      { "document_kind" => "receipt", "summary" => summary, "transaction_drafts" => drafts.map(&:deep_stringify_keys) }, FinancialDocumentImport.new(document_kind: "receipt"))
+  end
+
+  def stage_extracted(data)
+    document = receipt_import
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, data[:transaction_drafts], summary: data[:summary], summary_cut: data[:summary_cut] == true).call
+    document.transaction_drafts.sole
+  end
+
+  test "the voucher receipt read by the document reader still counts only its new money" do
+    draft = stage_extracted(extracted([ voucher_receipt ], summary: "Receipt dated 2026-06-23, total $184.88. Paid with a $150.00 voucher/gift card and $34.88 on debit card 7302."))
+
+    assert_equal 3_488, draft.total_amount_cents
+    assert_equal 3_488, draft.draft_payload.dig("receipt_payment", "new_money_cents")
+  end
+
+  test "cash back past what the document reader keeps leaves the receipt as read" do
+    padding = "Item 1.00; " * 60
+    evidence = "TOTAL $184.88; Voucher / gift card $150.00; Debit card 7302 $34.88; #{padding}Cash back $20.00"
+    assert_operator evidence.length, :>, FinancialDocuments::Extractor::DRAFT_EVIDENCE_MAX
+    long_warning = "Paid with $150.00 voucher/gift card plus $34.88 on debit card 7302. #{'Checked. ' * 30}Cash back $20.00."
+    assert_operator long_warning.length, :>, FinancialDocuments::Extractor::DRAFT_WARNING_MAX
+    many_warnings = [ "Paid with $150.00 voucher/gift card plus $34.88 on debit card 7302.", *Array.new(4) { |index| "Note #{index + 1}." }, "Cash back $20.00." ]
+    cases = {
+      "evidence" => [ voucher_receipt(evidence: evidence, warnings: []), "Receipt total $184.88." ],
+      "a warning" => [ voucher_receipt(warnings: [ long_warning ]), "Receipt total $184.88." ],
+      "a sixth warning" => [ voucher_receipt(warnings: many_warnings), "Receipt total $184.88." ],
+      "the summary" => [ voucher_receipt, "Receipt dated 2026-06-23, total $184.88. Paid with a $150.00 voucher/gift card and $34.88 on debit card 7302. #{'Item 1.00. ' * 75}Cash back $20.00." ]
+    }
+
+    cases.each do |where, (payload, summary)|
+      data = extracted([ payload ], summary: summary)
+      texts = [ data[:summary], *data[:transaction_drafts].sole.values_at(:evidence, :warnings).flatten ]
+      assert texts.none? { |text| text.to_s.match?(/cash back/i) }, "The cash back in #{where} is past what the reader keeps"
+
+      draft = stage_extracted(data)
+      assert_equal 18_488, draft.total_amount_cents, "Cash back cut from #{where} leaves the receipt as read"
+      assert_nil draft.draft_payload["receipt_payment"]
+    end
+  end
+
+  test "a cut summary does not matter when it is not read" do
+    document = receipt_import
+    other = voucher_receipt(merchant: "Second Demo Store", total_amount: 10, evidence: "TOTAL $10.00; Cash $10.00", warnings: [], splits: [ { amount: 10, category_name: "Household" } ])
+
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ voucher_receipt, other ], summary: "Two receipts.", summary_cut: true).call
+
+    assert_equal [ 1_000, 3_488 ], document.transaction_drafts.map(&:total_amount_cents).sort
   end
 
   test "payment lines that do not add up leave the receipt as read" do
