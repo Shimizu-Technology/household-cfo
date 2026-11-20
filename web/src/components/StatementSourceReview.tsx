@@ -4,7 +4,7 @@ import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
   APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, accountMatchNote, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
-  type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine,
+  type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementProgress,
 } from '../lib/statementReview'
 import { useStatementReview } from '../lib/useStatementReview'
 import { Button } from './Button'
@@ -14,12 +14,14 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onProgress, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
   onSignAnswered?: (revisionId: number) => void
   focusAfterSign?: boolean
   onSignFocusDone?: () => void
   onSaved?: () => void
+  /** The statement's progress as last read back, so the upload's status in the list doesn't go stale after a save. */
+  onProgress?: (progress: StatementProgress) => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
 }) {
@@ -32,6 +34,12 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
   const { data, error, review, plan, categories, names, needBasis, needsAccountChoice, needsAccount, counts, mutation, busy, coverage, savingLines, unsavedAnswer, focusAfterRef, save } = state
   const pageData = data && data.pagination.page === page ? data : undefined
+  const progressCallback = useRef(onProgress)
+  useEffect(() => { progressCallback.current = onProgress }, [onProgress])
+  // Declared after useStatementReview, so on a finishing save its onSaved (which keeps this statement open) runs first.
+  useEffect(() => {
+    if (plan) progressCallback.current?.({ total: plan.total, done: plan.done, without_category: plan.without_category, spending: plan.spending, coverage: plan.coverage })
+  }, [plan])
 
   // After an answer is saved the row disappears; keyboard focus moves to the next question, or back to the summary.
   useEffect(() => {

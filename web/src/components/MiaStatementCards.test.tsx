@@ -57,7 +57,7 @@ const mount = (imports: FinancialDocumentImport[], extra: Partial<Parameters<typ
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(Date.parse(NOW))
-  sessionStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+  sessionStorage.clear(); localStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
   vi.mocked(answerSpreadsheetSign).mockReset()
   fetchReview.mockReset(); mutate.mockReset(); mutate.mockResolvedValue({ result: { approved: 2, left_out: 0, unchanged: 0, complete: false } })
 })
