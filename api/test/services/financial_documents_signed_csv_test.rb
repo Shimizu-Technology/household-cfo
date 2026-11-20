@@ -304,11 +304,12 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     second_latest = FinancialDocuments::SourceAccountingPersister.new(second, attempt: nil, accounting: accounting).call[:revision]
     expected = [ first_latest.financial_source_events.sole.id, second_latest.financial_source_events.sole.id ].sort
     context = FinancialDocuments::SourceReview::OverlapDetector::Context.new(first.household)
-    assert_equal expected, context.events.map(&:id).sort
+    facts = { signed_amount_cents: 5000, posted_on: "2026-10-01" }
+    assert_equal expected, context.candidates(facts, nil, nil).map(&:id).sort
     first.destroy!
     second.destroy!
     retained = FinancialDocuments::SourceReview::OverlapDetector::Context.new(first.household)
-    assert_equal [ first_latest.financial_source_events.sole.id ], retained.events.map(&:id)
+    assert_equal [ first_latest.financial_source_events.sole.id ], retained.candidates(facts, nil, nil).map(&:id)
   end
 
   test "negative card balances prove both amount conventions" do

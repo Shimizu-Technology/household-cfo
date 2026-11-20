@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_20_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_20_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2237,6 +2237,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_20_090000) do
     t.string "row_identity", null: false
     t.string "row_kind", null: false
     t.bigint "signed_amount_cents"
+    t.index ["household_id", "signed_amount_cents", "posted_on"], name: "index_source_events_overlap_amount_date"
     t.index ["financial_extraction_revision_id", "position"], name: "index_source_events_revision_position", unique: true
     t.index ["financial_extraction_revision_id", "row_identity"], name: "index_source_events_revision_row", unique: true
     t.index ["financial_extraction_revision_id"], name: "index_source_events_revision"
@@ -3631,6 +3632,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_20_090000) do
     t.bigint "supersedes_id"
     t.integer "version_number", null: false
     t.bigint "matched_transaction_id"
+    t.index ["household_id", "signed_amount_cents", "posted_on"], name: "index_source_versions_overlap_amount_date"
     t.index ["approved_by_user_id"], name: "index_source_review_versions_on_approved_by_user_id"
     t.index ["budget_category_id"], name: "index_source_review_versions_on_budget_category_id"
     t.index ["household_id"], name: "index_source_review_versions_on_household_id"

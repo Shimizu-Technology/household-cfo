@@ -1,4 +1,5 @@
 require "test_helper"
+require "benchmark"
 
 class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
   OPS = HouseholdFinance::Operations::SourceReview
@@ -745,6 +746,366 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal "sent-to-someone:#{line.event.id}", version.external_reference
     assert_equal "family support", version.budget_category.name
     assert SpendingPatterns::Analyzer.protected_category?(version.budget_category.name)
+  end
+
+  test "large household statement save has bounded plan preparation and history reads" do
+    template = approve(stage(@source[:events].sole))
+    4.times do |account_number|
+      12.times do |month|
+        history = source((1..34).map { |i| movement(-10_000 - account_number * 1000 - i, row: i) }, period: "2026-%02d" % (month + 1))
+        identity = link(history)
+        history[:events].each do |event|
+          head = SourceReviewHead.create!(household: @household, financial_source_event: event)
+          attributes = template.attributes.except("id").merge("source_review_head_id" => head.id, "source_account_identity_version_id" => identity.id,
+            "signed_amount_cents" => event.signed_amount_cents, "purchase_amount_cents" => event.signed_amount_cents.abs,
+            "posted_on" => event.posted_on, "digest" => SecureRandom.hex(32))
+          version = SourceReviewVersion.create!(attributes)
+          head.update!(approved_version: version)
+        end
+      end
+    end
+    assert_operator SourceReviewHead.where(household: @household).count, :>=, 1500
+    HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).ensure_plan!
+    [ 1, 22, 100 ].each do |size|
+      fresh = source((1..size).map { |i| movement(-50_000 - i, row: i) })
+      link(fresh)
+      entries = fresh[:events].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: @category.id } } }
+      queries = []
+      callers = Hash.new(0)
+      elapsed = Benchmark.realtime do
+        ActiveSupport::Notifications.subscribed(->(*args) { payload = args.last; queries << payload[:sql] unless payload[:name] == "SCHEMA"; callers[[ payload[:sql], caller.find { |loc| loc.include?("/app/") } ]] += 1 }, "sql.active_record") do
+          @household.with_lock do
+            domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+            result = FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], { lines: entries }).call
+            assert_equal size, result[:approved]
+          end
+        end
+      end
+      File.write("/tmp/hcfo-query-profile-#{size}.txt", callers.sort_by { |_, n| -n }.map { |(sql, loc), n| "#{n} #{loc} #{sql}" }.join("\n")) if ENV["PROFILE_SAVE"]
+      puts "STATEMENT_SAVE size=#{size} seconds=#{elapsed.round(3)} queries=#{queries.length} queries_per_line=#{(queries.length.to_f / size).round(2)} estimated_production_seconds=#{(queries.length * 0.01).round(2)}"
+      assert_equal size, @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).count
+      unless ENV["STATEMENT_SAVE_BASELINE"]
+        assert_operator queries.length, :<=, { 1 => 100, 22 => 300, 100 => 1125 }.fetch(size)
+        refute queries.any? { |sql| sql.include?('SELECT "financial_source_events".*') && sql.include?("DISTINCT ON") && !sql.include?('"signed_amount_cents"') }, "Overlap checks must narrow the household history"
+        assert_operator queries.count { |sql| sql.include?('FROM "budget_allocations"') }, :<=, 12
+      end
+    end
+  end
+
+  test "bulk category snapshots follow category changes made while provisioning the first projection" do
+    @household.expense_items.create!(label: @category.name, stack_key: "discretionary", amount_cents: 5000, cadence: "monthly")
+    fresh = source([ movement(-1700), movement(-1800, row: 2) ])
+    link(fresh)
+    entries = fresh[:events].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: @category.id } } }
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      result = FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], { lines: entries }).call
+      assert_equal 2, result[:approved]
+    end
+    versions = SourceReviewVersion.joins(:source_review_head).where(source_review_heads: { financial_source_event_id: fresh[:events].map(&:id) }).order(:id)
+    assert_equal %w[non_discretionary discretionary], versions.map { |version| version.category_snapshot.fetch("stack_key") }
+    assert_equal [ 1700, 1800 ], @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).order(:id).pluck(:total_amount_cents)
+  end
+
+  test "bulk corrections invalidate the coverage of aliases just like separate approvals" do
+    @source = source([ movement(-1000), movement(-1100, row: 2) ])
+    @identity = link(@source)
+    copies = @source[:events].map do |event|
+      original = approve(stage(event, amount: event.signed_amount_cents))
+      copy = source([ movement(event.signed_amount_cents) ])
+      identity = link(copy, tracked: @identity.source_tracked_account)
+      approve(stage(copy[:events].sole, identity: identity, amount: event.signed_amount_cents, disposition: "match", overlap: "match", matched_version_id: original.id))
+      copy[:import].update!(metadata: copy[:import].metadata.merge("source_accounting_review_pending" => false))
+      copy
+    end
+    event = @source[:events].first
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, @source[:revision])
+    entry = { event_id: event.id, decision: "edited", edit: { kind: "spending", amount_cents: 900, category_id: @category.id }, expected_head: plan.line_for(event.id).expected_head }
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      result = FinancialDocuments::SourceReview::LineApprover.new(domain, @source[:revision], { lines: [ entry ] }).call
+      assert_equal 1, result[:approved]
+    end
+    assert_equal [ true, false ], copies.map { |copy| copy[:import].reload.metadata.fetch("source_accounting_review_pending") }
+  end
+
+  test "bulk coverage includes an account with no lines" do
+    account = @source[:revision].financial_source_accounts.sole.dup
+    account.assign_attributes(source_key: "empty-savings", opening_balance_cents: 0, closing_balance_cents: 0, printed_debit_cents: 0, printed_credit_cents: 0, printed_row_count: 0)
+    account.save!
+    raw = account_input_without_lookup(account)
+    run_operation(OPS::AccountLink, raw)
+    result = bulk_save(@source, [ edit_entry(@source[:events].sole) ], coverage_answer: "nothing_missing", expected_coverage_id: nil)
+    assert result[:complete]
+    assert_equal "complete", SourceRevisionApproval.where(financial_extraction_revision: @source[:revision]).last.coverage_status
+  end
+
+  test "bulk validates an earlier stale line before a later invalid edit" do
+    fresh = source([ movement(-1700), movement(-1800, row: 2) ])
+    identity = link(fresh)
+    approve(stage(fresh[:events].first, identity: identity, amount: -1700))
+    first, second = fresh[:events]
+    error = assert_raises(FinancialDocuments::SourceReview::Domain::StaleReview) do
+      bulk_save(fresh, [ edit_entry(first).tap { |entry| entry[:expected_head][:approved_version_id] = nil; entry[:edit][:amount_cents] = 1699 }, { event_id: second.id, decision: "edited", edit: { kind: "invalid" } } ])
+    end
+    assert_match "another window", error.message
+  end
+
+  test "bulk uses page candidate scope when the statement has no checksum" do
+    fresh = source([ movement(-1763), movement(-1763, row: 2) ], checksum: nil)
+    link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    refute plan.lines.any? { |line| line.kind == :duplicate }
+    result = bulk_save(fresh, fresh[:events].map { |event| edit_entry(event) })
+    assert_equal 2, result[:approved]
+  end
+
+  test "round four no checksum page ignores siblings when an excluded external row activates preload" do
+    external = source([ movement(-1763) ])
+    identity = link(external)
+    approve(stage(external[:events].sole, identity: identity, amount: -1763, disposition: "exclude", overlap: "excluded"))
+    fresh = source([ movement(-1763), movement(-1763, row: 2) ], checksum: nil)
+    link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    assert_empty plan.lines.flat_map(&:overlaps)
+    result = bulk_save(fresh, fresh[:events].map { |event| edit_entry(event) })
+    assert_equal 2, result[:approved]
+  end
+
+  test "bulk refuses the same line twice before voiding its spending" do
+    event = @source[:events].sole
+    version = approve(stage(event))
+    project(version)
+    error = assert_raises(ArgumentError) do
+      bulk_save(@source, [ { event_id: event.id, decision: "leave_out" }, edit_entry(event) ])
+    end
+    assert_match "only once", error.message
+    assert_equal "confirmed", @household.household_transactions.where(financial_source_event: event).sole.status
+  end
+
+  test "a counterpart approval refreshes heads sequence actuals and overlap state inside a batch" do
+    fresh = source([ movement(-1700), movement(-1800, row: 2) ])
+    link(fresh)
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      domain.overlap_context = FinancialDocuments::SourceReview::OverlapDetector::Context.new(@household)
+      plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision], overlap_context: domain.overlap_context)
+      domain.begin_line_batch!(plan.lines.map(&:event), revision: fresh[:revision], plan: plan)
+      worker = FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], {})
+      event = fresh[:events].last
+      facts = worker.send(:facts_for, plan.line_for(event.id), "edited", { kind: "spending", category_id: @category.id }, domain.overlap_context.accounts[event.financial_source_account_id].approved_version_id)
+      worker.send(:stage_and_approve!, event, domain.line_head(event), facts)
+      first = domain.line_head(event).approved_version
+      assert_equal 1, domain.actuals_for(event).length
+      # A second domain instance models a counterpart writer using ordinary
+      # operations in this same locked request. Explicitly invalidate its event.
+      external = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      other_worker = FinancialDocuments::SourceReview::LineApprover.new(external, fresh[:revision], {})
+      other_worker.send(:stage_and_approve!, event, external.line_head(event), facts)
+      domain.record_write!(event)
+      assert_equal 2, domain.line_head(event).approved_version.version_number
+      assert_equal 1, domain.actuals_for(event).length
+      worker.send(:stage_and_approve!, event, domain.line_head(event), facts.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded"))
+      assert_equal 3, domain.line_head(event).approved_version.version_number
+      assert_empty domain.actuals_for(event)
+      assert_equal first.id, domain.line_head(event).approved_version.supersedes.supersedes_id
+    ensure
+      domain.end_line_batch!
+    end
+  end
+
+  test "coverage preserves metadata written after the import was loaded" do
+    approve(stage(@source[:events].sole))
+    revision = @source[:revision]
+    stale_import = revision.financial_document_import
+    FinancialDocumentImport.find(stale_import.id).update!(metadata: stale_import.metadata.merge("counterpart_note" => "keep this"))
+    state = FinancialDocuments::SourceReview::ApprovalState.new(@household, revision).call
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    raw = { revision_id: revision.id, requested_status: "complete", expected_digest: state[:content_digest], reason: "Verified synthetic coverage",
+      coverage_attestation: { all_document_rows_accounted: true, accounts: [ { source_account_id: @source[:events].sole.financial_source_account_id,
+        identity_version_id: @identity.id, period_start_on: "2026-07-01", period_end_on: "2026-07-31", all_rows_accounted: true } ] } }
+    input = domain.normalize("revision_approve", raw)
+    @household.with_lock { FinancialDocuments::SourceReview::RevisionApprover.new(domain, revision, input).call }
+    assert_equal "keep this", stale_import.reload.metadata["counterpart_note"]
+  end
+
+  def bulk_save(source, entries, **extra)
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      FinancialDocuments::SourceReview::LineApprover.new(domain, source[:revision], { lines: entries }.merge(extra)).call
+    end
+  end
+
+  def edit_entry(event)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, event.financial_extraction_revision)
+    { event_id: event.id, decision: "edited", expected_head: plan.line_for(event.id).expected_head, edit: { kind: "spending", category_id: @category.id } }
+  end
+
+  def account_input_without_lookup(account)
+    { source_account_id: account.id, account_basis: "asset", label: "Synthetic savings", base_version_id: nil, base_lock_version: 0,
+      statement_facts: account.attributes.slice("period_start_on", "period_end_on", "opening_balance_cents", "closing_balance_cents", "printed_debit_cents", "printed_credit_cents", "printed_row_count"), reason: "Verified empty account" }
+  end
+
+  test "final rebase both legs on one page are approved once in one request" do
+    page = source([ movement(-2900, type: "transfer"), movement(2900, row: 2, type: "transfer").merge(account_key: "savings") ],
+      extra_accounts: [ { account_key: "savings", account_basis: "asset" } ])
+    page[:revision].financial_source_accounts.each do |account|
+      run_operation(OPS::AccountLink, { source_account_id: account.id, account_basis: "asset", label: "Fictional #{account.id}", base_version_id: nil, base_lock_version: 0, statement_facts: {}, reason: "Verified fictional account" })
+    end
+    save_final_page(page) { |line| pair_answer(line) }
+    assert_equal [ 1, 1 ], SourceReviewHead.where(financial_source_event_id: page[:events].map(&:id)).map { |head| head.approved_version.version_number }
+    group = FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_equal 2, group.source_economic_memberships.count
+    assert_empty @household.household_transactions
+  end
+
+  test "final rebase pairs two legs and unpairs with increasing counterpart versions" do
+    debit = source([ movement(-2500, type: "transfer") ])
+    credit = source([ movement(2500, type: "transfer") ])
+    link(debit)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings 4412"))
+    save_final_page(debit) { |line| pair_answer(line) }
+    versions = SourceReviewHead.where(financial_source_event_id: [ debit[:events].sole.id, credit[:events].sole.id ]).map(&:approved_version)
+    assert_equal [ 1, 1 ], versions.map(&:version_number)
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(debit[:events].sole)
+    save_final_page(debit) { |line| { decision: "unpair_transfer" } }
+    versions.each do |previous|
+      current = previous.source_review_head.reload.approved_version
+      assert_equal 2, current.version_number
+      assert_equal previous.id, current.supersedes_id
+    end
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(debit[:events].sole)
+    assert_empty @household.household_transactions
+  end
+
+  test "final rebase mixed 22 line batch preserves pairing person answers and cash release totals" do
+    withdrawal = source([ movement(-10_000, type: "cash_withdrawal") ])
+    identity = link(withdrawal)
+    approve(stage(withdrawal[:events].sole, identity: identity, amount: -10_000, event_type: "cash_withdrawal", projection: { action: "create" }))
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 7))
+    purchase = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-07-07", merchant: "Fictional Market", total_amount_cents: 3200, source_type: "manual_chat", status: "confirmed",
+      metadata: { "cash_withdrawal" => { "financial_source_event_id" => withdrawal[:events].sole.id, "amount_cents" => 3200, "withdrawn_on" => "2026-07-07" } })
+    purchase.transaction_splits.create!(budget_category: @category, amount_cents: 3200)
+    @household.transaction_drafts.create!(occurred_on: purchase.occurred_on, merchant: purchase.merchant, total_amount_cents: 3200, source_type: "manual_chat", status: "confirmed", confirmed_transaction: purchase,
+      draft_payload: { "cash_payment" => HouseholdFinance::CashPayment.participant_payload })
+    initial = HouseholdFinance::AnnualBudgetManager.new(@household.reload, year: 2026).plan_data
+    assert_equal 10_000, initial.fetch(:rows).sum { |row| HouseholdFinance::Money.cents(row.fetch(:months)[6].fetch(:actual)) }
+    credit = source([ movement(2500, type: "transfer") ])
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings 4412"))
+    rows = [ movement(-2500, type: "transfer"), movement(-3500, row: 2).merge(merchant: "Zelle to Lina Talun"),
+      movement(-1700, row: 3).merge(merchant: "Venmo to Ana Cruz"), movement(-3200, row: 4).merge(merchant: "Fictional Market") ]
+    old_credit = source([ movement(2600, type: "transfer") ])
+    run_operation(OPS::AccountLink, account_input(old_credit).merge(label: "Fictional savings 5523"))
+    rows << movement(-2600, type: "transfer", row: 5)
+    rows += (6..22).map { |i| movement(-100 - i, row: i).merge(merchant: "Fictional shop #{i}") }
+    page = source(rows)
+    link(page)
+    save_final_page(page, only: [ page[:events][4].id ]) { |line| pair_answer(line) }
+    save_final_page(page) do |line|
+      case page[:events].index { |event| event.id == line.event.id }
+      when 0 then pair_answer(line)
+      when 1 then { decision: "someone_else" }
+      when 2 then { decision: "own_account" }
+      when 3 then { decision: "same_purchase", match_transaction_id: purchase.id }
+      when 4 then { decision: "unpair_transfer" }
+      else { decision: "edited", edit: { kind: "spending", category_id: @category.id } }
+      end
+    end
+    heads = SourceReviewHead.where(financial_source_event_id: page[:events].map(&:id)).includes(:approved_version).index_by(&:financial_source_event_id)
+    page[:events].each_with_index { |event, i| assert_equal(i == 4 ? 2 : 1, heads.fetch(event.id).approved_version.version_number) }
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events][4])
+    assert_equal "transfer", heads.fetch(page[:events][2].id).approved_version.event_type
+    assert_equal "Family support", heads.fetch(page[:events][1].id).approved_version.budget_category.name
+    assert_equal purchase.id, heads.fetch(page[:events][3].id).approved_version.matched_transaction_id
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_nil purchase.reload.metadata[HouseholdFinance::CashDrawdowns::LINK_KEY]
+    assert_equal 1, @household.household_audit_events.where(event_type: "cash_purchase.paid_by_card").count
+    drawdowns = HouseholdFinance::CashDrawdowns.new(@household)
+    assert_empty drawdowns.call
+    assert_equal 10_000, drawdowns.candidates(on: Date.new(2026, 7, 7)).sole.available_cents
+    expected = 10_000 + 3500 + 3200 + (6..22).sum { |i| 100 + i }
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload, year: 2026).plan_data
+    assert_equal expected, plan.fetch(:rows).sum { |row| HouseholdFinance::Money.cents(row.fetch(:months)[6].fetch(:actual)) }
+    assert_equal expected, @household.household_transactions.where(status: "confirmed").sum(:total_amount_cents)
+    save_final_page(page, only: [ page[:events].first.id ]) { |_line| { decision: "unpair_transfer" } }
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_equal expected, @household.household_transactions.where(status: "confirmed").sum(:total_amount_cents)
+  end
+
+  test "round four pairing leaves unrelated alias coverage untouched" do
+    page = source([ movement(-5000, type: "transfer"), movement(-1300, row: 2) ])
+    identity = link(page)
+    original = approve(stage(page[:events].last, identity: identity, amount: -1300))
+    copy = source([ movement(-1300) ])
+    copy_identity = link(copy, tracked: identity.source_tracked_account)
+    approve(stage(copy[:events].sole, identity: copy_identity, amount: -1300, disposition: "match", overlap: "match", matched_version_id: original.id))
+    credit = source([ movement(5000, type: "transfer") ])
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings"))
+    copy[:import].update!(metadata: copy[:import].metadata.merge("source_accounting_review_pending" => false))
+    save_final_page(page, only: [ page[:events].first.id ]) { |line| pair_answer(line) }
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_equal false, copy[:import].reload.metadata.fetch("source_accounting_review_pending")
+  end
+
+  test "round four unpair retains the outside counterpart old alias dependencies" do
+    debit = source([ movement(-5000, type: "transfer") ])
+    link(debit)
+    credit = source([ movement(5000, type: "transfer") ])
+    identity = run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings"))
+    save_final_page(debit) { |line| pair_answer(line) }
+    original = SourceReviewHead.find_by!(financial_source_event: credit[:events].sole).approved_version
+    copy = source([ movement(5000, type: "transfer") ])
+    copy_identity = link(copy, tracked: identity.source_tracked_account)
+    approve(stage(copy[:events].sole, identity: copy_identity, amount: 5000, purchase: nil, event_type: "transfer", category: nil, disposition: "match", overlap: "match", matched_version_id: original.id))
+    copy[:import].update!(metadata: copy[:import].metadata.merge("source_accounting_review_pending" => false))
+    save_final_page(debit) { |_line| { decision: "unpair_transfer" } }
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(debit[:events].sole)
+    assert_equal true, copy[:import].reload.metadata.fetch("source_accounting_review_pending")
+  end
+
+  test "round four counterpart approval checks copies outside page amounts" do
+    debit = source([ movement(-50_000, type: "transfer"), movement(-1200, row: 2) ])
+    link(debit)
+    credit = source([ movement(50_000, type: "transfer") ])
+    identity = run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings"))
+    copy = source([ movement(50_000, type: "transfer") ])
+    copy_identity = link(copy, tracked: identity.source_tracked_account)
+    stage(copy[:events].sole, identity: copy_identity, amount: 50_000, purchase: nil, event_type: "transfer", category: nil)
+    # A separate purchase copy makes the page build a narrowed preload for
+    # -1200, while the counterpart's +50000 stays outside that candidate set.
+    purchase_copy = source([ movement(-1200) ])
+    link(purchase_copy)
+    error = assert_raises(ArgumentError) { save_final_page(debit, only: [ debit[:events].first.id ]) { |line| pair_answer(line) } }
+    assert_includes error.message, "These rows may overlap"
+    assert_nil SourceReviewHead.find_by(financial_source_event: debit[:events].first)&.approved_version_id
+    assert_nil SourceReviewHead.find_by(financial_source_event: credit[:events].sole)&.approved_version_id
+  end
+
+  test "round four new Family support gets allocations after earlier projection" do
+    page = source([ movement(-1300), movement(-3500, row: 2).merge(merchant: "Zelle to Lina Talun") ])
+    link(page)
+    save_final_page(page) do |line|
+      line.event.id == page[:events].first.id ? { decision: "edited", edit: { kind: "spending", category_id: @category.id } } : { decision: "someone_else" }
+    end
+    category = @household.budget_categories.find_by!(name: "Family support")
+    allocations = BudgetAllocation.where(budget_category: category)
+    assert_equal 12, allocations.count
+    assert_equal [ 0 ], allocations.distinct.pluck(:planned_amount_cents)
+    assert_equal 4800, @household.household_transactions.where(status: "confirmed").sum(:total_amount_cents)
+  end
+
+  def pair_answer(line)
+    pair = line.pair
+    { decision: "pair_transfer", transfer_pair: { event_id: pair[:event].id, approved_version_id: pair[:version]&.id, account_version_id: pair[:identity].id } }
+  end
+
+  def save_final_page(src, only: nil)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision])
+    entries = plan.lines.select { |line| !only || only.include?(line.event.id) }.map do |line|
+      { event_id: line.event.id, expected_head: line.expected_head, shown: { event_type: line.saved&.event_type || line.event.event_type, category_id: line.category_id } }.merge(yield(line))
+    end
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: entries }).call }
   end
 
   private

@@ -2,6 +2,10 @@ module CohortReleases
   # Additive deployed handlers never expand an older sealed cohort's authority.
   class OperationAccess
     def self.require!(household:, user:, key:, cohort: nil, membership: nil)
+      require_all!(household: household, user: user, keys: [ key ], cohort: cohort, membership: membership)
+    end
+
+    def self.require_all!(household:, user:, keys:, cohort: nil, membership: nil)
       actor = user && User.find_by(id: user.id)
       writable = actor && household.household_memberships.find_by(user_id: actor.id)&.role.in?(%w[owner partner])
       raise SavingsChallenge::AccessPolicy::Unavailable, "This tool is unavailable for this participant" unless actor&.household_seat_in?(household) && !actor.revoked? && writable
@@ -29,8 +33,8 @@ module CohortReleases
         end
         allowed = runtime.membership&.id == membership.id && runtime.cohort_id == membership.cohort_id &&
           ToolContracts.supported_snapshot?(snapshot, version: version) &&
-          snapshot.fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION })
-        if key.start_with?("source_review.")
+          keys.all? { |key| snapshot.fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION }) }
+        if keys.any? { |key| key.start_with?("source_review.") }
           module_id = runtime.capabilities[:schema_version] == 4 ? "statements" : "profile"
           allowed &&= runtime.capabilities.fetch(:modules).any? { |item| item[:id] == module_id && item[:enabled] }
         end
@@ -38,7 +42,7 @@ module CohortReleases
         # Standalone participant tools use the current deployed contract. A
         # removed pilot membership cannot become this standalone exception.
         allowed = !ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household) &&
-          ToolContracts.fetch(Contract::RUNTIME_TOOL_REGISTRY_VERSION).fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION })
+          keys.all? { |key| ToolContracts.fetch(Contract::RUNTIME_TOOL_REGISTRY_VERSION).fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION }) }
       end
       raise SavingsChallenge::AccessPolicy::Unavailable, "This part of your program isn't available right now. Please contact your program team." unless allowed
       true
