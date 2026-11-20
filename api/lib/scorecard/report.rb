@@ -8,6 +8,9 @@ module Scorecard
       @transactions = @household.household_transactions.where(status: %w[confirmed reconciled]).includes(transaction_splits: :budget_category).to_a
       @reviewed = FinancialDocuments::SourceReview::ApprovedSourceReader.new(@household).call(revision_ids: FinancialExtractionRevision.where(household: @household).pluck(:id))
       @income = @reviewed[:canonical_rows].select { |row| row[:account_identity_current] && row[:event_type] == "income" }
+      # Budget nets approved refunds into the refunded purchase's category, in the month the refund posts.
+      @refunds = HouseholdFinance::RefundCredits.new(@household).counted
+      @category_names = @household.budget_categories.pluck(:id, :name).to_h
       months = @key.expected_months(@documents).to_h do |month, expected|
         [ month, month_report(month, expected) ]
       end
@@ -49,7 +52,9 @@ module Scorecard
 
     def month_report(month, expected)
       transactions = @transactions.select { |row| row.occurred_on.strftime("%Y-%m") == month }
+      refunds = @refunds.select { |credit| credit.posted_on.strftime("%Y-%m") == month }
       actual_categories = transactions.flat_map(&:transaction_splits).group_by { |split| split.budget_category.name }.transform_values { |splits| splits.sum(&:amount_cents) }
+      refunds.flat_map(&:allocations).each { |part| name = @category_names.fetch(part[:category_id]); actual_categories[name] = actual_categories.fetch(name, 0) - part[:amount_cents] }
       year, number = month.split("-").map(&:to_i)
       # Exercise the Budget presenter, not a scorecard-owned spending formula.
       budget = HouseholdFinance::AnnualBudgetManager.new(@household, year: year).plan_data
@@ -59,7 +64,8 @@ module Scorecard
         [ name, metric(actual_categories.fetch(name, 0), expected.fetch("spending_by_category_cents").fetch(name, 0)) ]
       end
       income = @income.select { |row| row[:posted_on]&.start_with?(month) }
-      counted_answers = transactions.filter_map { |row| transaction_answer(row) } + income.filter_map { |row| @simulator.row_answers[row[:event_id]] }
+      counted_answers = transactions.filter_map { |row| transaction_answer(row) } + income.filter_map { |row| @simulator.row_answers[row[:event_id]] } +
+        refunds.filter_map { |credit| @simulator.row_answers[credit.event_id] }
       # Twin event IDs can be interchanged: the pair has capacity two.
       double_counts = counted_answers.group_by { |line| economic_key(@key.event(line)) }.sum do |key, group|
         capacity = key.start_with?("group:") ? @key.data.fetch("events").count { |event| economic_key(event) == key } : 1
@@ -70,7 +76,7 @@ module Scorecard
       analysis = SpendingPatterns::Analyzer.new(@household, today: Date.current, from: Date.new(year, number, 1), to: Date.new(year, number, 1).end_of_month).call
       receipts = receipt_report(month)
       decisions = @simulator.decisions.fetch(month, {})
-      { "total_spending" => metric(transactions.sum(&:total_amount_cents), expected.fetch("total_spending_cents")),
+      { "total_spending" => metric(transactions.sum(&:total_amount_cents) - refunds.sum(&:amount_cents), expected.fetch("total_spending_cents")),
         "spending_by_category" => categories, "income" => metric(income.sum { |row| row[:signed_amount_cents] }, expected.fetch("income_cents")),
         "analyzer_spending" => metric(analysis[:observed_spending_cents].to_i, expected.fetch("total_spending_cents")),
         "double_counts" => double_counts, "transfer_leakage_cents" => leaked_spending + leaked_income,
