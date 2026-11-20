@@ -59,11 +59,11 @@ The nested worktree at `household-cfo-b/.worktrees/vera-event-wakeup` isolates t
 | Pickup p50 (ms) | 98.6 | 4.4 |
 | Pickup p95 (ms) | 238.8 | 10.6 |
 | Pickup max (ms) | 252.2 | 16.0 |
-| scheduled_lateness_ms | 253.7 | 101.8 |
-| burst_30_completion_ms | 243.1 | 85.1 |
-| retry_completion_ms | 1767.0 | 1083.4 |
-| restart_pickup_ms | 3.9 | 6.5 |
-| first_workspace_request_after_idle_ms | 56.1 | 51.5 |
+| Scheduled lateness (ms) | 253.7 | 101.8 |
+| 30-job burst (ms) | 243.1 | 85.1 |
+| Retry completion (ms) | 1767.0 | 1083.4 |
+| Restart pickup (ms) | 3.9 | 6.5 |
+| First authenticated request after idle (ms) | 56.1 | 51.5 |
 
 Single 60-second windows and 30 immediate-job samples; not a production percentile guarantee. All seven required backend scenarios passed locally. Five concurrency-limited jobs passed in each run. Candidate-only reconnect, refused-listener fallback, bulk enqueue (30) and rollback checks passed.
 
@@ -88,3 +88,19 @@ Raw SQL: `queue-wakeup-sources.json`; worker/dispatcher probes are in both timin
 | recurring_enqueue_redact_terminal_content_source_url_intakes | 8 |
 
 The enterprise enqueue probe is per occurrence, so twice that count per minute precedes claiming and completion. Production recurring entries were enqueued without workers: recovery/provider bodies did not run. These counts measure queue plumbing, not data-dependent business workloads. The scheduler has no dynamic polling by default; its heartbeat adds 4 statements/minute, and a supervised topology adds the supervisor heartbeat plus the measured prune query every 5 minutes. Recovery enqueue costs recur every five minutes even when there is no business work. This accounts for the configured periodic sources without claiming unmeasured business bodies are free.
+
+## Gate and review record
+
+Test environment: Mac mini M4, PostgreSQL 16, Ruby 3.3.7, Rails test mode. Other sessions were active on the host; latency comparisons are single local samples under uncontrolled host load. No production sleep/wake or physical-device result is inferred.
+
+CodeRabbit attempted automatic review of `39d78d3b` on draft PR #344 but reported its free OSS review quota exhausted (33-minute reset estimate at inspection). No review was completed; no independent approval is claimed. Branch protection requires rails_security, rails_lint, rails_test and web, with no required approving-review count. This PR remains draft because of its documented production-safety blockers regardless of CI status.
+
+The initial full Rails run used the benchmark database name and hit the scorecard's mandatory `_test` naming guard. That invalid invocation was stopped by its exact owned PID. The complete suite is rerun on dedicated `vera_wakeup_test_20261120`; no test guard was weakened. Benchmarks remain on `vera_wakeup_bench_20261120`.
+
+Other completed local gates: RuboCop, Brakeman (no warnings), updated gem advisory audit, Zeitwerk, scorecard baseline ratchet, frontend lint, 228 unit-test files / 2,125 tests, frontend build, production dependency audit and repository dependency policy audit. Synthetic-document checks passed 13 tests after installing the repository's pinned dependencies in a disposable Python environment. Existing frontend chunk-size and unused audit-exception warnings remain. Chromium/browser and WebKit were not run locally for this backend-only experiment; WebKit cannot start on this host. No whole-app UI acceptance is claimed.
+
+Host guidance tooling note: `dev-lifecycle` is absent from PATH, so the synced helper was used by absolute path. The shared-context read-only check could not run because `/Users/agent/.config/shimizu-technology/agent-context.json` is missing. Applicable synced skill files were read directly; host configuration was not modified.
+
+Final full Rails gate (2026-11-20–21): **5,576 tests / 83,034 assertions, 1 failure, 0 errors/skips**, 1,382 seconds. `MiaPersonaSetupProposalGuardTest#test_round_five_one_deadline_covers_every_candidate_and_salvage_retry` measured 0.199100 seconds against `< 0.15`. An isolated rerun also failed: 0.216475 seconds (1 test / 2 assertions). This is the same timing assertion recorded in round 1; neither this test nor its implementation changed here, and the queue adapter is not activated by the suite. No unrelated timing threshold was relaxed. The full local gate is **failed**, not clean. All queue benchmark acceptance checks passed separately; that does not override the Rails gate.
+
+Resource disposition: task benchmark/test processes exited; both dedicated localhost databases were dropped after validating their exact identities. Task-owned node_modules, frontend build output and Python scratch environment/caches were removed. Shared PostgreSQL and other sessions' resources remain borrowed and untouched. No browser/server was started. The clean source worktree and draft branch are intentionally retained for the lead; no running-resource handoff is needed.
