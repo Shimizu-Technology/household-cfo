@@ -85,4 +85,29 @@ describe('CashPurchaseQuestions', () => {
     await waitFor(() => expect(document.activeElement?.classList.contains('cash-purchase-question__title')).toBe(true))
     expect(document.activeElement?.textContent).toContain('Hafa Demo Deli')
   })
+
+  it('moves keyboard focus to a note when the last question is answered, and clears it when a new question arrives', async () => {
+    const last = question()
+    const onAnswer = vi.fn().mockResolvedValue(undefined)
+    const view = render(<CashPurchaseQuestions questions={[last]} onAnswer={onAnswer} />)
+    const yes = screen.getByRole('button', { name: 'Yes: Tasi Demo Cafe on Aug 5 was paid with the $100 you took out on Aug 3' })
+    yes.focus()
+    fireEvent.click(yes)
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledOnce())
+    // The answered question leaves with the button that had focus.
+    view.rerender(<CashPurchaseQuestions questions={[]} onAnswer={onAnswer} />)
+    const done = await screen.findByRole('status')
+    expect(done.textContent).toBe('All cash purchases answered.')
+    await waitFor(() => expect(document.activeElement).toBe(done))
+    view.rerender(<CashPurchaseQuestions questions={[question({ transaction_draft_id: 312, merchant: 'Hafa Demo Deli' })]} onAnswer={onAnswer} />)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Paid with cash' })).toBeTruthy()
+  })
+
+  it('shows no note when the list empties without her answering here', () => {
+    const view = render(<CashPurchaseQuestions questions={[question()]} onAnswer={vi.fn()} />)
+    view.rerender(<CashPurchaseQuestions questions={[]} onAnswer={vi.fn()} />)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(view.container.textContent).toBe('')
+  })
 })

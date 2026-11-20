@@ -20,29 +20,48 @@ type Props = {
  */
 export function CashPurchaseQuestions({ questions, totalCount = questions.length, disabled = false, errors = {}, onAnswer }: Props) {
   const [busy, setBusy] = useState<number | null>(null)
+  // The place of the question being answered, until the list drops it (often before the save resolves).
+  const [answering, setAnswering] = useState<number | null>(null)
+  // Where keyboard focus goes once it has: the question that takes its place, or, after the last one, a note that
+  // stays until she leaves this screen or a new question arrives.
+  const [focusTarget, setFocusTarget] = useState<{ index: number } | 'all answered' | null>(null)
+  const [shown, setShown] = useState(questions)
+  if (shown !== questions) {
+    setShown(questions)
+    if (answering !== null) {
+      setAnswering(null)
+      setFocusTarget(questions.length > 0 ? { index: answering } : 'all answered')
+    } else if (questions.length > 0) {
+      setFocusTarget(null)
+    }
+  }
   const sectionRef = useRef<HTMLElement>(null)
-  // After an answer saves, its question goes away; keyboard focus moves to the question that takes its place.
-  const focusAfter = useRef<number | null>(null)
+  const doneRef = useRef<HTMLParagraphElement>(null)
   useEffect(() => {
-    const index = focusAfter.current
-    if (index === null) return
-    focusAfter.current = null
-    const section = sectionRef.current
+    if (!focusTarget) return
     const active = document.activeElement
+    // The answered question took its button, and focus, with it.
+    if (focusTarget === 'all answered') {
+      if (!active || active === document.body) doneRef.current?.focus()
+      return
+    }
+    const section = sectionRef.current
     if (!section || (active && active !== document.body && !section.contains(active))) return
     const titles = section.querySelectorAll<HTMLElement>('.cash-purchase-question__title')
-    ;(titles[Math.min(index, titles.length - 1)] ?? section.querySelector<HTMLElement>('h3'))?.focus()
-  }, [questions])
-  if (questions.length === 0) return null
+    ;(titles[Math.min(focusTarget.index, titles.length - 1)] ?? section.querySelector<HTMLElement>('h3'))?.focus()
+  }, [focusTarget])
+  if (questions.length === 0) {
+    return focusTarget === 'all answered' ? <p ref={doneRef} className="cash-purchase-questions__done" role="status" tabIndex={-1}>All cash purchases answered.</p> : null
+  }
 
   async function answer(question: CashPurchaseQuestion, choice: CashPurchaseAnswer) {
     setBusy(question.transaction_draft_id)
     // Set before saving: the list can drop this question before the save resolves.
-    focusAfter.current = questions.findIndex(row => row.transaction_draft_id === question.transaction_draft_id)
+    setAnswering(questions.findIndex(row => row.transaction_draft_id === question.transaction_draft_id))
     try {
       await onAnswer(question, choice)
     } catch {
-      focusAfter.current = null
+      setAnswering(null)
       // The error is shown beside this question.
     } finally {
       setBusy(null)
