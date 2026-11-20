@@ -160,6 +160,14 @@ describe('Mia’s statement cards in the chat', () => {
     expect(props.onSaved).not.toHaveBeenCalled()
   })
 
+  it('says what came back in refunds as well as what was spent on an approved statement', async () => {
+    const done = planWith([], { total: 3, done: 3, ready: [], ready_event_ids: [], spending: { ...SPENDING, counted_count: 1, counted_cents: 8425, refund_count: 2, refund_cents: 4199 } })
+    serve(review(done))
+    mount([statement(1, { statement_review: progress(3) })], { onAskPatterns: undefined })
+    const card = await screen.findByRole('region', { name: /Statement: / })
+    expect(within(card).getByText('Approved. 1 purchase, $84.25, now counts in your spending. 2 refunds, $41.99, came back to your categories.')).toBeTruthy()
+  })
+
   it('lets her change a recorded “something’s missing” on an approved card', async () => {
     const done = planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [], coverage: { question: null, answer: 'something_missing', version_id: 77 } })
     serve(review(done))

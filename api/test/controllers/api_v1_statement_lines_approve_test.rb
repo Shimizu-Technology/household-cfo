@@ -41,7 +41,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert version.expense?
     assert_equal 32_000, version.purchase_amount_cents
     assert_equal cash.id, version.budget_category_id
-    assert_equal({ "read_count" => 1, "read_cents" => 32_000, "counted_count" => 1, "counted_cents" => 32_000 }, review_plan.fetch("spending"))
+    assert_equal({ "read_count" => 1, "read_cents" => 32_000, "counted_count" => 1, "counted_cents" => 32_000, "refund_count" => 0, "refund_cents" => 0 }, review_plan.fetch("spending"))
     assert_equal 1, @household.household_transactions.count
     budget = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).plan_data
     budget_cents = HouseholdFinance::Money.cents(budget.fetch(:rows).find { |category| category[:id] == cash.id }.fetch(:actual_total))
@@ -300,12 +300,12 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "the plan and the upload progress say what was read and what now counts as spending" do
     # Two purchases are on the statement (one is a transfer, one has no amount); nothing counts until she approves it.
-    assert_equal({ "read_count" => 2, "read_cents" => 1_500, "counted_count" => 0, "counted_cents" => 0 }, review_plan.fetch("spending"))
+    assert_equal({ "read_count" => 2, "read_cents" => 1_500, "counted_count" => 0, "counted_cents" => 0, "refund_count" => 0, "refund_cents" => 0 }, review_plan.fetch("spending"))
     assert_equal review_plan.fetch("spending"), upload_progress.fetch("spending")
     ready = review_plan.fetch("ready_event_ids")
     approve_lines({ expect_ready_ids: ready, lines: as_read(ready) })
     assert_response :success
-    counted = { "read_count" => 2, "read_cents" => 1_500, "counted_count" => 1, "counted_cents" => 1_000 }
+    counted = { "read_count" => 2, "read_cents" => 1_500, "counted_count" => 1, "counted_cents" => 1_000, "refund_count" => 0, "refund_cents" => 0 }
     assert_equal counted, review_plan.fetch("spending")
     assert_equal counted, upload_progress.fetch("spending")
     # A purchase she leaves out is saved but never counted; one she gives a category counts at the amount she approved.

@@ -30,7 +30,12 @@ module FinancialDocuments
           .where.not("source_review_versions.event_type = 'cash_withdrawal' AND source_review_versions.purchase_amount_cents IS NULL")
         read_count, read_cents = read.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(signed_amount_cents), 0)"))
         counted_count, counted_cents = counted.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(source_review_versions.signed_amount_cents), 0)"))
-        { read_count: read_count, read_cents: read_cents.to_i, counted_count: counted_count, counted_cents: counted_cents.to_i }
+        # Refunds she approved that came back to a category; they lower spending in the month they posted.
+        credits = HouseholdFinance::RefundCredits.new(@household)
+        refunds = current_versions.where(disposition: "include", event_type: "refund").where("source_review_versions.signed_amount_cents > 0")
+          .includes(:budget_category, source_review_head: :financial_source_event).map { |version| credits.for_version(version) }.select(&:counted?)
+        { read_count: read_count, read_cents: read_cents.to_i, counted_count: counted_count, counted_cents: counted_cents.to_i,
+          refund_count: refunds.length, refund_cents: refunds.sum(&:amount_cents) }
       end
 
       private

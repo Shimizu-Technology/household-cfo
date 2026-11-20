@@ -18,8 +18,15 @@ test('a fictional statement, reviewed by hand, saves exactly its posted spending
   await page.locator('input[type=file]').first().setInputFiles(STATEMENT)
   await expect(page.getByText('23 look right. 4 need a quick look.')).toBeVisible({ timeout: 90_000 })
 
+  // Which account this is comes first (#319): a new bank account on a fresh stack.
+  await page.getByRole('button', { name: 'Choose account' }).click()
+  const account = page.getByRole('dialog', { name: 'Your account' })
+  const saved = account.getByRole('combobox', { name: 'Account', exact: true })
+  if (await saved.count()) await saved.selectOption('new')
+  await account.getByRole('combobox', { name: 'Type', exact: true }).selectOption('asset')
+  await account.getByRole('button', { name: 'Save' }).click()
+  await expect(account).toBeHidden()
   await page.getByRole('button', { name: 'Nothing’s missing' }).click()
-  await page.getByRole('button', { name: 'Bank account' }).click()
   await page.getByRole('button', { name: /^Yes: Coast360 transfer/ }).click()
   await expect(page.getByLabel('Category for ATM withdrawal Mangilao')).toBeEnabled()
   await page.getByLabel('Category for ATM withdrawal Mangilao').selectOption({ label: 'Flexible spending' })

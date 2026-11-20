@@ -32,6 +32,7 @@ class ApiV1StatementRefundsTest < ActionDispatch::IntegrationTest
     assert_equal [ "refund", 2999, nil ], [ version.event_type, version.signed_amount_cents, version.budget_category_id ]
     assert_equal 2, @household.household_transactions.count, "A refund is never a new purchase"
     assert_empty plan(march).fetch("attention")
+    assert_equal({ "counted_count" => 1, "counted_cents" => 8425, "refund_count" => 1, "refund_cents" => 2999 }, plan(march).fetch("spending").slice("counted_count", "counted_cents", "refund_count", "refund_cents"))
 
     assert_equal 8425, budget_actual(@clothing, month: 2)
     assert_equal 8425 - 2999, budget_actual(@clothing, month: 3)
