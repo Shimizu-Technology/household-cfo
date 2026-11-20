@@ -11,6 +11,8 @@ test('own-account transfers pair and person payments change only reviewed spendi
   const review = page.getByRole('region', { name: 'Statement review' })
   async function upload(name: string, contents: string) {
     await page.locator('input[type=file]').first().setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(contents) })
+    await expect(page.getByRole('status').filter({ hasText: 'Statement uploaded privately' })).toBeVisible()
+    await page.reload()
     await page.getByRole('button', { name: new RegExp(`^${name.replaceAll('.', '\\.')} Statement`) }).click()
     await expect(review.getByRole('button', { name: 'Choose account', exact: true })).toBeVisible({ timeout: 60_000 })
     await review.getByRole('button', { name: 'Choose account', exact: true }).click()
@@ -87,6 +89,8 @@ test('merchant categories, card payments and logged person purchases keep their 
     await page.getByRole('button', { name: /^review-regressions.csv Statement/ }).click()
   } else {
     await page.locator('input[type=file]').first().setInputFiles({ name: 'review-regressions.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) })
+    await expect(page.getByRole('status').filter({ hasText: 'Statement uploaded privately' })).toBeVisible()
+    await page.reload()
     await page.getByRole('button', { name: /^review-regressions.csv Statement/ }).click()
     await expect(review.getByRole('button', { name: 'Choose account', exact: true })).toBeVisible({ timeout: 60_000 })
     await review.getByRole('button', { name: 'Choose account', exact: true }).click()
@@ -151,12 +155,20 @@ test('round 3 duplicate, logged purchase and ownership guards plus categorized b
   async function upload(name: string, date: string) {
     const csv = `Date,Account,Description,Withdrawal,Deposit,Status\n${date},Talun Round Three ****3327,VENMO *ANA CRUZ,40.00,,Posted\n${name.includes('first') ? `${date},Talun Round Three ****3327,Payment to Docomo Pacific,55.00,,Posted\n` : ''}`
     await page.locator('input[type=file]').first().setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(csv) })
+    await expect(page.getByRole('status').filter({ hasText: 'Statement uploaded privately' })).toBeVisible()
+    await page.reload()
     await page.getByRole('button', { name: new RegExp(`^${name.replaceAll('.', '\\.')} Statement`) }).click()
     await expect(review.getByRole('button', { name: 'Choose account', exact: true })).toBeVisible({ timeout: 60_000 })
     await review.getByRole('button', { name: 'Choose account', exact: true }).click()
     const account = page.getByRole('dialog', { name: 'Your account', exact: true })
     const choices = account.getByRole('combobox', { name: 'Account', exact: true })
-    if (await choices.count()) await choices.selectOption({ index: 1 })
+    if (await choices.count()) {
+      if (name.includes('first')) await choices.selectOption('new')
+      else {
+        const option = choices.locator('option').filter({ hasText: '3327' }).first()
+        await choices.selectOption(await option.getAttribute('value') ?? '')
+      }
+    }
     const type = account.getByRole('combobox', { name: 'Type', exact: true })
     if (await type.count()) await type.selectOption('asset')
     await account.getByRole('button', { name: 'Save', exact: true }).click()

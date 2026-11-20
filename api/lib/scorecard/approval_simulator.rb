@@ -65,7 +65,12 @@ module Scorecard
       # A page is reviewed as displayed; answers on that page do not magically
       # teach the earlier questions on the same page a new category.
       initial = REVIEW::ParticipantPlan.new(@household, revision)
-      repeats = initial.repeated_lines
+      repeats = initial.repeated_lines.select do |line|
+        answer = mappings[line.event.id]
+        twin = line.overlaps.find { |row| row[:approved_version_id] }
+        other = twin && row_answers[twin[:event_id]]
+        answer && other && answer["event_id"] == other["event_id"] && leg_key(answer) == leg_key(other)
+      end
       if repeats.length > 1
         count(doc, :repeated_file)
         entries = repeats.map do |line|
@@ -80,6 +85,7 @@ module Scorecard
       grouped = groups.flatten.map { |line| line.event.id }.to_set
       pages = groups.map { |group| group.map(&:event) } + rows.reject { |row| grouped.include?(row.id) }.each_slice(50).to_a
       pages.each do |page|
+        included_before_page = @included_legs.dup
         plan = REVIEW::ParticipantPlan.new(@household, revision)
         group_ids = plan.category_groups.map { |group| group.map { |line| line.event.id }.to_set }
         store_group = group_ids.any? { |ids| page.length > 1 && page.all? { |row| ids.include?(row.id) } }
@@ -106,8 +112,7 @@ module Scorecard
               count(doc, :store_category, answer)
               group_category, group_answered = category, true
             end
-            other_correction = entry[:edit] && (entry[:edit][:amount_cents] != row.signed_amount_cents&.abs || entry[:edit][:posted_on] != row.posted_on&.iso8601)
-            count(doc, action, answer) if category != group_category || entry[:decision] == "leave_out" || other_correction
+            count_store_correction(doc, action, answer, entry, row, group_category, category: category)
           else
             count(doc, action, answer) if action
           end
@@ -124,7 +129,21 @@ module Scorecard
             end
           end
         else
-          approve(revision, lines: entries) if entries.any?
+          @included_legs = included_before_page
+          if store_group && group_category
+            store_entries, individual = entries.partition { |entry| category_only?(entry, plan, group_category) }
+            if store_entries.any?
+              @household.with_lock do
+                REVIEW::StoreCategoryApprover.call(@domain, revision, { store_lines: store_entries.map { |entry|
+                  entry.slice(:event_id, :expected_head).merge(revision_id: revision.id, decision: "edited", edit: { category_id: group_category })
+                } })
+              end
+            end
+            approve(revision, lines: individual) if individual.any?
+          else
+            approve(revision, lines: entries) if entries.any?
+          end
+          record_included_legs(entries)
         end
       end
       state = REVIEW::ApprovalState.new(@household, revision).call
@@ -217,6 +236,7 @@ module Scorecard
               approve_distinct(revision, entry, line: plan.line_for(entry.fetch(:event_id)))
             end
           end
+          record_included_legs([ entry ])
           @domain.overlap_context.refresh!
         end
       ensure
@@ -252,6 +272,33 @@ module Scorecard
         expected_pending_draft: nil, facts: facts, projection: form.send(:projection_for, event, facts), reason: "Participant confirmed distinct activity in scorecard review." }
       draft = @domain.execute("stage", @domain.normalize("stage", input))
       @domain.execute("approve", @domain.normalize("approve", draft_id: draft.id, draft_lock_version: draft.lock_version, draft_digest: draft.digest))
+    end
+
+    def count_store_correction(doc, action, answer, entry, row, group_category, category: entry.dig(:edit, :category_id))
+      other_correction = entry[:edit] && (entry[:edit][:amount_cents] != row.signed_amount_cents&.abs || entry[:edit][:posted_on] != row.posted_on&.iso8601 ||
+        entry[:edit][:kind] != proposed_kind(row) ||
+        entry[:edit][:money_direction] != (row.signed_amount_cents.to_i.positive? ? "in" : "out"))
+      count(doc, action, answer) if category != group_category || entry[:decision] == "leave_out" || other_correction
+    end
+
+    def proposed_kind(row)
+      { "income" => "money_in", "transfer" => "moved", "debt_payment" => "card", "cash_withdrawal" => "cash", "refund" => "refund" }[row.event_type] || "spending"
+    end
+
+    def category_only?(entry, plan, category)
+      row = plan.line_for(entry[:event_id]).event
+      edit = entry[:edit]
+      entry[:decision] != "leave_out" && (!edit || (
+        edit[:kind] == "spending" && edit[:amount_cents] == row.signed_amount_cents&.abs &&
+        edit[:posted_on] == row.posted_on&.iso8601 && edit[:money_direction] == "out" && edit[:category_id] == category))
+    end
+
+    def record_included_legs(entries)
+      entries.each do |entry|
+        answer = row_answers[entry[:event_id]]
+        head = SourceReviewHead.find_by(financial_source_event_id: entry[:event_id])
+        @included_legs << leg_key(answer) if answer && head&.approved_version&.disposition.in?(%w[include match])
+      end
     end
 
     def leg_key(answer)

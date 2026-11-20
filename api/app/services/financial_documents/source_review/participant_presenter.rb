@@ -67,7 +67,7 @@ module FinancialDocuments
           signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && file_answer_available, account_sign_questions: account_questions,
           sign_effect: sign_effect(plan), total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), spending: ParticipantProgress.new(household, revision).spending_totals, ready_event_ids: plan.ready_ids, totals_check: totals,
           ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before,
-            merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
+            merchant: MerchantNormalizer.call(line.merchant), editable_merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
           coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision), version_id: CoverageQuestion.latest(revision)&.id },
           first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,
           store_groups: store_groups(plan, names),
@@ -79,7 +79,7 @@ module FinancialDocuments
       def store_groups(plan, names)
         local = plan.attention.select { |line| !line.done && line.kind.in?(%i[no_category suggested_category still_category]) && line.merchant.present? }
         return [] if local.empty?
-        keys = local.map { |line| line.merchant.downcase.squish }.to_set
+        keys = local.map { |line| MerchantNormalizer.call(line.merchant).to_s.downcase.squish }.to_set
         rows = local.map { |line| attention_row(line, names).merge(revision_id: revision.id, statement_name: revision.financial_document_import&.filename) }
         household.financial_document_imports.find_each do |document|
           next if document.id == revision.financial_document_import_id
@@ -88,12 +88,12 @@ module FinancialDocuments
           next unless other
           other_plan = ParticipantPlan.new(household, other)
           other_plan.attention.each do |line|
-            next if line.done || !line.kind.in?(%i[no_category suggested_category still_category]) || !keys.include?(line.merchant.to_s.downcase.squish)
+            next if line.done || !line.kind.in?(%i[no_category suggested_category still_category]) || !keys.include?(MerchantNormalizer.call(line.merchant).to_s.downcase.squish)
             next unless line.expected_head[:account_version_id]
             rows << attention_row(line, names).merge(revision_id: other.id, statement_name: document.filename)
           end
         end
-        rows.group_by { |row| row[:merchant].downcase.squish }.values.select { |group| group.length > 1 }.map { |group| group.first(1000) }
+        rows.group_by { |row| MerchantNormalizer.call(row[:merchant]).to_s.downcase.squish }.values.select { |group| group.length > 1 }.map { |group| group.first(1000) }
       end
 
       def sign_effect(plan)
@@ -170,7 +170,7 @@ module FinancialDocuments
       # Lines approved before long account numbers were hidden still store the statement's words; she reads them masked.
       def shown_facts(facts)
         key = facts.key?(:merchant) ? :merchant : "merchant"
-        facts.is_a?(Hash) && facts[key].is_a?(String) ? facts.merge(key => FinancialDocuments::MerchantNormalizer.call(facts[key])) : facts
+        facts.is_a?(Hash) && facts[key].is_a?(String) ? facts.merge(key => AccountNumberMask.display(facts[key])) : facts
       end
 
       def attention_row(line, names)
@@ -191,7 +191,7 @@ module FinancialDocuments
         saved = line.saved
         { raw_description: AccountNumberMask.display(event.financial_source_evidence&.payload&.dig("raw_description")), event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
           amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
-          merchant: saved&.merchant.present? ? FinancialDocuments::MerchantNormalizer.call(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
+          merchant: MerchantNormalizer.call(saved&.merchant.presence || line.merchant), editable_merchant: AccountNumberMask.display(saved&.merchant.presence || line.merchant), posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head,
           recipient_question: !line.done && TransferPairs.person_wording?(event, line.merchant) && !event.signed_amount_cents.to_i.positive?,
           transfer_pair: line.pair && { event_id: line.pair[:event].id, approved_version_id: line.pair[:version]&.id, account_version_id: line.pair[:identity].id,

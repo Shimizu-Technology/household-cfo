@@ -30,7 +30,7 @@ module FinancialDocuments
             line
           end
         end
-        raise ArgumentError, "Choose one store" unless lines.map { |line| line.merchant.to_s.downcase.squish }.uniq.one?
+        raise ArgumentError, "Choose one store" unless lines.map { |line| MerchantNormalizer.call(line.merchant).to_s.downcase.squish }.uniq.one?
         counts = Hash.new(0)
         plans.each_value do |other, _plan, entries|
           entries.each_slice(LineApprover::MAX_LINES) do |page|

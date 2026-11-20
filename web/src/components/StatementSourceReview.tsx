@@ -75,12 +75,10 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const repeats = plan?.repeated_line_ids ?? []
   const repeatQuestion = !reviewRepeats && repeats.length > 1
   const questions = plan?.attention.filter(item => !groupedIds.has(item.event_id) && !crossGroupedIds.has(item.event_id) && !(repeatQuestion && repeats.includes(item.event_id))) ?? []
-  const groupFor = (item: PlanAttention) => {
-    const store = storeGroups.find(group => group.some(line => line.event_id === item.event_id))
-    if (store) return store
-    const ids = plan?.category_groups?.find(group => group[0] === item.event_id) ?? [item.event_id]
-    return (plan?.attention ?? []).filter(line => ids.includes(line.event_id))
-  }
+  const attentionById = new Map((plan?.attention ?? []).map(line => [line.event_id, line]))
+  const groupsByLeader = new Map((plan?.category_groups ?? []).map(ids => [ids[0], ids.flatMap(id => attentionById.get(id) ?? [])]))
+  for (const group of storeGroups) if (group[0]) groupsByLeader.set(group[0].event_id, group)
+  const groupFor = (item: PlanAttention) => groupsByLeader.get(item.event_id) ?? [item]
   const readyById = new Map((plan?.ready ?? []).map((line) => [line.event_id, line]))
 
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
@@ -113,7 +111,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (planned) return lineSheetFromAttention(planned)
     const ready = !facts ? readyById.get(event.id) : undefined
     if (ready) {
-      return { rawDescription: event.evidence?.raw_description, directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: ready.merchant ?? sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
+      return { rawDescription: event.evidence?.raw_description, directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: ready.editable_merchant ?? ready.merchant ?? sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
         kind: lineKindFor(ready.event_type, event.signed_amount_cents), categoryId: ready.category_id, leftOut: false }
     }
     const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents

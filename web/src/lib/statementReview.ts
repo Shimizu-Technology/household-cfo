@@ -20,6 +20,7 @@ export type PlanAttention = {
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
   merchant: string | null
+  editable_merchant?: string | null
   posted_on: string | null
   signed_amount_cents: number | null
   category_id: number | null
@@ -29,7 +30,7 @@ export type PlanAttention = {
   purchase_match?: PurchaseMatch
 }
 /** A line that looks right: the kind and category the server will save for it, exactly as she is shown them. */
-export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
+export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; editable_merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
 export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 /** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
 export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number; refund_count?: number; refund_cents?: number }
@@ -103,7 +104,7 @@ export function answerInput(item: PlanAttention, id: PlanAnswerId, categoryId?: 
 
 /** The line as the statement reads it, with the category she picked: the same facts the line sheet would open on. */
 export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdit {
-  return { kind: lineKindFor(item.event_type, item.signed_amount_cents), merchant: item.merchant ?? '', posted_on: item.posted_on ?? '',
+  return { kind: lineKindFor(item.event_type, item.signed_amount_cents), merchant: item.editable_merchant ?? item.merchant ?? '', posted_on: item.posted_on ?? '',
     amount_cents: item.signed_amount_cents == null ? 0 : Math.abs(item.signed_amount_cents), category_id: categoryId ?? item.category_id }
 }
 
@@ -131,7 +132,7 @@ export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'o
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
-  return { rawDescription: item.raw_description, recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
+  return { rawDescription: item.raw_description, recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.editable_merchant ?? item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
     kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
 }
 

@@ -22,6 +22,8 @@ test('one store answer spans statements and one file answer excludes only approv
     }
     const type = account.getByRole('combobox', { name: 'Type', exact: true })
     if (await type.count()) await type.selectOption('asset')
+    await account.getByLabel('Starts', { exact: true }).fill('2026-09-01')
+    await account.getByLabel('Ends', { exact: true }).fill('2026-09-30')
     await account.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(account).toHaveCount(0)
   }

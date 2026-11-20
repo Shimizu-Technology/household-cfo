@@ -119,11 +119,11 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 82,
+      "decisions": 92,
       "decisions_by_kind": {
         "account_identity": 10,
         "store_category": 1,
-        "approve_page": 10,
+        "approve_page": 11,
         "manual_correction": 1,
         "no_category": 9,
         "transfer": 4,
@@ -132,7 +132,7 @@
         "transfer_pair": 5,
         "direction": 5,
         "repeated_file": 1,
-        "duplicate": 32,
+        "duplicate": 41,
         "person_payment_duplicate": 1,
         "coverage": 1
       },
@@ -154,7 +154,7 @@
         "transfer_pair": 5,
         "direction": 5,
         "repeated_file": 1,
-        "duplicate": 32,
+        "duplicate": 41,
         "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
@@ -276,7 +276,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 68,
+      "decisions": 78,
       "decisions_by_kind": {
         "account_identity": 7,
         "approve_page": 7,
@@ -284,17 +284,16 @@
         "transfer": 4,
         "card_payment": 1,
         "person_payment": 1,
-        "transfer_pair": 7,
+        "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 32,
-        "repeated_file": 1,
+        "duplicate": 45,
         "store_category": 1,
         "no_category": 1,
         "person_payment_duplicate": 1,
         "manual_exclusion": 1
       },
       "manual_correction": 2,
-      "manual_exclusion": 3,
+      "manual_exclusion": 1,
       "accepted_as_proposed": 47,
       "corrections_by_field": {
         "type": 0,
@@ -308,9 +307,8 @@
         "transfer": 4,
         "card_payment": 1,
         "person_payment": 1,
-        "transfer_pair": 7,
-        "duplicate": 32,
-        "repeated_file": 1,
+        "transfer_pair": 5,
+        "duplicate": 45,
         "no_category": 2,
         "person_payment_duplicate": 1
       },
@@ -450,7 +448,7 @@
           "category_allocation_error_cents": 0
         }
       ],
-      "decisions": 77,
+      "decisions": 85,
       "decisions_by_kind": {
         "receipt_confirmation": 1,
         "account_identity": 8,
@@ -461,15 +459,15 @@
         "card_payment": 1,
         "person_payment": 1,
         "same_purchase": 1,
-        "transfer_pair": 7,
+        "transfer_pair": 5,
         "repeated_file": 3,
-        "duplicate": 36,
+        "duplicate": 46,
         "coverage": 3,
         "refund_category": 1,
         "person_payment_duplicate": 1
       },
       "manual_correction": 2,
-      "manual_exclusion": 2,
+      "manual_exclusion": 0,
       "accepted_as_proposed": 49,
       "corrections_by_field": {
         "type": 0,
@@ -485,9 +483,9 @@
         "card_payment": 1,
         "person_payment": 1,
         "same_purchase": 1,
-        "transfer_pair": 7,
+        "transfer_pair": 5,
         "repeated_file": 3,
-        "duplicate": 36,
+        "duplicate": 46,
         "refund_category": 1,
         "person_payment_duplicate": 1
       },
@@ -610,7 +608,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 53,
+      "decisions": 61,
       "decisions_by_kind": {
         "account_identity": 5,
         "approve_page": 5,
@@ -619,7 +617,7 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 29,
+        "duplicate": 37,
         "manual_exclusion": 1,
         "person_payment_duplicate": 1
       },
@@ -639,7 +637,7 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 29,
+        "duplicate": 37,
         "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
@@ -761,7 +759,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 68,
+      "decisions": 78,
       "decisions_by_kind": {
         "account_identity": 7,
         "approve_page": 7,
@@ -770,15 +768,14 @@
         "transfer": 4,
         "card_payment": 1,
         "unclear": 1,
-        "transfer_pair": 7,
+        "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 33,
-        "repeated_file": 1,
+        "duplicate": 46,
         "no_category": 1,
         "person_payment_duplicate": 1
       },
       "manual_correction": 3,
-      "manual_exclusion": 2,
+      "manual_exclusion": 0,
       "accepted_as_proposed": 47,
       "corrections_by_field": {
         "type": 1,
@@ -792,9 +789,8 @@
         "transfer": 4,
         "card_payment": 1,
         "unclear": 1,
-        "transfer_pair": 7,
-        "duplicate": 33,
-        "repeated_file": 1,
+        "transfer_pair": 5,
+        "duplicate": 46,
         "no_category": 1,
         "person_payment_duplicate": 1
       },
@@ -934,7 +930,7 @@
           "category_allocation_error_cents": 0
         }
       ],
-      "decisions": 59,
+      "decisions": 68,
       "decisions_by_kind": {
         "receipt_confirmation": 1,
         "account_identity": 5,
@@ -944,12 +940,12 @@
         "card_payment": 1,
         "person_payment": 1,
         "same_purchase": 1,
-        "transfer_pair": 7,
-        "duplicate": 31,
+        "transfer_pair": 5,
+        "duplicate": 42,
         "person_payment_duplicate": 1
       },
       "manual_correction": 1,
-      "manual_exclusion": 2,
+      "manual_exclusion": 0,
       "accepted_as_proposed": 50,
       "corrections_by_field": {
         "type": 0,
@@ -964,8 +960,8 @@
         "card_payment": 1,
         "person_payment": 1,
         "same_purchase": 1,
-        "transfer_pair": 7,
-        "duplicate": 31,
+        "transfer_pair": 5,
+        "duplicate": 42,
         "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
@@ -1387,7 +1383,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 31,
+      "decisions": 32,
       "decisions_by_kind": {
         "account_identity": 7,
         "approve_page": 7,
@@ -1397,8 +1393,7 @@
         "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 1,
-        "repeated_file": 1
+        "duplicate": 3
       },
       "manual_correction": 0,
       "manual_exclusion": 0,
@@ -1416,8 +1411,7 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 1,
-        "repeated_file": 1
+        "duplicate": 3
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -1704,7 +1698,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 31,
+      "decisions": 32,
       "decisions_by_kind": {
         "account_identity": 7,
         "approve_page": 7,
@@ -1714,8 +1708,7 @@
         "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 1,
-        "repeated_file": 1
+        "duplicate": 3
       },
       "manual_correction": 0,
       "manual_exclusion": 0,
@@ -1733,8 +1726,7 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 1,
-        "repeated_file": 1
+        "duplicate": 3
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -2003,19 +1995,19 @@
     "transfer_leakage_cents": 0,
     "transfer_leakage_spending_cents": 0,
     "transfer_leakage_income_cents": 0,
-    "decisions": 581,
+    "decisions": 638,
     "manual_correction": 25,
-    "manual_exclusion": 10,
+    "manual_exclusion": 2,
     "accepted_as_proposed": 566,
     "unmapped_spending_cents": 0,
     "unmapped_spending_count": 0,
     "decisions_by_kind": {
       "account_identity": 80,
-      "approve_page": 80,
+      "approve_page": 81,
       "card_payment": 12,
       "coverage": 22,
       "direction": 5,
-      "duplicate": 201,
+      "duplicate": 269,
       "manual_correction": 2,
       "manual_exclusion": 2,
       "no_category": 14,
@@ -2023,12 +2015,12 @@
       "person_payment_duplicate": 6,
       "receipt_confirmation": 3,
       "refund_category": 1,
-      "repeated_file": 8,
+      "repeated_file": 4,
       "same_purchase": 3,
       "still_category": 12,
       "store_category": 2,
       "transfer": 48,
-      "transfer_pair": 68,
+      "transfer_pair": 60,
       "unclear": 1
     },
     "corrections_by_field": {
@@ -2041,16 +2033,16 @@
     "questions_by_kind": {
       "card_payment": 12,
       "direction": 5,
-      "duplicate": 201,
+      "duplicate": 269,
       "no_category": 18,
       "person_payment": 11,
       "person_payment_duplicate": 6,
       "refund_category": 1,
-      "repeated_file": 8,
+      "repeated_file": 4,
       "same_purchase": 3,
       "still_category": 12,
       "transfer": 48,
-      "transfer_pair": 68,
+      "transfer_pair": 60,
       "unclear": 1
     },
     "receipt_extraction_absolute_error_cents": 0,
@@ -2196,11 +2188,11 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 81,
+        "decisions": 91,
         "decisions_by_kind": {
           "account_identity": 10,
           "store_category": 1,
-          "approve_page": 10,
+          "approve_page": 11,
           "no_category": 9,
           "transfer": 4,
           "card_payment": 1,
@@ -2208,7 +2200,7 @@
           "transfer_pair": 5,
           "direction": 5,
           "repeated_file": 1,
-          "duplicate": 32,
+          "duplicate": 41,
           "person_payment_duplicate": 1,
           "coverage": 1
         },
@@ -2230,7 +2222,7 @@
           "transfer_pair": 5,
           "direction": 5,
           "repeated_file": 1,
-          "duplicate": 32,
+          "duplicate": 41,
           "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
@@ -2352,25 +2344,23 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 67,
+        "decisions": 76,
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
           "transfer": 4,
           "card_payment": 1,
           "person_payment": 1,
-          "transfer_pair": 7,
+          "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 32,
-          "repeated_file": 1,
+          "duplicate": 45,
           "store_category": 1,
           "no_category": 1,
-          "person_payment_duplicate": 1,
-          "duplicate_guard": 1
+          "person_payment_duplicate": 1
         },
         "manual_correction": 2,
         "manual_exclusion": 0,
-        "accepted_as_proposed": 49,
+        "accepted_as_proposed": 46,
         "corrections_by_field": {
           "type": 0,
           "amount": 0,
@@ -2382,9 +2372,8 @@
           "transfer": 4,
           "card_payment": 1,
           "person_payment": 1,
-          "transfer_pair": 7,
-          "duplicate": 32,
-          "repeated_file": 1,
+          "transfer_pair": 5,
+          "duplicate": 45,
           "no_category": 2,
           "person_payment_duplicate": 1
         },
@@ -2524,7 +2513,7 @@
             "category_allocation_error_cents": 0
           }
         ],
-        "decisions": 76,
+        "decisions": 84,
         "decisions_by_kind": {
           "receipt_confirmation": 1,
           "account_identity": 8,
@@ -2534,17 +2523,16 @@
           "card_payment": 1,
           "person_payment": 1,
           "same_purchase": 1,
-          "transfer_pair": 7,
+          "transfer_pair": 5,
           "repeated_file": 3,
-          "duplicate": 35,
+          "duplicate": 46,
           "coverage": 3,
           "refund_category": 1,
-          "person_payment_duplicate": 1,
-          "duplicate_guard": 1
+          "person_payment_duplicate": 1
         },
         "manual_correction": 2,
         "manual_exclusion": 0,
-        "accepted_as_proposed": 51,
+        "accepted_as_proposed": 48,
         "corrections_by_field": {
           "type": 0,
           "amount": 0,
@@ -2558,9 +2546,9 @@
           "card_payment": 1,
           "person_payment": 1,
           "same_purchase": 1,
-          "transfer_pair": 7,
+          "transfer_pair": 5,
           "repeated_file": 3,
-          "duplicate": 35,
+          "duplicate": 46,
           "refund_category": 1,
           "person_payment_duplicate": 1
         },
@@ -2683,7 +2671,7 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 51,
+        "decisions": 59,
         "decisions_by_kind": {
           "account_identity": 5,
           "approve_page": 5,
@@ -2691,7 +2679,7 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 29,
+          "duplicate": 37,
           "person_payment_duplicate": 1
         },
         "manual_correction": 0,
@@ -2709,7 +2697,7 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 29,
+          "duplicate": 37,
           "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
@@ -2831,24 +2819,22 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 67,
+        "decisions": 76,
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
           "transfer": 4,
           "card_payment": 1,
           "unclear": 1,
-          "transfer_pair": 7,
+          "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 33,
-          "repeated_file": 1,
+          "duplicate": 46,
           "no_category": 1,
-          "person_payment": 1,
-          "duplicate_guard": 1
+          "person_payment": 1
         },
         "manual_correction": 1,
         "manual_exclusion": 0,
-        "accepted_as_proposed": 50,
+        "accepted_as_proposed": 47,
         "corrections_by_field": {
           "type": 0,
           "amount": 0,
@@ -2860,9 +2846,8 @@
           "transfer": 4,
           "card_payment": 1,
           "unclear": 1,
-          "transfer_pair": 7,
-          "duplicate": 33,
-          "repeated_file": 1,
+          "transfer_pair": 5,
+          "duplicate": 46,
           "no_category": 1,
           "person_payment": 1
         },
@@ -3002,7 +2987,7 @@
             "category_allocation_error_cents": 0
           }
         ],
-        "decisions": 57,
+        "decisions": 66,
         "decisions_by_kind": {
           "receipt_confirmation": 1,
           "account_identity": 5,
@@ -3011,14 +2996,13 @@
           "card_payment": 1,
           "person_payment": 1,
           "same_purchase": 1,
-          "transfer_pair": 7,
-          "duplicate": 30,
-          "person_payment_duplicate": 1,
-          "duplicate_guard": 1
+          "transfer_pair": 5,
+          "duplicate": 42,
+          "person_payment_duplicate": 1
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
-        "accepted_as_proposed": 53,
+        "accepted_as_proposed": 50,
         "corrections_by_field": {
           "type": 0,
           "amount": 0,
@@ -3031,8 +3015,8 @@
           "card_payment": 1,
           "person_payment": 1,
           "same_purchase": 1,
-          "transfer_pair": 7,
-          "duplicate": 30,
+          "transfer_pair": 5,
+          "duplicate": 42,
           "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
@@ -3450,7 +3434,7 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 30,
+        "decisions": 31,
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
@@ -3459,8 +3443,7 @@
           "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 1,
-          "repeated_file": 1
+          "duplicate": 3
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
@@ -3477,8 +3460,7 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 1,
-          "repeated_file": 1
+          "duplicate": 3
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -3763,7 +3745,7 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 30,
+        "decisions": 31,
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
@@ -3772,8 +3754,7 @@
           "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 1,
-          "repeated_file": 1
+          "duplicate": 3
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
@@ -3790,8 +3771,7 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 1,
-          "repeated_file": 1
+          "duplicate": 3
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -4058,30 +4038,29 @@
       "transfer_leakage_cents": 0,
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
-      "decisions": 567,
+      "decisions": 622,
       "manual_correction": 21,
       "manual_exclusion": 0,
-      "accepted_as_proposed": 569,
+      "accepted_as_proposed": 557,
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0,
       "decisions_by_kind": {
         "account_identity": 80,
-        "approve_page": 80,
+        "approve_page": 81,
         "card_payment": 12,
         "coverage": 22,
         "direction": 5,
-        "duplicate": 199,
-        "duplicate_guard": 4,
+        "duplicate": 269,
         "no_category": 14,
         "person_payment": 12,
         "person_payment_duplicate": 5,
         "receipt_confirmation": 3,
         "refund_category": 1,
-        "repeated_file": 8,
+        "repeated_file": 4,
         "same_purchase": 3,
         "store_category": 2,
         "transfer": 48,
-        "transfer_pair": 68,
+        "transfer_pair": 60,
         "unclear": 1
       },
       "corrections_by_field": {
@@ -4094,15 +4073,15 @@
       "questions_by_kind": {
         "card_payment": 12,
         "direction": 5,
-        "duplicate": 199,
+        "duplicate": 269,
         "no_category": 18,
         "person_payment": 12,
         "person_payment_duplicate": 5,
         "refund_category": 1,
-        "repeated_file": 8,
+        "repeated_file": 4,
         "same_purchase": 3,
         "transfer": 48,
-        "transfer_pair": 68,
+        "transfer_pair": 60,
         "unclear": 1
       },
       "receipt_extraction_absolute_error_cents": 0,
