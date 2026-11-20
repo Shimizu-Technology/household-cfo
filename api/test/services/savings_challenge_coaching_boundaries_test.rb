@@ -33,6 +33,29 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
     end
   end
 
+  test "where her money went in a month she names reads that month in the challenge chat" do
+    with_savings_runtime do
+      savings_enroll
+      category = @savings_household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
+      { Date.new(2026, 8, 6) => [ "Seabreeze Snack Bar", 6_000 ], Date.new(2026, 10, 6) => [ "Coral Crib Outlet", 69_000 ] }.each do |date, (merchant, cents)|
+        period = @savings_household.budget_years.find_or_create_by!(year: date.year).budget_periods.find_or_create_by!(starts_on: date.beginning_of_month) { |row| row.ends_on = date.end_of_month }
+        row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: date, merchant: merchant, total_amount_cents: cents, source_type: "statement", status: "confirmed")
+        row.transaction_splits.create!(budget_category: category, amount_cents: cents)
+      end
+      session = @savings_household.chat_sessions.create!(user: @savings_user)
+      turn = ->(message) do
+        SavingsChallenge::ChatTurn.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment,
+          session: session, message: message, persona: Mia::Persona.default, history: []).call
+      end
+      august = turn.call("Where did my money go in August?")
+      assert_includes august.answer, "For August 2026 in your reviewed purchases, most of your money went to Optional shopping ($60)."
+      refute_includes august.answer, "Coral Crib"
+      recent = turn.call("Where is my money going?")
+      assert_includes recent.answer, "Coral Crib Outlet ($690)"
+      assert_match(/\AFrom Aug to Oct in your reviewed purchases|\AI only see purchases for Aug and Oct:/, recent.answer)
+    end
+  end
+
   test "purchase questions answer the item before card education with no invented plan or write" do
     with_savings_runtime do
       savings_enroll

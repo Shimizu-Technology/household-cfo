@@ -75,6 +75,69 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_equal [ "Optional shopping", "Sent to Nana", "Car insurance" ], result[:categories].pluck(:label)
   end
 
+  test "remittances, childcare, pharmacies and doctors filed as flexible spending are never a cut" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+        [ "WESTERN UNION 1234", "Remittance to Nana Talun", "Island Nursery", "WALGREENS #1234", "GUAM OB/GYN ASSOCIATES",
+          "Sent to Tia Rosa", "MONEYGRAM 5521", "Island Eye Care", "Dr. Ana Cruz", "Ana Cruz MD", "Island Rx" ].each { |name| purchase(date, name, 10_000) }
+        # Ordinary stores whose names only look close: still flexible spending.
+        purchase(date, "Rx Pizza", 4_000)
+        purchase(date, "Seabreeze Snack Bar", 3_000)
+      end
+      result = analyze
+      assert_equal [ "Rx Pizza", "Seabreeze Snack Bar" ], result[:candidate_changes].pluck(:merchant)
+      assert_equal [ "Rx Pizza", "Seabreeze Snack Bar" ], result[:discretionary_merchants].pluck(:label)
+      assert_equal (10_000 * 11 + 4_000 + 3_000) * 2, result[:observed_spending_cents]
+      assert(result[:merchants].select { |row| row[:label].match?(/WESTERN UNION|Remittance|Sent to|MONEYGRAM/) }.all? { |row| row[:transfer_to_person] })
+
+      cut = SpendingPatterns::Answerer.new(household: @household, message: "What should I cut first?", persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      refute_match(/WESTERN|Remittance|Nursery|WALGREENS|OB\/GYN|Tia Rosa|MONEYGRAM|Eye Care|Cruz|Island Rx/i, cut)
+      assert_includes cut, "I left out stores and categories that look like rent, bills, medical care, childcare or money for family."
+      refute_includes cut, "aren’t on this list"
+    end
+  end
+
+  test "a family support category is protected, other support is not" do
+    assert SpendingPatterns::Analyzer.protected_category?("Family support")
+    assert SpendingPatterns::Analyzer.protected_category?("Child support")
+    assert SpendingPatterns::Analyzer.protected_category?("Support for Nana")
+    refute SpendingPatterns::Analyzer.protected_category?("Tech support")
+  end
+
+  test "two purchases of different sizes are never a monthly cut" do
+    # $250 in September and $690 in October: maybe two one-offs, never "about $235 a month".
+    purchase(Date.new(2026, 9, 27), "Coral Crib Outlet", 25_000)
+    purchase(Date.new(2026, 10, 20), "Coral Crib Outlet", 69_000)
+    # Two months of about the same size are still a habit.
+    purchase(Date.new(2026, 9, 6), "Reef Coffee Co", 4_000)
+    purchase(Date.new(2026, 10, 6), "Reef Coffee Co", 5_000)
+    result = analyze
+    assert_equal [ "Reef Coffee Co" ], result[:candidate_changes].pluck(:merchant)
+    refute_includes result[:recurring_discretionary_merchants].pluck(:label), "Coral Crib Outlet"
+    # Still counted where the money went.
+    assert_equal 94_000, result[:merchants].find { |row| row[:label] == "Coral Crib Outlet" }[:total_cents]
+
+    snapshot = HouseholdFinance::MiaEvalLedger.new(@household, today: Date.new(2026, 11, 2)).snapshot({})
+    assert_includes snapshot["one_month_merchants"].pluck("label"), "Coral Crib Outlet"
+    refute_includes snapshot["one_month_merchants"].pluck("label"), "Reef Coffee Co"
+    assert_equal [ "one_month_saving" ], HouseholdFinance::MiaEvalRules.violations(prompt: "What should I cut first?",
+      response: "Spending half as much at Coral Crib Outlet could free about $235 a month.", ledger: snapshot).pluck("rule")
+  end
+
+  test "stores that are care are protected names in the eval ledger" do
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      purchase(date, "Island Nursery", 30_000)
+      purchase(date, "WESTERN UNION 1234", 10_000)
+      purchase(date, "Seabreeze Snack Bar", 3_000)
+    end
+    snapshot = HouseholdFinance::MiaEvalLedger.new(@household, today: Date.new(2026, 11, 2)).snapshot({})
+    assert_includes snapshot["protected_names"], "Island Nursery"
+    assert_includes snapshot["protected_names"], "WESTERN UNION"
+    refute_includes snapshot["protected_names"], "Seabreeze Snack Bar"
+    assert_equal [ "protected_cut" ], HouseholdFinance::MiaEvalRules.violations(prompt: "What should I cut first?",
+      response: "Spending half as much at Island Nursery could free about $150 a month.", ledger: snapshot).pluck("rule")
+  end
+
   test "a one-off payment is never averaged into a monthly saving" do
     # Bought once: never a monthly habit, whatever the months recorded.
     purchase(Date.new(2026, 9, 27), "Coral Crib Outlet", 69_000)
@@ -114,12 +177,30 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
       refute_equal cut, where
       assert_includes cut, "Seabreeze Snack Bar ($120)"
       assert_includes cut, "could free about $30 a month"
-      assert_includes cut, "medical care and money for family aren’t on this list"
+      assert_includes cut, "medical care, childcare or money for family"
       refute_match(/Prenatal|Crib|Harbor View|Purchase authorized|S····/, cut)
       assert_includes where, "most of your money went to Rent ($3,000)"
       assert_includes where, "Harbor View Apartments ($3,000)"
       assert_includes where, "Coral Crib Outlet ($690)"
       refute_match(/could free|cut|Purchase authorized|S····/i, where)
+    end
+  end
+
+  test "a plan for money still to come is not a where-it-went question, and a named month is read" do
+    [ "Where should my tax refund money go?", "Where should the extra cash go, savings or debt?",
+      "Where is the money for rent going to come from?", "Where will my bonus go?" ].each do |message|
+      refute SpendingPatterns::WhereMoneyGoes.question?(message), message
+      refute SpendingPatterns::Answerer.observation_question?(message), message
+    end
+    [ "Where is my money going?", "Where did my money go in August?", "Where does my money go?", "Where am I spending the most?", "Where did it all go?" ].each do |message|
+      assert SpendingPatterns::WhereMoneyGoes.question?(message), message
+    end
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      purchase(Date.new(2026, 8, 6), "Seabreeze Snack Bar", 6_000)
+      purchase(Date.new(2026, 10, 6), "Coral Crib Outlet", 69_000)
+      reply = SpendingPatterns::Answerer.new(household: @household, message: "Where did my money go in August?", persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      assert_includes reply, "For August 2026 in your reviewed purchases, most of your money went to Optional shopping ($60)."
+      refute_includes reply, "Coral Crib"
     end
   end
 

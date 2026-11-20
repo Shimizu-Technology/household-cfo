@@ -6,20 +6,40 @@ module SpendingPatterns
     # The Household CFO Method never suggests cutting the roof, utilities, medical care, children or family
     # (Mrs. Mel: "I would never tell someone… don't take care of your family"). These stay in spending totals
     # but are not flexible spending and are never offered as a cut.
-    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health|healthcare|pharmacy|prescriptions?|hospital|clinic|therapy|prenatal|pediatrics?|optical|child(?:ren)?|childcare|daycare|preschool|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|support|remittances?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
+    # "Family support", "child support", "support for Nana": money for family. Not "Tech support", nor a reply's
+    # "to support your savings goal".
+    FAMILY_SUPPORT = /(?:family|child|spousal|parent(?:al)?)\s+support|support\s+(?:for|to)\s+(?:my\s+|our\s+|the\s+)?(?:family|kids?|child(?:ren)?|parents?|mom|dad|lola|lolo|nana|tata|auntie|aunt|uncle|relatives?|grand(?:ma|pa|parents?))/i
+    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health|healthcare|pharmacy|prescriptions?|hospital|clinic|therapy|prenatal|pediatrics?|optical|child(?:ren)?|childcare|daycare|preschool|nann(?:y|ies)|after\s*-?\s*school|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|#{FAMILY_SUPPORT}|remittances?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
     # Bills, not a store habit. Kept apart from the words above because "cut your debt" is good advice.
     BILL_CATEGORY = /\b(?:insurance|premiums?|loans?|debts?|(?:car|card|credit\s+card)\s+payments?)\b/i
     # A store name that is care or a bill, whatever category it was filed under: a clinic filed as
     # "Flexible spending" is still medical care. Narrower than the category words, so "Family Mart" or
     # "Mom's Kitchen" can still be a store.
-    PROTECTED_MERCHANT = /\b(?:clinic|hospital|medical|health\s*care|health\s+(?:center|centre|services?)|pharmacy|drugs?(?:\s*store)?|rx|dental|dentist|orthodont\w*|doctors?|physicians?|pediatric\w*|prenatal|ob\s*-?\s*gyn|obstetric\w*|urgent\s+care|optometr\w*|optical|chiropract\w*|therapy|counsel(?:ing|ling|or)|laborator(?:y|ies)|daycare|childcare|child\s+care|preschool|montessori|insurance|assurance|takecare|loan|mortgage)\b/i
+    PROTECTED_MERCHANT = /
+      \b(?:clinic|hospital|medical|health|health\s*care|pharm\w*|drugs?(?:\s*store)?|walgreens|cvs|rite\s*-?\s*aid
+        |dental|dentist|orthodont\w*|doctors?|physicians?|pediatric\w*|prenatal|ob\s*[-\/&]?\s*gyn|obstetric\w*|urgent\s+care
+        |optometr\w*|optical|eye\s*care|vision|chiropract\w*|therapy|counsel(?:ing|ling|or)|laborator(?:y|ies)|labcorp
+        |(?:diagnostic|clinical|medical|blood|imaging|x-?ray)\s+labs?
+        |daycare|day\s+care|childcare|child\s+care|pre-?school|nursery|babysit\w*|nann(?:y|ies)|after\s*-?\s*school|montessori
+        |insurance|assurance|takecare|loan|mortgage|rent|apartments?|realty|property\s+management|power\s+authority|waterworks|utilit(?:y|ies))\b
+      # "Island Rx", "Rx Express", but not "Rx Pizza".
+      |\brx(?:\s*\#?\s*\d+)?\z|\brx\s+(?:express|plus|care|center|centre|shop|mart|depot)\b
+      # A doctor's name: "Dr. Cruz", "DR LEON GUERRERO"; never "Dr Pepper" or "Dr. Martens".
+      |(?:\A|\s)dr\.?\s+(?!pepper\b|martens?\b)[a-z]
+      # "Ana Cruz MD", "Cruz, M.D.": the letters themselves, as a word after the name.
+      |(?-i:(?:\s|,)M\.?D\b\.?)(?=\s|,|\z)
+    /ix
     # Money sent to a person is usually support or paying someone back, not a store habit to halve.
     PERSON_TRANSFER = /\A(?:zelle\b|venmo\b|cash\s*app\b|money\s+transfer\b|online\s+transfer\b|transfer\s+(?:to|from)\b|payment\s+to\b)|paypal\s*\*\s*[a-z]+\.[a-z]+/i
+    # Money sent home through a remittance service, or a line that says who it went to.
+    REMITTANCE = /\b(?:western\s+union|money\s*gram|remitly|xoom|world\s*remit|transfer\s*wise|wise\s+(?:transfers?|payments?)|wise\.com|lbc|remit(?:tances?)?)\b|\bsent\s+to\b/i
     # A store seen in only one month is a one-off, not a monthly habit.
     MIN_MONTHS_FOR_A_CUT = 2
     # A payment this many times a store's usual one is a one-off there ($690 once at a store where
     # she usually spends $20). It is left out of the store's monthly figure.
     ONE_OFF_MULTIPLE = 3
+    # Two months at a store count as a habit only when one is at most this many times the other.
+    SIMILAR_MONTHS_MULTIPLE = 2
     # Services people pay for every month. With the bank's own "Recurring Payment" marker, these may change
     # price or skip a statement and still read as a subscription.
     KNOWN_SERVICE = /\b(?:netflix|hulu|disney|youtube|spotify|apple\.com|icloud|apple\s+(?:music|tv|one)|google\s+(?:one|workspace|storage)|amazon\s+prime|prime\s+video|audible|peacock|paramount|hbo|starlink|chatgpt|zoom|adobe|microsoft\s+365|dropbox|xbox|playstation|nintendo|crunchyroll)/i
@@ -57,7 +77,7 @@ module SpendingPatterns
       rows += credits.map { |credit| refund_row(credit, refund_categories) }
       rows.each do |row|
         # Check the bank's own wording and the cleaned label, so "Purchase: Venmo to …" is still money sent to a person.
-        row[:transfer_to_person] ||= [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) }
+        row[:transfer_to_person] ||= [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) } || row[:merchant].to_s.match?(REMITTANCE)
         row[:bank_recurring] = row[:merchant].to_s.match?(BANK_RECURRING)
         row[:merchant] = MerchantName.call(row[:merchant])
       end
@@ -80,7 +100,7 @@ module SpendingPatterns
       flexible_merchants = group_totals(discretionary, :merchant).select { |row| row[:total_cents].positive? }
       categories = group_totals(discretionary, :category).select { |row| row[:total_cents].positive? }
       # Only a store she keeps going back to, without its one-off payments, can be a monthly cut.
-      cuttable = flexible_merchants.select { |row| row[:regular_months].length >= MIN_MONTHS_FOR_A_CUT && row[:monthly_average_cents].positive? }
+      cuttable = flexible_merchants.select { |row| row[:monthly_habit] && row[:monthly_average_cents].positive? }
       choices = cuttable.first(3).map.with_index do |row, index|
         { id: "choice-#{index + 1}", label: "Cut back on #{row[:label]}", merchant: row[:label],
           monthly_impact_cents: (row[:monthly_average_cents] / 2.0).floor,
@@ -126,22 +146,42 @@ module SpendingPatterns
         months = (bought.presence || group).map { |row| row[:date].strftime("%Y-%m") }.uniq
         total = group.sum { |row| row[:amount_cents] }
         one_offs = one_off_payments(bought)
-        regular_months = (bought - one_offs).map { |row| row[:date].strftime("%Y-%m") }.uniq
-        regular_total = total - one_offs.sum { |row| row[:amount_cents] }
+        regular = bought - one_offs
+        regular_months = regular.map { |row| row[:date].strftime("%Y-%m") }.uniq
+        # Money back goes to the one-off first (the crib she returned), so it never pulls her usual
+        # visits below zero; only what is left over comes off the regular months.
+        refunds = group.select { |row| row[:refund] }.sum { |row| row[:amount_cents] }
+        regular_total = regular.sum { |row| row[:amount_cents] } + [ refunds + one_offs.sum { |row| row[:amount_cents] }, 0 ].min
         { label: (bought.first || group.first)[key], total_cents: total, purchase_count: bought.length,
-          observed_months: months.sort, regular_months: regular_months.sort,
+          observed_months: months.sort, regular_months: regular_months.sort, monthly_habit: monthly_habit?(regular),
           monthly_average_cents: regular_months.any? ? regular_total.div(regular_months.length) : 0,
           transfer_to_person: group.any? { |row| row[:transfer_to_person] } }
       end.sort_by { |row| [ -row[:total_cents], row[:label] ] }
     end
 
-    # Payments far above what she usually pays there. The usual payment is the lower middle one,
-    # so one large payment can't raise it.
+    # Payments far above the others at that store: $690 once where she usually spends $20. Each is set
+    # against the middle of the rest, so one large payment can't raise the bar for itself.
     def one_off_payments(bought)
       return [] if bought.length < 2
 
-      usual = bought.map { |row| row[:amount_cents] }.sort[(bought.length - 1) / 2]
-      bought.select { |row| row[:amount_cents] > usual * ONE_OFF_MULTIPLE }
+      bought.each_with_index.filter_map do |row, index|
+        # By position: two purchases of the same amount on the same day are equal hashes.
+        rest = bought.each_with_index.filter_map { |other, other_index| other[:amount_cents] unless other_index == index }.sort
+        middle = rest.length.odd? ? rest[rest.length / 2] : (rest[rest.length / 2 - 1] + rest[rest.length / 2]) / 2.0
+        row if row[:amount_cents] > middle * ONE_OFF_MULTIPLE
+      end
+    end
+
+    # Somewhere she keeps going back to: at least two months, and either three visits or two months of
+    # about the same size. $250 in September and $690 in October could be two one-offs, so neither
+    # becomes "a month".
+    def monthly_habit?(regular)
+      by_month = regular.group_by { |row| row[:date].strftime("%Y-%m") }.transform_values { |group| group.sum { |row| row[:amount_cents] } }
+      return false if by_month.length < MIN_MONTHS_FOR_A_CUT
+      return true if regular.length >= 3
+
+      low, high = by_month.values.minmax
+      low.positive? && high <= low * SIMILAR_MONTHS_MULTIPLE
     end
 
     def autopay_protected?(name) = self.class.protected_category?(name) || self.class.protected_merchant?(name) || name.to_s.match?(/\b(?:insurance|premiums?|takecare|loan|mortgage|tuition)\b/i)

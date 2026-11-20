@@ -426,7 +426,12 @@ module SavingsChallenge
         return true
       end
       if SpendingPatterns::WhereMoneyGoes.question?(@message)
-        @answer = SpendingPatterns::WhereMoneyGoes.new(@household, @patterns, today: @enrollment.local_today).call
+        # "Where did my money go in June?" reads June, not the recent months.
+        begin
+          @patterns, @answer = SpendingPatterns::WhereMoneyGoes.reply(@household, @message, today: @enrollment.local_today)
+        rescue SpendingPatterns::RequestedPeriod::Unsupported
+          @answer = SpendingPatterns::Answerer::UNSUPPORTED_PERIOD
+        end
         @topic = { type: "challenge_patterns", choices: [] }
         return true
       end

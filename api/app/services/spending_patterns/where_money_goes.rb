@@ -3,7 +3,15 @@ module SpendingPatterns
   # totals and the plan beside them, so there is nothing for a narrator to round or rename, and nothing
   # here suggests a cut.
   class WhereMoneyGoes
-    QUESTION = /\bwhere\b[^.?!]{0,30}\b(?:money|paychecks?|pay|income|cash|it\s+all)\b[^.?!]{0,20}\b(?:go|goes|going|went|gone|ends?\s+up)\b|\bwhat\b[^.?!]{0,20}\b(?:eat(?:s|ing)?\s+up|tak(?:es|ing)\s+up)\b[^.?!]{0,20}\b(?:money|paycheck|budget)\b/i
+    # Where it went, or is going, now: "Where is my money going?", "Where did it all go?", "Where am I
+    # spending the most?". Never a plan for money still to come ("Where should my tax refund go?",
+    # "Where will the bonus go?", "Where is the money for rent going to come from?").
+    QUESTION = /
+      \bwhere\b(?![^.?!]*\b(?:should|shall|will|would|could|can|ought|going\s+to|gonna|come\s+from|comes\s+from|coming\s+from)\b)
+      (?:[^.?!]{0,30}\b(?:money|paychecks?|pay|income|cash|it\s+all)\b[^.?!]{0,20}\b(?:go|goes|going|went|gone|ends?\s+up)\b
+        |\s+(?:am\s+i|are\s+we|do\s+(?:i|we)|did\s+(?:i|we)|have\s+(?:i|we))\s+(?:been\s+)?(?:spend|spending|spent)\b)
+      |\bwhat\b[^.?!]{0,20}\b(?:eat(?:s|ing)?\s+up|tak(?:es|ing)\s+up)\b[^.?!]{0,20}\b(?:money|paycheck|budget)\b
+    /ix
 
     # "… last month compared to the plan?": this answer always sets the plan beside the totals, so the
     # comparison is not part of the period.
@@ -11,6 +19,25 @@ module SpendingPatterns
 
     def self.question?(message) = message.to_s.match?(QUESTION)
     def self.period_text(message) = message.to_s.sub(PLAN_TAIL, '\1')
+
+    # Her question as asked: the month or dates she named ("in June"), or the recent months when she
+    # named none. Returns [patterns, reply]; raises RequestedPeriod::Unsupported for a period it can't read.
+    def self.reply(household, message, today: Time.current.in_time_zone("Pacific/Guam").to_date)
+      period = RequestedPeriod.new(period_text(message), today: today).call
+      patterns = Analyzer.new(household, today: today, **period).call
+      return [ patterns, new(household, patterns, today: today).call ] if period.empty?
+
+      label = period_label(period)
+      return [ patterns, "I don’t have reviewed purchases for #{label}, so I can’t tell where your money went then. You can review a statement or tell me about purchases from that period." ] if patterns[:purchase_count].zero?
+
+      [ patterns, new(household, patterns, period_label: label, today: today).call ]
+    end
+
+    def self.period_label(period)
+      return period[:from].strftime("%B %Y") if period[:from] == period[:from].beginning_of_month && period[:to] == period[:from].end_of_month
+
+      "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}"
+    end
 
     # period_label: the month or dates she asked about ("June 2026"), when she named one.
     def initialize(household, patterns, period_label: nil, today: Time.current.in_time_zone("Pacific/Guam").to_date)

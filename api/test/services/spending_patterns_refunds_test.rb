@@ -25,6 +25,17 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     assert_equal 0, SourceEconomicGroupVersion.where(household: @savings_household).count
   end
 
+  test "a returned one-off takes its refund with it, so her usual visits still give the monthly figure" do
+    purchase("Seabreeze Snack Bar", 6_000, on: Date.new(2026, 8, 6))
+    purchase("Seabreeze Snack Bar", 7_000, on: Date.new(2026, 9, 6))
+    purchase("Seabreeze Snack Bar", 69_000)
+    reviewed("Seabreeze Snack Bar", 69_000)
+    result = analyze
+    assert_equal 13_000, result[:discretionary_merchants].sole[:total_cents]
+    # Half of the $65 regular months; never a negative figure from the $690 refund left on them.
+    assert_equal 3_250, result[:candidate_changes].sole[:monthly_impact_cents]
+  end
+
   test "a linked refund is deducted only once even when more purchases share its merchant" do
     original = reviewed("Amazon Marketplace", -3899, type: "purchase")
     purchase("Amazon Marketplace", 1000)
@@ -111,10 +122,10 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
 
   def analyze = SpendingPatterns::Analyzer.new(@savings_household, today: Date.new(2026, 11, 4)).call
 
-  def purchase(merchant, cents)
-    year = @savings_household.budget_years.find_or_create_by!(year: 2026)
-    period = year.budget_periods.find_or_create_by!(starts_on: Date.new(2026, 10, 1)) { |row| row.ends_on = Date.new(2026, 10, 31) }
-    row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 10, 14), merchant: merchant, total_amount_cents: cents, source_type: "manual_ui", status: "confirmed")
+  def purchase(merchant, cents, on: Date.new(2026, 10, 14))
+    year = @savings_household.budget_years.find_or_create_by!(year: on.year)
+    period = year.budget_periods.find_or_create_by!(starts_on: on.beginning_of_month) { |row| row.ends_on = on.end_of_month }
+    row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: on, merchant: merchant, total_amount_cents: cents, source_type: "manual_ui", status: "confirmed")
     row.transaction_splits.create!(budget_category: @category, amount_cents: cents)
     row
   end

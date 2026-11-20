@@ -14,7 +14,9 @@ module SpendingPatterns
     # if I cut dining out to cover it?" (a cut she already has in mind) or "where can we cut back weekend
     # shifts" (work, not spending).
     CUT_QUESTION = /\b(?:what|which|where)\b[^.?!]{0,25}\b(?:should|can|could|do)\s+(?:i|we)\s+(?:cut|trim)(?:\s+(?:back|down|first))?(?:\s+on\s+(?:my\s+|our\s+)?(?:spending|purchases|shopping|expenses))?\s*[?.!]*\z/i.freeze
-    PROTECTED_NOTE = "Rent, bills, medical care and money for family aren’t on this list.".freeze
+    # Says only what the analyzer does: it leaves out stores and categories whose names look like these.
+    UNSUPPORTED_PERIOD = "I couldn’t identify a supported spending period. Try a month and year, like January 2025, or the last 3 months (up to 12). Nothing changed.".freeze
+    PROTECTED_NOTE = "I left out stores and categories that look like rent, bills, medical care, childcare or money for family.".freeze
     SUBSCRIPTIONS_QUESTION = /\b(?:what|which|any|list|show|check|tell\s+me|how\s+many|how\s+much|too\s+many)\b[^.?!]{0,40}\b(?:subscriptions|memberships|subscription\s+(?:charges|services)|streaming\s+services|recurring\s+(?:charges|payments|bills))\b|\bwhich\s+subscription\b|\b(?:do|am|are)\s+(?:i|we)\s+(?:have|paying|pay(?:ing)?\s+for)\s+(?:any\s+|too\s+many\s+|an?\s+[\w+.]+\s+)?(?:subscriptions?|memberships|streaming\s+services)\b/i.freeze
 
     # Conservative read-only floor for an unavailable reader. The live reader
@@ -101,17 +103,16 @@ module SpendingPatterns
     def call
       @supplied_content_context = []
       return subscriptions_answer if self.class.subscriptions_question?(@message)
-      period = RequestedPeriod.new(WhereMoneyGoes.question?(@message) ? WhereMoneyGoes.period_text(@message) : @message).call
+      if WhereMoneyGoes.question?(@message)
+        @patterns, answer = WhereMoneyGoes.reply(@household, @message)
+        return answer
+      end
+      period = RequestedPeriod.new(@message).call
       @patterns = Analyzer.new(@household, **period).call
       if period.present? && @patterns[:purchase_count].zero?
         label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}"
         return "I don’t have reviewed purchases for #{label}, so I can’t tell what you spent then. You can review a statement or tell me about purchases from that period."
       end
-      if period.present?
-        period_label = period[:from].strftime("%B %Y")
-        period_label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}" unless period[:from] == period[:from].beginning_of_month && period[:to] == period[:from].end_of_month
-      end
-      return WhereMoneyGoes.new(@household, @patterns, period_label: period_label).call if WhereMoneyGoes.question?(@message)
       partial = self.class.partial_month_summary(@patterns, today: Time.current.in_time_zone("Pacific/Guam").to_date) if period.empty?
       return partial if partial
       choices = @patterns[:candidate_changes].first(2)
@@ -123,7 +124,7 @@ module SpendingPatterns
         return "I don’t have enough reviewed purchases in flexible categories to spot a pattern yet. You can review a statement or tell me about a few purchases to start. A store name alone doesn’t tell me what you needed."
       end
       window = if period.present?
-        "For #{period_label}#{missing ? ", I only see purchases for #{present.to_sentence}:" : ' in the recorded purchases,'}"
+        "For #{WhereMoneyGoes.period_label(period)}#{missing ? ", I only see purchases for #{present.to_sentence}:" : ' in the recorded purchases,'}"
       else
         missing ? "I only see purchases for #{present.to_sentence}:" : "From #{present.first} to #{present.last} in the recorded purchases,"
       end
@@ -149,7 +150,7 @@ module SpendingPatterns
       @supplied_content_context = narrator.supplied_content_context
       period.present? && @patterns[:observed_spending_cents] ? "Your reviewed purchases for this period total #{money(@patterns[:observed_spending_cents])}. #{answer}" : answer
     rescue RequestedPeriod::Unsupported
-      "I couldn’t identify a supported spending period. Try a month and year, like January 2025, or the last 3 months (up to 12). Nothing changed."
+      UNSUPPORTED_PERIOD
     end
 
     private
