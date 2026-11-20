@@ -37,7 +37,12 @@ module FinancialDocuments
         end
 
         def record_approval!(event, head)
-          @preloaded << event if @preloaded && @preloaded.none? { |row| row.id == event.id }
+          if @preloaded && @preloaded.none? { |row| row.id == event.id }
+            eligible = (@eligible_revisions ||= {}).fetch(event.financial_extraction_revision_id) do |id|
+              @eligible_revisions[id] = FinancialExtractionRevision.where(id: @candidate_revisions).exists?(id: id)
+            end
+            @preloaded << event if eligible
+          end
           @heads[event.id] = head if @heads
           @pending&.delete(head.id)
         end
@@ -50,6 +55,7 @@ module FinancialDocuments
             .where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)")
             .select("DISTINCT ON (financial_document_import_id, source_document_identity) id")
             .order(:financial_document_import_id, :source_document_identity, revision_number: :desc, id: :desc)
+          @candidate_revisions = revisions
           versions = SourceReviewVersion.where(household: @household)
           matches = scope.none
           reviewed = versions.none
