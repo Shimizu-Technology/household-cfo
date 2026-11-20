@@ -19,6 +19,7 @@ module FinancialDocuments
       def success? = success == true
     end
     InvalidTemplate = Class.new(StandardError)
+    APPLE_NOT_A_PURCHASE = /\b(?:transfer|payment|paid|sent|received|request|refund|return|reversal|adjust\w*|dispute|deposit|withdraw\w*|fees?|interest|cash\s*back|daily\s+cash|apple\s+(?:card|cash|pay)|balance|bank)\b/i
 
     def initialize(file_path:, pages: nil)
       @file_path = file_path
@@ -255,10 +256,12 @@ module FinancialDocuments
           reject!("apple_amount_sign") unless amount_run[:text].match?(/\A[+-]\$/) && !signed.zero?
           reject!("apple_nonzero_row_fees") if block.any? { |run| money_text?(run[:text]) && near?(run[:finish], 461.98, 1) && money(run[:text]) != 0 }
           @consumed_money.concat(block.select { |run| money_text?(run[:text]) && near?(run[:finish], 461.98, 1) })
-          body = description(runs, marker[:y], bottom, from: 90, to: 405)
-          type = apple_type(body, signed)
+          lines = description_lines(runs, marker[:y], bottom, from: 90, to: 405)
+          body = lines.join(" ").squish
           funding = apple_funding(block, account, signed)
-          movements << event(account, page, row, date, signed, body, type, funding: funding)
+          type = apple_type(body, signed, funding)
+          # A purchase is named after its merchant line, without the city or phone printed under it.
+          movements << event(account, page, row, date, signed, body, type, funding: funding, merchant: type == "purchase" ? lines.first : body)
           balance += signed
           printed_balance = one!(block.select { |run| money_text?(run[:text]) && near?(run[:finish], 573.25, 1) }, "apple_row_balance")
           @consumed_money << printed_balance
@@ -332,20 +335,23 @@ module FinancialDocuments
       "unknown"
     end
 
-    def apple_type(body, _signed)
+    def apple_type(body, signed, funding)
       return "transfer" if body.match?(/\b(?:Added to Balance|Payment to|Received from)\b/i)
       return "adjustment" if body.include?("Daily Cash from Apple Card")
-      # Merchant/location alone does not prove whether this is a purchase/refund.
+      # Apple Cash prints a purchase as just the merchant and its city or phone. Money out with
+      # no other wording is a purchase; anything that names a transfer, payment, person, refund,
+      # fee or card, money in (a refund or a payment back) and split funding stay questions.
+      return "purchase" if signed.negative? && funding.empty? && body.present? && !body.include?("@") && !body.match?(APPLE_NOT_A_PURCHASE)
       "unknown"
     end
 
-    def event(account, page, row, date, signed, body, type, authorized: nil, funding: [])
+    def event(account, page, row, date, signed, body, type, authorized: nil, funding: [], merchant: body)
       reject!("date_order") if @last_date && @last_date > date
       @last_date = date
       @financial_count += 1
       attributes = { account_key: account[:account_key], row_kind: type == "unknown" ? "unresolved" : "posted", event_type: type, signed_amount_cents: signed,
         amount_column_cents: signed, posted_on: date.iso8601, authorized_on: authorized&.iso8601,
-        locator: { page: page[:number], row: row }, merchant: body, raw_description: body, evidence: body, funding_components: funding }
+        locator: { page: page[:number], row: row }, merchant: merchant, raw_description: body, evidence: body, funding_components: funding }
       @events << attributes
       attributes
     end
@@ -361,10 +367,13 @@ module FinancialDocuments
       reject!("printed_arithmetic") unless credit == account[:printed_credit_cents] && debit == account[:printed_debit_cents] && account[:opening_balance_cents] + credit - debit == account[:closing_balance_cents]
     end
 
-    def description(runs, top, bottom, from:, to:)
+    def description(runs, top, bottom, from:, to:) = description_lines(runs, top, bottom, from: from, to: to).join(" ").squish
+
+    # One string per printed line, top to bottom.
+    def description_lines(runs, top, bottom, from:, to:)
       runs.select { |run| run[:x] >= from && run[:x] < to && run[:y] <= top + 1 && run[:y] > bottom + 1 }
-        .sort_by { |run| [ -run[:y], run[:x] ] }.pluck(:text).join(" ").squish
-        .gsub(/\d{8,}/) { |identifier| "****#{identifier[-4, 4]}" }
+        .sort_by { |run| [ -run[:y], run[:x] ] }.chunk_while { |first, second| near?(first[:y], second[:y], 1) }
+        .map { |line| line.pluck(:text).join(" ").squish.gsub(/\d{8,}/) { |identifier| "****#{identifier[-4, 4]}" } }.compact_blank
     end
 
     def aligned_money(runs, label, finish, tolerance:, optional: false)
