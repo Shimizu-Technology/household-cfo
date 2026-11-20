@@ -69,6 +69,25 @@ module HouseholdFinance
       draft_payload.to_h.merge(PAYLOAD_KEY => value)
     end
 
+    # She said a card line on her statement is this purchase ("Same purchase", ConfirmedPurchaseMatch): it went on her
+    # card, so it wasn't cash. Its link to a withdrawal goes, so the purchase counts once on its own and that cash is
+    # whole again; it is no longer marked paid in cash, so it isn't asked about. Runs in the same save as her answer.
+    def paid_by_card!(household, transaction, version:, user: nil)
+      transaction.lock!
+      drafts = household.transaction_drafts.where(confirmed_transaction_id: transaction.id).order(:id).lock.select { |draft| paid_in_cash?(draft) }
+      link = transaction.metadata.to_h[CashDrawdowns::LINK_KEY]
+      return if drafts.empty? && link.nil?
+
+      said = drafts.map { |draft| payload(draft) }
+      transaction.update!(metadata: transaction.metadata.to_h.except(CashDrawdowns::LINK_KEY)) if link
+      drafts.each { |draft| draft.update!(draft_payload: draft.draft_payload.to_h.except(PAYLOAD_KEY)) }
+      household.household_audit_events.create!(
+        user: user, actor_type: "user", event_type: "cash_purchase.paid_by_card",
+        auditable_type: "HouseholdTransaction", auditable_id: transaction.id, occurred_at: Time.current,
+        metadata: { source_review_version_id: version.id, cash_withdrawal: link, transaction_draft_ids: drafts.map(&:id), cash_payment: said }.compact
+      )
+    end
+
     # The withdrawal she said paid for this pending purchase, if she said so before it could be confirmed.
     def chosen_withdrawal_id(draft)
       value = payload(draft)

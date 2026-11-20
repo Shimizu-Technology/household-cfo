@@ -86,6 +86,7 @@ module HouseholdFinance
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
         cash_purchase_questions: cash_purchase_questions_payload,
+        cash_purchase_questions_meta: { total_count: cash_drawdowns.open_question_count, limit: CashDrawdowns::MAX_OPEN_QUESTIONS },
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
@@ -357,6 +358,7 @@ module HouseholdFinance
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
         cash_purchase_questions: cash_purchase_questions_payload,
+        cash_purchase_questions_meta: { total_count: cash_drawdowns.open_question_count, limit: CashDrawdowns::MAX_OPEN_QUESTIONS },
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(read_only_periods),
         archived_categories: archived_categories_payload,
@@ -627,11 +629,13 @@ module HouseholdFinance
       pending_drafts_scope(budget_year)
         .includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         .order(created_at: :desc, id: :desc)
-        .limit(MAX_PENDING_TRANSACTION_DRAFTS)
+        .limit(MAX_PENDING_TRANSACTION_DRAFTS).to_a
+        .tap { |drafts| cash_drawdowns.prepare(drafts.select { |draft| CashPayment.paid_in_cash?(draft) }.map(&:occurred_on)) }
         .map { |draft| draft_payload(draft) }
     end
 
-    # Confirmed cash purchases that need her answer about the cash she took out. Review asks them.
+    # Confirmed cash purchases that need her answer about the cash she took out. Review asks the first
+    # CashDrawdowns::MAX_OPEN_QUESTIONS; cash_purchase_questions_meta counts them all, as Home does.
     def cash_purchase_questions_payload
       cash_drawdowns.open_questions.map { |question| CashPayment.open_question_payload(question) }
     end

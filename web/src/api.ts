@@ -868,6 +868,7 @@ export type AnnualBudgetPlan = {
   pending_transaction_drafts: TransactionDraft[]
   pending_transaction_drafts_meta?: { total_count: number; returned_count: number; limit: number; truncated: boolean }
   cash_purchase_questions?: CashPurchaseQuestion[]
+  cash_purchase_questions_meta?: { total_count: number; limit: number }
   pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]

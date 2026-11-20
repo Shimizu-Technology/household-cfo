@@ -4642,7 +4642,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           {isRealWorkspace && auth.currentUser ? (
             <>
               <article className="panel activity-review-panel ui-card">
-                <CashPurchaseQuestions questions={activeBudgetPlan?.cash_purchase_questions ?? []} disabled={budgetYearLoading} errors={reviewErrors} onAnswer={handleCashPurchaseAnswer} />
+                <CashPurchaseQuestions questions={activeBudgetPlan?.cash_purchase_questions ?? []} totalCount={activeBudgetPlan?.cash_purchase_questions_meta?.total_count} disabled={budgetYearLoading} errors={reviewErrors} onAnswer={handleCashPurchaseAnswer} />
                 {(
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}

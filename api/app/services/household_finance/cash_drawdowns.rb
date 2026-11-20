@@ -63,7 +63,7 @@ module HouseholdFinance
       end
     end
 
-    def for_purchase(transaction) = transaction && call.find { |drawdown| drawdown.purchase.id == transaction.id }
+    def for_purchase(transaction) = transaction && by_purchase[transaction.id]
 
     # { category_id => change in cents } for spending dated from..to. In the withdrawal's month the purchase's categories
     # gain what the withdrawal's category loses; in the purchase's own month the linked part no longer counts.
@@ -107,7 +107,7 @@ module HouseholdFinance
     # excluding: the purchase being asked about, whose own link doesn't use up the cash it is choosing from.
     def candidates(on:, excluding: nil)
       on = on.to_date
-      withdrawals = withdrawals_for(nil, from: on - LOOKBACK_DAYS, to: on).values
+      withdrawals = withdrawals_between(on - LOOKBACK_DAYS, on)
       withdrawals.filter_map { |withdrawal| candidate_for(withdrawal, excluding: excluding) }
         .sort_by { |candidate| [ -candidate.withdrawal.occurred_on.jd, -candidate.withdrawal.id ] }.first(MAX_CANDIDATES)
     end
@@ -117,7 +117,7 @@ module HouseholdFinance
     # in her current picture, on or before the purchase and within LOOKBACK_DAYS, with cash left.
     def candidate(event_id, on:, excluding: nil)
       on = on.to_date
-      withdrawal = withdrawals_for([ event_id.to_i ]).values.first
+      withdrawal = @pool&.dig(event_id.to_i, :withdrawal) || withdrawals_for([ event_id.to_i ]).values.first
       return unless withdrawal && withdrawal.occurred_on <= on && withdrawal.occurred_on >= on - LOOKBACK_DAYS
 
       candidate_for(withdrawal, excluding: excluding)
@@ -150,15 +150,52 @@ module HouseholdFinance
     # - dropped: the withdrawal it named is gone from her approved statements (removed, re-uploaded, re-reviewed);
     # - short: the withdrawal now covers less of it than she said (it was corrected to a smaller amount).
     # A purchase she said was paid with other cash is not asked again.
+    # Review lists the first MAX_OPEN_QUESTIONS; Home counts them all (open_question_count), so the two agree.
+    # All are read with one withdrawal lookup, however many purchases she has.
     def open_questions(limit: MAX_OPEN_QUESTIONS)
-      @open_questions ||= household.transaction_drafts.where(status: %w[confirmed corrected]).where.not(confirmed_transaction_id: nil)
-        .where("transaction_drafts.draft_payload ? :key", key: CashPayment::PAYLOAD_KEY)
-        .includes(confirmed_transaction: :transaction_splits).order(occurred_on: :desc, id: :desc).to_a
-        .filter_map { |draft| open_question_for(draft) }
+      @open_questions ||= begin
+        drafts = household.transaction_drafts.where(status: %w[confirmed corrected]).where.not(confirmed_transaction_id: nil)
+          .where("transaction_drafts.draft_payload ? :key", key: CashPayment::PAYLOAD_KEY)
+          .includes(confirmed_transaction: :transaction_splits).order(occurred_on: :desc, id: :desc).to_a
+        prepare(drafts.map { |draft| draft.confirmed_transaction.occurred_on })
+        drafts.filter_map { |draft| open_question_for(draft) }
+      end
       limit ? @open_questions.first(limit) : @open_questions
     end
 
+    def open_question_count = open_questions(limit: nil).length
+
+    # Reads in one query every withdrawal a purchase on these dates could be offered, so asking about many purchases
+    # (Review's list, the purchase cards on one page) doesn't look each one up.
+    def prepare(dates)
+      days = Array(dates).compact.map(&:to_date)
+      return self if days.empty?
+
+      from = [ days.min - LOOKBACK_DAYS, @pool_range&.begin ].compact.min
+      to = [ days.max, @pool_range&.end ].compact.max
+      return self if @pool_range && @pool_range.cover?(from) && @pool_range.cover?(to)
+
+      @pool_range = from..to
+      @pool = withdrawals_for(nil, from: from, to: to, with_posted_on: true)
+      self
+    end
+
+    # Each purchase is worked out once per read: Review's list and the purchase cards on the same page share it.
     def open_question_for(draft)
+      (@open_by_draft ||= {}).fetch(draft.id) { @open_by_draft[draft.id] = find_open_question(draft) }
+    end
+
+    # What a purchase counts in Budget, by category.
+    def counted_parts(transaction)
+      transaction.transaction_splits.sort_by(&:id).select { |split| split.amount_cents.positive? && current_category_ids.include?(split.budget_category_id) }
+        .map { |split| { category_id: split.budget_category_id, amount_cents: split.amount_cents } }
+    end
+
+    private
+
+    attr_reader :household
+
+    def find_open_question(draft)
       transaction = draft.confirmed_transaction
       value = CashPayment.payload(draft)
       return unless value && value["answer"] != CashPayment::ELSEWHERE && transaction&.status.in?(COUNTED)
@@ -182,22 +219,27 @@ module HouseholdFinance
         link_withdrawn_on: withdrawn_on, candidates: candidates)
     end
 
-    # What a purchase counts in Budget, by category.
-    def counted_parts(transaction)
-      transaction.transaction_splits.sort_by(&:id).select { |split| split.amount_cents.positive? && current_category_ids.include?(split.budget_category_id) }
-        .map { |split| { category_id: split.budget_category_id, amount_cents: split.amount_cents } }
-    end
-
-    private
-
-    attr_reader :household
-
     def candidate_for(withdrawal, excluding: nil)
       return unless counted_parts(withdrawal).any?
 
-      used = call.select { |drawdown| drawdown.event_id == withdrawal.financial_source_event_id && drawdown.purchase.id != excluding&.id }.sum(&:amount_cents)
+      event_id = withdrawal.financial_source_event_id
+      own = excluding && by_purchase[excluding.id]
+      used = used_cents[event_id] - (own && own.event_id == event_id ? own.amount_cents : 0)
       available = withdrawal.total_amount_cents - used
       Candidate.new(withdrawal: withdrawal, available_cents: available) if available.positive?
+    end
+
+    def by_purchase = @by_purchase ||= call.index_by { |drawdown| drawdown.purchase.id }
+
+    def used_cents
+      @used_cents ||= call.each_with_object(Hash.new(0)) { |drawdown, sums| sums[drawdown.event_id] += drawdown.amount_cents }
+    end
+
+    # Withdrawals posted from..to, from what prepare read when it covers those days.
+    def withdrawals_between(from, to)
+      return withdrawals_for(nil, from: from, to: to).values unless @pool_range&.cover?(from) && @pool_range.cover?(to)
+
+      @pool.values.select { |row| row[:posted_on].between?(from, to) }.map { |row| row[:withdrawal] }
     end
 
     def link_event_id(purchase)
@@ -207,7 +249,8 @@ module HouseholdFinance
 
     # { event id => counted withdrawal projection }: approved cash withdrawals in her current picture with spending
     # projected from them. Their projection says what the cash counts as in Budget.
-    def withdrawals_for(event_ids, from: nil, to: nil)
+    # with_posted_on: { event id => { withdrawal:, posted_on: } } instead, for prepare.
+    def withdrawals_for(event_ids, from: nil, to: nil, with_posted_on: false)
       return {} if event_ids&.empty?
 
       versions = SourceReviewVersion
@@ -219,11 +262,12 @@ module HouseholdFinance
         .where(financial_extraction_revisions: { financial_document_import_id: household.financial_document_imports.current_picture.select(:id) })
       versions = versions.where(source_review_heads: { financial_source_event_id: event_ids }) if event_ids
       versions = versions.where(posted_on: from..to) if from && to
-      events = versions.pluck("source_review_heads.financial_source_event_id").uniq
-      return {} if events.empty?
+      posted = versions.pluck("source_review_heads.financial_source_event_id", "source_review_versions.posted_on").to_h
+      return {} if posted.empty?
 
-      household.household_transactions.where(financial_source_event_id: events, status: COUNTED, source_type: "statement")
+      found = household.household_transactions.where(financial_source_event_id: posted.keys, status: COUNTED, source_type: "statement")
         .includes(:transaction_splits).order(:id).to_a.group_by(&:financial_source_event_id).transform_values(&:first)
+      with_posted_on ? found.to_h { |id, withdrawal| [ id, { withdrawal: withdrawal, posted_on: posted.fetch(id) } ] } : found
     end
 
     def current_category_ids

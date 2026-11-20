@@ -5,6 +5,8 @@ import { formatReviewMoney } from '../lib/reviewMoney'
 
 type Props = {
   questions: CashPurchaseQuestion[]
+  /** Every purchase that needs an answer, as Home counts them. Review lists the newest few. */
+  totalCount?: number
   disabled?: boolean
   errors?: Record<string, string>
   onAnswer: (question: CashPurchaseQuestion, answer: CashPurchaseAnswer) => Promise<void>
@@ -15,7 +17,7 @@ type Props = {
  * with the withdrawal was approved, or the withdrawal it named was removed or made smaller. Each says what counts right
  * now. Nothing is linked for her: Yes names that cash (the purchase adds nothing), No keeps it counting on its own.
  */
-export function CashPurchaseQuestions({ questions, disabled = false, errors = {}, onAnswer }: Props) {
+export function CashPurchaseQuestions({ questions, totalCount = questions.length, disabled = false, errors = {}, onAnswer }: Props) {
   const [busy, setBusy] = useState<number | null>(null)
   if (questions.length === 0) return null
 
@@ -34,6 +36,7 @@ export function CashPurchaseQuestions({ questions, disabled = false, errors = {}
     <section className="cash-purchase-questions" aria-labelledby="cash-purchase-questions-heading">
       <h3 id="cash-purchase-questions-heading" className="ui-section">Paid with cash</h3>
       <p className="cash-purchase-questions__intro">Cash counts when you take it out. Say which cash paid for {questions.length === 1 ? 'this purchase' : 'these purchases'} so it isn’t counted twice.</p>
+      {totalCount > questions.length && <p className="cash-purchase-questions__intro">Showing the newest {questions.length} of {totalCount}. The rest appear as you answer these.</p>}
       <ul className="cash-purchase-questions__list">
         {questions.map((question) => {
           const saving = busy === question.transaction_draft_id

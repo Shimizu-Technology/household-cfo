@@ -56,4 +56,11 @@ describe('CashPurchaseQuestions', () => {
     rerender(<CashPurchaseQuestions questions={[]} onAnswer={vi.fn()} />)
     expect(container.textContent).toBe('')
   })
+
+  it('says when Review lists only the newest of the purchases Home counts', () => {
+    const { rerender } = render(<CashPurchaseQuestions questions={[question()]} totalCount={23} onAnswer={vi.fn()} />)
+    expect(screen.getByText('Showing the newest 1 of 23. The rest appear as you answer these.')).toBeTruthy()
+    rerender(<CashPurchaseQuestions questions={[question()]} totalCount={1} onAnswer={vi.fn()} />)
+    expect(screen.queryByText(/Showing the newest/)).toBeNull()
+  })
 })

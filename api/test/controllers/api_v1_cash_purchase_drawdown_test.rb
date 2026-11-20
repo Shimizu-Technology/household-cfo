@@ -414,6 +414,95 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
       "Answer \"Paid with cash\" for it in Review, then ask me again. Nothing changed.", error.message
   end
 
+  # Review fix (round 3). A card line she says is a purchase she logged as cash proves it went on her card: the $100 she
+  # took out still counts, and the lunch counts once on its own. $140, not $100.
+  test "Same purchase on a card line takes a cash purchase off the cash it named" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :success, response.body
+    assert_equal [ 6000, 4000, 10_000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+    purchase = TransactionDraft.find(draft.fetch("id")).confirmed_transaction
+
+    statement = build_source([ [ "POS PURCHASE TASI DEMO CAFE", -4000, "purchase", "2026-08-05" ] ])
+    line = statement[:revision].financial_source_events.sole
+    row = plan(statement).fetch("attention").sole
+    assert_equal "same_purchase", row.fetch("kind")
+    assert_equal "Same purchase as Tasi Demo Cafe on Aug 5 ($40.00), already in your spending? If it is, it went on this card, so it no longer counts as paid from the cash you took out on Aug 3.",
+      row.fetch("question")
+
+    same_purchase(statement, line, row)
+    assert_response :success, response.body
+    assert_equal [ "match", purchase.id ], SourceReviewHead.find_by!(financial_source_event: line).approved_version.attributes.values_at("disposition", "matched_transaction_id")
+    assert_nil purchase.reload.metadata["cash_withdrawal"]
+    refute HouseholdFinance::CashPayment.paid_in_cash?(TransactionDraft.find(draft.fetch("id"))), "It went on her card"
+    audit = @household.household_audit_events.find_by!(event_type: "cash_purchase.paid_by_card")
+    assert_equal [ "HouseholdTransaction", purchase.id, withdrawal.id ], [ audit.auditable_type, audit.auditable_id, audit.metadata.dig("cash_withdrawal", "financial_source_event_id") ]
+
+    # The $100 cash still counts when it was taken out, and the lunch counts once, in Dining.
+    assert_equal [ 10_000, 4000, 14_000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+    assert_equal 14_000, HouseholdFinance::Money.cents!(spending_report("2026-08-01", "2026-08-31").dig("totals", "actual"))
+    assert_equal 14_000, analyzer("2026-08-01", "2026-08-31").fetch(:observed_spending_cents)
+    assert_equal 14_000, mia_month(8).fetch(:spent_so_far_cents)
+    assert_empty budget_plan.fetch("cash_purchase_questions"), "A card purchase isn't asked which cash paid for it"
+    assert_nil HouseholdFinance::CashPayment.presentation(TransactionDraft.find(draft.fetch("id")))
+
+    # A new cash purchase can name the whole $100 again.
+    later = log_purchase("Tasi Demo Bakery", 100, "2026-08-06", @dining, paid_with_cash: true)
+    assert_equal "Paid with the $100 you took out on Aug 3?", later.dig("cash_payment", "question")
+  end
+
+  test "Different purchase on a card line keeps the cash purchase on the cash it named" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    statement = build_source([ [ "POS PURCHASE TASI DEMO CAFE", -4000, "purchase", "2026-08-05" ] ])
+    line = statement[:revision].financial_source_events.sole
+    row = plan(statement).fetch("attention").sole
+    approve(statement, [ { event_id: line.id, decision: "different", shown: row.slice("event_type", "category_id"), expected_head: row.fetch("expected_head") } ])
+    assert_response :success, response.body
+
+    purchase = TransactionDraft.find(draft.fetch("id")).confirmed_transaction
+    assert_equal withdrawal.id, purchase.metadata.dig("cash_withdrawal", "financial_source_event_id")
+    assert HouseholdFinance::CashPayment.paid_in_cash?(TransactionDraft.find(draft.fetch("id")))
+    assert_nil @household.household_audit_events.find_by(event_type: "cash_purchase.paid_by_card")
+    assert_equal [ 6000, 4000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8) ]
+  end
+
+  # Review fix (round 3). Home counts the same purchases Review asks about: every year, all of them, while Review lists
+  # the newest CashDrawdowns::MAX_OPEN_QUESTIONS and says how many there are.
+  test "Home counts every cash question Review has, in any year" do
+    withdraw(5000, "2025-12-20")
+    confirmed_cash_purchase("Tasi Demo Cafe", 1200, "2025-12-22")
+    assert_equal [ 1, 1, 1 ], [ budget_plan.fetch("cash_purchase_questions").length, budget_plan.dig("cash_purchase_questions_meta", "total_count"), home_cash_question_count ]
+
+    withdraw(30_000, "2026-08-03")
+    21.times { |index| confirmed_cash_purchase("Tasi Demo Market #{index + 1}", 500, (Date.new(2026, 8, 4) + index).iso8601) }
+    listed = budget_plan
+    assert_equal HouseholdFinance::CashDrawdowns::MAX_OPEN_QUESTIONS, listed.fetch("cash_purchase_questions").length
+    assert_equal({ "total_count" => 22, "limit" => 20 }, listed.fetch("cash_purchase_questions_meta"))
+    assert_equal 22, home_cash_question_count
+    assert_equal "2026-08-24", listed.fetch("cash_purchase_questions").first.fetch("occurred_on"), "Newest first"
+  end
+
+  # Review fix (round 3). Asking about many purchases reads the withdrawals once, and the purchase cards on the same
+  # page reuse what Review's list worked out.
+  test "cash questions read the withdrawals once, however many purchases she has" do
+    withdraw(10_000, "2026-07-20")
+    withdraw(10_000, "2026-08-03")
+    2.times { |index| confirmed_cash_purchase("Tasi Demo Cafe #{index + 1}", 500, "2026-08-0#{index + 4}") }
+    drawdowns = HouseholdFinance::CashDrawdowns.new(@household.reload)
+    few = sql_count { assert_equal 2, drawdowns.open_questions.length }
+    4.times { |index| confirmed_cash_purchase("Tasi Demo Bakery #{index + 1}", 500, "2026-08-1#{index}") }
+    drawdowns = HouseholdFinance::CashDrawdowns.new(@household.reload)
+    many = sql_count { assert_equal 6, drawdowns.open_questions.length }
+    assert_equal few, many
+
+    drafts = @household.transaction_drafts.where(status: "confirmed").includes(confirmed_transaction: :transaction_splits).to_a
+    cards = sql_count { assert_equal 6, drafts.count { |draft| HouseholdFinance::CashPayment.presentation(draft, drawdowns: drawdowns)&.dig(:open_question) } }
+    assert_equal 0, cards
+  end
+
   private
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
@@ -468,6 +557,34 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
   def approve(source, lines, **extra)
     post "/api/v1/document_imports/#{source[:import].id}/review/approve_lines", params: { revision_id: source[:revision].id, input: { lines: lines, **extra } },
       headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+  end
+
+  def same_purchase(source, event, row)
+    approve(source, [ { event_id: event.id, decision: "same_purchase", match_transaction_id: row.dig("purchase_match", "transaction_id"),
+      shown: row.slice("event_type", "category_id"), expected_head: row.fetch("expected_head") } ])
+  end
+
+  # A cash purchase she confirmed before any withdrawal it could have come from was approved.
+  def confirmed_cash_purchase(merchant, cents, on)
+    date = Date.iso8601(on)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: date.year).current_period_for(date)
+    row = @household.household_transactions.create!(budget_period: period, occurred_on: date, merchant: merchant, total_amount_cents: cents, source_type: "manual_chat", status: "confirmed")
+    row.transaction_splits.create!(budget_category: @dining, amount_cents: cents)
+    @household.transaction_drafts.create!(occurred_on: date, merchant: merchant, total_amount_cents: cents, source_type: "manual_chat", status: "confirmed", confirmed_transaction: row,
+      draft_payload: { HouseholdFinance::CashPayment::PAYLOAD_KEY => HouseholdFinance::CashPayment.participant_payload })
+  end
+
+  def home_cash_question_count
+    get "/api/v1/workspace", headers: headers
+    assert_response :success
+    response.parsed_body.dig("dashboard", "action_center", "cash_question_count")
+  end
+
+  def sql_count
+    count = 0
+    counter = ->(*, payload) { count += 1 unless payload[:cached] || payload[:name].in?(%w[SCHEMA TRANSACTION]) }
+    ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { yield }
+    count
   end
 
   def budget_plan
