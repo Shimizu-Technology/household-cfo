@@ -40,8 +40,6 @@ module HouseholdFinance
       return unless document_imports.any?
       return unless document_imports.all? { |document_import| document_import.household_id == household.id }
       return evidence_bound_answer if evidence_exceeds_complete_bound?
-      receipt_reply = receipt_draft_reply
-      return receipt_reply if receipt_reply
 
       if self.class.read_acknowledgement_request?(message)
         read_reply = UploadReadReply.call(household, document_imports)
@@ -50,6 +48,10 @@ module HouseholdFinance
       rows = transaction_rows
       setup = setup_rows
       return UploadReadReply.call(household, document_imports) || no_evidence_answer if rows.empty? && setup.empty?
+
+      # Only past the date and risk checks: "Is this fraudulent? I paid with debit" is never a receipt reply.
+      receipt_reply = receipt_draft_reply(rows) unless invalid_date_scope? || unsupported_risk_or_advice_question?
+      return receipt_reply if receipt_reply
 
       parts = direct_answer_parts(rows, setup)
       if parts.empty?
@@ -66,20 +68,33 @@ module HouseholdFinance
       transaction_question?
     end
 
+    def answerable_question?
+      transaction_question? || setup_question?
+    end
+
     private
 
     attr_reader :household, :message, :document_imports, :max_transaction_rows, :max_setup_rows, :max_pending_plan_fit_drafts
 
-    # One receipt she just sent: talk about its draft, never "no attached row matching" a store she
-    # named in her own words.
-    def receipt_draft_reply
+    # One receipt she just sent: talk about its draft when she only says how she paid, or names a store
+    # the receipt doesn't, never "no attached row matching" a store she named in her own words.
+    def receipt_draft_reply(rows)
       return unless evidence_imports.any? && evidence_imports.all? { |document_import| document_import.document_kind == "receipt" }
-      rows = transaction_rows
       return unless rows.one? && rows.first.fetch(:status) == "pending"
       unmatched = transaction_question? && explicit_transaction_scope?(rows) && scoped_transaction_rows(rows).empty?
-      return unless message.match?(PAYMENT_DESCRIPTION) || unmatched
+      return unless payment_only? || unmatched
 
       ReceiptDraftReply.call(rows.first.fetch(:record), message: message)
+    end
+
+    # "voucher $150 plus debit $34.88": only how she paid. A question beside it ("Does this fit in my
+    # Groceries budget?", "What category is this?") is answered as that question.
+    def payment_only?
+      return false unless message.match?(PAYMENT_DESCRIPTION)
+      # "I paid with debit" says how, not "how much did I pay".
+      return false if self.class.new(household, message: message.gsub(/\bpaid\b/i, " "), document_imports: []).answerable_question?
+
+      message.scan(/[^.?!]*\?/).all? { |question| question.match?(PAYMENT_DESCRIPTION) }
     end
 
     def transaction_rows

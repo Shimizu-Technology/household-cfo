@@ -47,6 +47,28 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     refute_includes other, "no attached transaction row"
   end
 
+  test "how she paid never hides a risk question or another question about the receipt" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    receipt_reply = "Your receipt from Ross reads $184.88"
+    [
+      "Is this charge fraudulent? I paid with my debit card",
+      "I paid cash. Does this fit in my Groceries budget?",
+      "Is this a duplicate? I paid by credit card",
+      "What category is this? paid with debit",
+      "What should I do about this receipt? Paid cash"
+    ].each do |message|
+      refute_includes answer_for(message), receipt_reply, message
+    end
+    assert_includes answer_for("Is this charge fraudulent? I paid with my debit card"), "I can’t answer that question from this file."
+    assert_includes answer_for("What should I do about this receipt? Paid cash"), "I can’t answer that question from this file."
+    assert_match(/\$184\.88/, answer_for("What category is this? paid with debit"))
+    # Only how she paid: the reply is about the draft.
+    [ "The Ross receipt, paid at Ross with a voucher $150 plus debit $34.88", "I paid cash", "Paid with my debit card. Does the voucher count?" ].each do |message|
+      assert_includes answer_for(message), receipt_reply, message
+    end
+  end
+
   test "a receipt the reader saw a voucher on says what was read, what counts and how to count all" do
     @document_import.update!(document_kind: "receipt", status: "processing")
     HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, [ {
