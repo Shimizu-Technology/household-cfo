@@ -478,6 +478,119 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
 
   private
 
+  test "a multi-account file asks money in or out once per account and applies each answer to that account only" do
+    user, document = sign_document("talun-accounts.csv")
+    household = document.household
+    { "Groceries" => 0, "dining" => 1, "Utility" => 2 }.each { |name, index| household.budget_categories.create!(name: name, stack_key: "discretionary", sort_order: index) }
+    categories = household.budget_categories.count
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(multi_account_csv)[:source_accounting], structured_spreadsheet: true).call[:revision]
+    assert_not revision.coverage["signed_amount_question"]
+    assert revision.financial_source_events.all? { |event| event.signed_amount_cents.nil? }
+    link_accounts(user, revision, "Talun card" => "liability")
+    questions = FinancialDocuments::SpreadsheetSignAnswer.account_questions(revision)
+    assert_equal [ "Talun checking", "Talun card", "Talun savings" ], questions.map { |question| question[:account].financial_source_evidence.payload["label"] }
+    assert_equal [ false, false, true ], questions.pluck(:single_sign)
+    summary = FinancialDocuments::SourceReview::ParticipantPresenter.new(household, revision, user: user).plan_summary
+    assert summary[:signed_amount_question], "lines wait until every account is answered"
+    assert_equal [ nil, nil, nil ], summary[:account_sign_questions].pluck(:choice)
+    checking, card, savings = questions.map { |question| question[:account] }
+    answered = FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: true, user: user, source_account_id: checking.id)
+    by_label = ->(rev, label) { rev.financial_source_events.joins(:financial_source_account).order(:position).select { |event| event.financial_source_account.financial_source_evidence.payload["label"] == label } }
+    assert_equal [ 210_000, -10_379, -1_850, -4_200 ], by_label.(answered, "Talun checking").map(&:signed_amount_cents)
+    assert by_label.(answered, "Talun card").all? { |event| event.signed_amount_cents.nil? && event.limitations.include?("transaction_direction_unclear") }
+    assert_equal 0, SourceReviewVersion.where(household: household).count
+    summary = FinancialDocuments::SourceReview::ParticipantPresenter.new(household, answered, user: user).plan_summary
+    assert summary[:signed_amount_question]
+    assert_equal "You said spending in Talun checking is shown as negative. That set the direction of 4 lines.", summary[:account_sign_questions].first[:effect]
+    card_id = answered.financial_source_accounts.find_by!(source_key: card.source_key).id
+    error = assert_raises(ArgumentError) { FinancialDocuments::SpreadsheetSignAnswer.call(answered, negative_is_money_out: "all_out", user: user, source_account_id: card_id) }
+    assert_includes error.message, "both signs"
+    answered = FinancialDocuments::SpreadsheetSignAnswer.call(answered, negative_is_money_out: false, user: user, source_account_id: card_id)
+    assert_equal [ -6_720, 25_000 ], by_label.(answered, "Talun card").map(&:signed_amount_cents)
+    answered = FinancialDocuments::SpreadsheetSignAnswer.call(answered, negative_is_money_out: "all_in", user: user, source_account_id: answered.financial_source_accounts.find_by!(source_key: savings.source_key).id)
+    assert_equal [ 20_000, 2_500 ], by_label.(answered, "Talun savings").map(&:signed_amount_cents)
+    assert_equal [ 210_000, -10_379, -1_850, -4_200 ], by_label.(answered, "Talun checking").map(&:signed_amount_cents), "a later account's answer leaves earlier accounts as they were"
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(household, answered)
+    assert_empty plan.lines.select { |line| line.kind == :direction }
+    # The file's own category is offered when it names one of her categories (exact, any case, or singular and plural); nothing else is invented.
+    suggested = plan.lines.select { |line| FinancialDocuments::SourceReview::ParticipantPlan.expense?(line.event) }.to_h { |line| [ line.merchant, household.budget_categories.find_by(id: line.category_id)&.name ] }
+    assert_equal({ "Tasi Demo Market" => "Groceries", "Tasi Demo Power" => "Utility", "Tasi Demo Toys" => nil, "Tasi Demo Dining Room" => "dining" }, suggested)
+    assert_equal categories, household.budget_categories.count
+    summary = FinancialDocuments::SourceReview::ParticipantPresenter.new(household, answered, user: user).plan_summary
+    assert_not summary[:signed_amount_question]
+    assert_equal [ true, false, "all_in" ], summary[:account_sign_questions].pluck(:choice)
+    assert_equal 3, document.reload.metadata["signed_amount_answers"].length
+    assert_empty household.household_transactions
+  end
+
+  test "an account she is not sure about keeps its line questions and an approved line closes every account question" do
+    user, document = sign_document("talun-accounts.csv")
+    household = document.household
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(multi_account_csv)[:source_accounting], structured_spreadsheet: true).call[:revision]
+    error = assert_raises(ArgumentError) { FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: true, user: user, source_account_id: revision.financial_source_accounts.first.id) }
+    assert_includes error.message, "bank account or a credit card"
+    link_accounts(user, revision, "Talun card" => "liability")
+    checking = FinancialDocuments::SpreadsheetSignAnswer.account_questions(revision).first[:account]
+    assert_raises(ArgumentError) { FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: nil, user: user, source_account_id: checking.id) }
+    unsure = FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: "individual", user: user, source_account_id: checking.id)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(household, unsure)
+    assert_equal 4, plan.lines.count { |line| line.kind == :direction && line.event.financial_source_account.source_key == checking.source_key }
+    summary = FinancialDocuments::SourceReview::ParticipantPresenter.new(household, unsure, user: user).plan_summary
+    assert_equal "You chose to answer money out or money in for each line in Talun checking.", summary[:account_sign_questions].first[:effect]
+    # She can still change it while nothing is approved: her answer reads the file's own amounts again.
+    changed = FinancialDocuments::SpreadsheetSignAnswer.call(unsure, negative_is_money_out: true, user: user, source_account_id: unsure.financial_source_accounts.find_by!(source_key: checking.source_key).id)
+    assert_equal [ 210_000, -10_379, -1_850, -4_200 ], changed.financial_source_events.order(:position).first(4).map(&:signed_amount_cents)
+    domain = FinancialDocuments::SourceReview::Domain.new(household, user: user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(household, changed).lines.find { |row| row.event.signed_amount_cents == 210_000 }
+    FinancialDocuments::SourceReview::LineApprover.new(domain, changed, { lines: [ { event_id: line.event.id, decision: "as_read", shown: { event_type: line.event.event_type, category_id: line.category_id } } ] }).call
+    card = changed.financial_source_accounts.find { |account| account.financial_source_evidence.payload["label"] == "Talun card" }
+    assert_raises(ArgumentError) { FinancialDocuments::SpreadsheetSignAnswer.call(changed, negative_is_money_out: true, user: user, source_account_id: card.id) }
+    summary = FinancialDocuments::SourceReview::ParticipantPresenter.new(household, changed, user: user).plan_summary
+    assert_not summary[:signed_amount_question]
+    assert_equal [ [ true, false ] ], summary[:account_sign_questions].map { |question| [ question[:choice], question[:answerable] ] }, "her answer stays readable; unanswered accounts fall back to line questions"
+  end
+
+  test "a balance-proven or labelled account takes no account answer" do
+    content = "Date,Account,Description,Amount,Balance,Direction\n2026-10-01,Proven,Pay,100,200,\n2026-10-02,Proven,Store,-20,180,\n2026-10-03,Proven,Store two,-30,150,\n" \
+      "2026-10-04,Labelled,Refund,15,,Credit\n2026-10-05,Unclear,Store,-12,,\n2026-10-06,Unclear,Pay,40,,\n"
+    user, document = sign_document("mixed-accounts.csv")
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(content, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    link_accounts(user, revision)
+    questions = FinancialDocuments::SpreadsheetSignAnswer.account_questions(revision)
+    assert_equal [ "Unclear" ], questions.map { |question| question[:account].financial_source_evidence.payload["label"] }
+    answered = FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: false, user: user, source_account_id: questions.sole[:account].id)
+    assert_equal [ 10_000, -2_000, -3_000, 1_500, 1_200, -4_000 ], answered.financial_source_events.order(:position).pluck(:signed_amount_cents)
+    proven = FinancialDocuments::SpreadsheetSignAnswer.account_questions(answered).map { |question| question[:account].id }
+    assert_equal 1, proven.length
+  end
+
+  test "card interest in the category column does not contradict a known sign" do
+    rows = extract("Date,Description,Amount,Category\n2026-10-01,Purchase interest charge,-21.75,Interest\n2026-10-02,Store,-5,Groceries\n", account_basis: "liability", negative_is_money_out: true)[:source_accounting][:events]
+    assert_equal [ -2_175, -500 ], rows.pluck(:signed_amount_cents)
+    assert_equal %w[posted posted], rows.pluck(:row_kind)
+    assert_equal "interest", rows.first[:event_type]
+  end
+
+  def multi_account_csv
+    <<~CSV
+      Date,Account,Description,Amount,Category
+      2026-01-01,Talun checking,Lina DEMO payroll,2100.00,Income
+      2026-01-04,Talun checking,Tasi Demo Market,-103.79,groceries
+      2026-01-06,Talun checking,Tasi Demo Power,-18.50,Utilities
+      2026-01-07,Talun checking,Tasi Demo Toys,-42.00,Toys
+      2026-01-14,Talun card,Tasi Demo Dining Room,67.20,Dining
+      2026-01-20,Talun card,Payment received from Talun checking,-250.00,Transfer
+      2026-01-09,Talun savings,Online Transfer from own checking DEMO,200.00,Transfer
+      2026-01-31,Talun savings,Savings interest,25.00,Interest
+    CSV
+  end
+
+  def link_accounts(user, revision, bases = {})
+    domain = FinancialDocuments::SourceReview::Domain.new(revision.financial_document_import.household, user: user)
+    accounts = revision.financial_source_accounts.map { |account| { source_account_id: account.id, account_basis: bases.fetch(account.financial_source_evidence.payload["label"], "asset") } }
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [], accounts: accounts }).call
+  end
+
   def sign_document(filename)
     user = User.create!(clerk_id: "fix1-#{SecureRandom.hex(5)}", email: "fix1-#{SecureRandom.hex(5)}@example.com", role: "participant", invitation_status: "accepted")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

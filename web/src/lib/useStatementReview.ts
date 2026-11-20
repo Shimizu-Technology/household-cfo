@@ -170,13 +170,13 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   function retryUnsaved() {
     if (unsavedAnswer) void save(unsavedAnswer.input, unsavedAnswer.index).then((saved) => { if (saved) setUnsavedAnswer(null) })
   }
-  async function answerSign(negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual') {
+  async function answerSign(negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual', sourceAccountId?: number) {
     const actor = review?.actor_scope
     if (!actor || !isStatementReviewActor(actor)) return
     const assertContext = captureApiOperation()
     setSignBusy(true); setSignError(null)
     try {
-      const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut)
+      const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut, sourceAccountId)
       assertContext()
       if (!isStatementReviewActor(actor)) return
       focusAfter.current = null

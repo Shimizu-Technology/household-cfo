@@ -344,7 +344,27 @@ for (const answer of [true, false]) it(`asks once for a file sign convention and
   expect(screen.queryByRole('button', { name: 'Money out: Readable amount' })).toBeNull()
   fireEvent.click(answer ? yes : screen.getByRole('button', { name: 'No, spending is positive' }))
   await waitFor(() => expect(screen.queryByText(/is money you spent shown as a negative amount/)).toBeNull())
-  expect(vi.mocked(answerSpreadsheetSign).mock.calls.at(-1)).toEqual([1, 101, answer])
+  expect(vi.mocked(answerSpreadsheetSign).mock.calls.at(-1)).toEqual([1, 101, answer, undefined])
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+it('asks a multi-account file once per account and keeps lines back until each account is answered', async () => {
+  const line = question(4001, 'Readable amount', 'direction', { signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })
+  const account = (id: number, label: string, choice: boolean | null) => ({ source_account_id: id, label, account_basis: 'asset' as const, single_sign: false, choice, answerable: true, effect: choice === null ? null : `You said spending in ${label} is shown as negative. That set the direction of 2 lines.` })
+  serve(review(planWith([line], { signed_amount_question: true, account_sign_questions: [account(7, 'Talun checking', null), account(8, 'Talun card', null)] })))
+  vi.mocked(answerSpreadsheetSign).mockImplementation(async () => {
+    serve(review(planWith([line], { signed_amount_question: true, account_sign_questions: [account(7, 'Talun checking', true), account(8, 'Talun card', null)] })))
+    return { revision_id: 202 }
+  })
+  mount([statement(1)])
+  expect(await screen.findByText('In Talun checking, is money you spent shown as a negative amount (with a minus sign or parentheses)?')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Money out: Readable amount' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, spending is negative' }))
+  const next = await screen.findByText('In Talun card, is money you spent shown as a negative amount (with a minus sign or parentheses)?')
+  expect(vi.mocked(answerSpreadsheetSign).mock.calls.at(-1)).toEqual([1, 101, true, 7])
+  await waitFor(() => expect(document.activeElement).toBe(next))
+  expect(screen.getByText('You said spending in Talun checking is shown as negative. That set the direction of 2 lines.').getAttribute('role')).toBe('status')
+  expect(screen.queryByRole('button', { name: 'Money out: Readable amount' })).toBeNull()
   expect(mutate).not.toHaveBeenCalled()
 })
 
@@ -462,7 +482,7 @@ it('uses sound balance arithmetic only after she establishes the account basis',
   vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
   mount([statement(1)])
   fireEvent.click(await screen.findByRole('button', { name: 'Credit card' }))
-  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, null))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, null, undefined))
 })
 
 it.each(['all_out', 'all_in', 'individual'] as const)('offers a truthful one-sign answer: %s', async choice => {
@@ -471,7 +491,7 @@ it.each(['all_out', 'all_in', 'individual'] as const)('offers a truthful one-sig
   mount([statement(1)])
   expect(await screen.findByText('Every amount in this file is shown the same way. Is it all money out, all money in, or a mix?')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: { all_out: 'All money out', all_in: 'All money in', individual: 'A mix' }[choice] }))
-  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, choice))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, choice, undefined))
 })
 
 it('offers individual review when she is not sure about mixed signs', async () => {
@@ -479,7 +499,7 @@ it('offers individual review when she is not sure about mixed signs', async () =
   vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
   mount([statement(1)])
   fireEvent.click(await screen.findByRole('button', { name: 'I’m not sure' }))
-  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, 'individual'))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, 'individual', undefined))
 })
 
 it('shows the balance-derived effect even when there was no sign question', async () => {

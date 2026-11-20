@@ -83,6 +83,19 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     assert_equal "exact_category", suggestion.match_reason
   end
 
+  test "a singular, plural or and-spelled category name is the same category, and two candidates are none" do
+    utilities = @household.budget_categories.create!(name: "Utilities", stack_key: "non_discretionary", sort_order: 3)
+    food = @household.budget_categories.create!(name: "Food & Drink", stack_key: "discretionary", sort_order: 4)
+    { "grocery" => @groceries, "UTILITY" => utilities, "Food and drinks" => food, "dining outs" => @dining }.each do |name, category|
+      suggestion = @suggester.suggest(merchant: "Fictional shop", category_name: name, confidence: BigDecimal("0.35"), merchant_fallback: false)
+      assert_equal category, suggestion.category, name
+      assert_equal "exact_category", suggestion.match_reason, name
+    end
+    @household.budget_categories.create!(name: "Grocery", stack_key: "discretionary", sort_order: 5)
+    assert_not @suggester.class.new(@household).suggest(merchant: "Fictional shop", category_name: "Groceries list", confidence: BigDecimal("0.35"), merchant_fallback: false).matched?
+    assert_nil HouseholdFinance::TransactionCategorySuggester.new(@household).send(:equivalent_category, @household.budget_categories.active.to_a, "groceries")
+  end
+
   test "does not let a grocery merchant override a different receipt line" do
     suggestion = @suggester.suggest(
       merchant: "Tita's Demo Market",

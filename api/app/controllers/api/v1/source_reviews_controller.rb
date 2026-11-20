@@ -76,12 +76,16 @@ module Api
 
       def sign_answer
         body = request.request_parameters.to_h.deep_symbolize_keys
-        raise ArgumentError, "Sign answer contains unsupported fields" unless (body.keys - %i[revision_id negative_is_money_out]).empty?
+        raise ArgumentError, "Sign answer contains unsupported fields" unless (body.keys - %i[revision_id negative_is_money_out source_account_id]).empty?
         result = with_locked_revision(body, sign_replay: true) do |revision|
           %w[source_review.draft.stage source_review.account.link].each do |key|
             CohortReleases::OperationAccess.require!(household: current_household, user: current_user, key: key, membership: current_cohort_membership)
           end
-          updated = (revision.id.to_s == body[:revision_id].to_s || document_answer_changed?(revision, body)) ? FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: body[:negative_is_money_out], user: current_user) : revision
+          updated = if revision.id.to_s == body[:revision_id].to_s || document_answer_changed?(revision, body)
+            FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: body[:negative_is_money_out], user: current_user, source_account_id: sign_account_id(revision, body))
+          else
+            revision
+          end
           { revision_id: updated.id }
         end
         response.set_header("Cache-Control", "no-store")
@@ -183,12 +187,20 @@ module Api
           revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
           answer = document.metadata["signed_amount_answer"].to_h
           replay = sign_replay && revision && [ true, false, nil, "all_out", "all_in", "individual" ].include?(body[:negative_is_money_out]) && answer["user_id"] == current_user.id &&
-            answer["previous_revision_id"].to_s == body[:revision_id].to_s && answer["revision_id"] == revision.id
+            answer["previous_revision_id"].to_s == body[:revision_id].to_s && answer["revision_id"] == revision.id && answer["source_account_id"].to_s == body[:source_account_id].to_s
           unless revision && (revision.id.to_s == body[:revision_id].to_s || replay)
             raise FinancialDocuments::SourceReview::Domain::StaleReview, "The extraction changed. Refresh this statement; nothing changed."
           end
           yield revision
         end
+      end
+
+      # A repeated answer names the account in the revision she answered; the same account in the newest revision has its source key.
+      def sign_account_id(revision, body)
+        return if body[:source_account_id].nil?
+        return body[:source_account_id] if revision.id.to_s == body[:revision_id].to_s
+        answered = revision.financial_document_import.financial_extraction_revisions.find(body[:revision_id]).financial_source_accounts.find(body[:source_account_id])
+        revision.financial_source_accounts.find_by!(source_key: answered.source_key).id
       end
 
       def document_answer_changed?(revision, body)

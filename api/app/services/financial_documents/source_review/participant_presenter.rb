@@ -53,8 +53,11 @@ module FinancialDocuments
         file_answer_available = revision.financial_document_import&.source_available? == true && !SpreadsheetSignAnswer.saved_decisions?(revision)
         target_rows = revision.coverage["signed_amount_target_rows"]
         target_accounts = plan.lines.select { |line| target_rows ? target_rows.include?(line.event.row_identity) : line.event.limitations.include?("transaction_direction_unclear") }.map { |line| line.event.financial_source_account_id }.uniq
-        { signed_amount_single_sign: revision.coverage["signed_amount_single_sign"], signed_amount_balance_factor: revision.coverage["signed_amount_balance_factor"], signed_amount_question: revision.coverage["signed_amount_question"] == true && file_answer_available && bases.uniq.length == 1 && target_accounts.one?,
-          signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && file_answer_available,
+        file_question = revision.coverage["signed_amount_question"] == true && file_answer_available && bases.uniq.length == 1 && target_accounts.one?
+        account_questions = file_question ? [] : account_sign_questions
+        # Lines wait until every account's question is answered: approving one would close the others.
+        { signed_amount_single_sign: revision.coverage["signed_amount_single_sign"], signed_amount_balance_factor: revision.coverage["signed_amount_balance_factor"], signed_amount_question: file_question || account_questions.any? { |question| question[:answerable] && question[:choice].nil? },
+          signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && file_answer_available, account_sign_questions: account_questions,
           sign_effect: sign_effect(plan), total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), spending: ParticipantProgress.new(household, revision).spending_totals, ready_event_ids: plan.ready_ids, totals_check: totals,
           ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before,
             merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
@@ -77,6 +80,29 @@ module FinancialDocuments
         when "all_out" then "You said every amount is money out."
         when "all_in" then "You said every amount is money in."
         else answered ? "You said spending is shown as #{convention ? 'negative' : 'positive'}." : "The balance column shows spending as #{convention ? 'negative' : 'positive'}."
+        end
+        "#{rule} That set the direction of #{count} #{count == 1 ? 'line' : 'lines'}."
+      end
+
+      # One money-direction question per account of a multi-account file, in file order, with what her answer did.
+      def account_sign_questions
+        SpreadsheetSignAnswer.account_questions(revision).map do |question|
+          account = question[:account]
+          tracked = SourceAccountReviewHead.find_by(financial_source_account: account)&.approved_version&.source_tracked_account
+          basis = tracked&.account_basis || account.account_basis
+          label = tracked&.label || AccountMatch.default_label(account, basis)
+          choice = question[:answer]&.fetch("choice", nil)
+          { source_account_id: account.id, label: label, account_basis: basis, single_sign: question[:single_sign], choice: choice, answerable: question[:answerable],
+            effect: question[:answer] && account_sign_effect(label, question[:answer], question[:lines].count { |event| event.signed_amount_cents.present? }) }
+        end
+      end
+
+      def account_sign_effect(label, answer, count)
+        return "You chose to answer money out or money in for each line in #{label}." if answer["choice"] == "individual"
+        rule = case answer["choice"]
+        when "all_out" then "You said every amount in #{label} is money out."
+        when "all_in" then "You said every amount in #{label} is money in."
+        else "You said spending in #{label} is shown as #{answer['negative_is_money_out'] ? 'negative' : 'positive'}."
         end
         "#{rule} That set the direction of #{count} #{count == 1 ? 'line' : 'lines'}."
       end

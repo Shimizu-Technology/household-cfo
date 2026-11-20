@@ -71,12 +71,14 @@ module FinancialDocuments
       end
     end
 
-    def initialize(file_path:, filename:, document_kind: "spreadsheet", negative_is_money_out: nil, account_basis: nil)
+    # account_conventions: her answer for one account of a multi-account file, keyed by that file's Account cell.
+    def initialize(file_path:, filename:, document_kind: "spreadsheet", negative_is_money_out: nil, account_basis: nil, account_conventions: {})
       @file_path = file_path
       @filename = filename
       @document_kind = document_kind
       @warnings = []
       @negative_is_money_out = negative_is_money_out
+      @account_conventions = account_conventions
       @account_basis = account_basis
       @sign_question = false
     end
@@ -274,8 +276,9 @@ module FinancialDocuments
         direction = nil
         if eligible.any?
           basis = @account_basis || cell(group.first[:values], map, "account_basis").to_s.downcase
-          if !@negative_is_money_out.nil?
-            direction = @negative_is_money_out ? :signed : :reversed
+          answered = @account_conventions.fetch(key.last, @negative_is_money_out)
+          if !answered.nil?
+            direction = answered ? :signed : :reversed
           else
             observations = group.map do |row|
               [ parsed_date(cell(row[:values], map, "date")),
@@ -338,7 +341,9 @@ module FinancialDocuments
         signed = money_cents(raw, allow_negative: true)
         if signed
           signed = -signed if file_direction == :reversed
-          category_direction = recognized_direction(normalized_token(cell(values, map, "category")))
+          category = normalized_token(cell(values, map, "category"))
+          # Interest is charged on a card as often as it is earned on savings; the word alone has no direction.
+          category_direction = category == "interest" ? nil : recognized_direction(category)
           return [ nil, [ "conflicting_debit_credit" ] ] if category_direction == :credit && signed.negative?
           return [ signed, [] ]
         end

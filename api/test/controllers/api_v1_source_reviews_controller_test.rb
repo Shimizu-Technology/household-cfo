@@ -288,6 +288,46 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     file&.close!
   end
 
+  test "a multi-account file takes one sign answer per account and a repeated answer saves nothing new" do
+    document = @source[:import]
+    document.update!(filename: "accounts.csv", content_type: "text/csv")
+    file = Tempfile.new([ "accounts", ".csv" ])
+    file.write("Date,Account,Description,Amount\n2026-10-01,Talun checking,Pay,2600\n2026-10-02,Talun checking,Rent,-1450\n2026-10-03,Talun card,Store,30\n2026-10-04,Talun card,Payment received,-100\n")
+    file.flush
+    extraction = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "accounts.csv", document_kind: "statement").call
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extraction.data[:source_accounting], structured_spreadsheet: true).call[:revision]
+    accounts = revision.financial_source_accounts.order(:id).to_a
+    post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: revision.id, input: { lines: [], accounts: accounts.map { |account| { source_account_id: account.id, account_basis: account == accounts.last ? "liability" : "asset" } } } }, headers: auth_headers(@user).merge("Idempotency-Key" => "c5-bases"), as: :json
+    assert_response :success, response.body
+    get "/api/v1/document_imports/#{document.id}/source_review", params: { revision_id: revision.id }, headers: auth_headers(@user)
+    plan = response.parsed_body.dig("source_review", "participant_review", "plan")
+    assert plan.fetch("signed_amount_question")
+    assert_equal [ [ "Talun checking", "asset", nil ], [ "Talun card", "liability", nil ] ], plan.fetch("account_sign_questions").map { |row| row.values_at("label", "account_basis", "choice") }
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: revision.id, negative_is_money_out: true, source_account_id: accounts.first.id }, headers: auth_headers(@user), as: :json
+    assert_response :success, response.body
+    first = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: revision.id, negative_is_money_out: true, source_account_id: accounts.first.id }, headers: auth_headers(@user), as: :json
+    assert_response :success
+    assert_equal first.id, response.parsed_body.fetch("revision_id")
+    assert_equal 1, document.reload.metadata["signed_amount_answers"].length
+    # A stale request for the other account is refused instead of answering on top of a revision she has not seen.
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: revision.id, negative_is_money_out: false, source_account_id: accounts.last.id }, headers: auth_headers(@user), as: :json
+    assert_response :conflict
+    card = first.financial_source_accounts.find_by!(source_key: accounts.last.source_key)
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: first.id, negative_is_money_out: false, source_account_id: card.id }, headers: auth_headers(@user), as: :json
+    assert_response :success, response.body
+    last = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
+    assert_equal [ 260_000, -145_000, -3_000, 10_000 ], last.financial_source_events.order(:position).pluck(:signed_amount_cents)
+    get "/api/v1/document_imports/#{document.id}/source_review", params: { revision_id: last.id }, headers: auth_headers(@user)
+    plan = response.parsed_body.dig("source_review", "participant_review", "plan")
+    assert_not plan.fetch("signed_amount_question")
+    assert_equal [ true, false ], plan.fetch("account_sign_questions").pluck("choice")
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+    assert_empty @household.household_transactions
+  ensure
+    file&.close!
+  end
+
   test "a file sign answer cannot access another household or accept a nonboolean answer" do
     outsider = User.create!(clerk_id: "outside-#{SecureRandom.hex(4)}", email: "outside-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
     post "/api/v1/document_imports/#{@source[:import].id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: true }, headers: auth_headers(outsider), as: :json

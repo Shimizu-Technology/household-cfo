@@ -4,7 +4,7 @@ module Scorecard
     attr_reader :decisions, :row_answers, :transaction_answers, :receipt_observations, :quality
 
     def initialize(household:, user:, answer_key:, categories:, correct_proposals: true)
-      @household, @key, @categories = household, answer_key, categories
+      @household, @user, @key, @categories = household, user, answer_key, categories
       @correct_proposals = correct_proposals
       @quality = Hash.new { |hash, month| hash[month] = { "manual_correction" => 0, "manual_exclusion" => 0, "accepted_as_proposed" => 0, "corrections_by_field" => %w[type amount date category direction].index_with(0), "questions_by_kind" => Hash.new(0) } }
       @domain = REVIEW::Domain.new(household, user: user)
@@ -53,6 +53,15 @@ module Scorecard
         end
       end
       approve(revision, lines: [], accounts: accounts) if accounts.any?
+      answered = answer_account_signs(revision, doc)
+      if answered != revision
+        # Her answers replaced the extraction revision; its lines are the ones she reviews.
+        @row_answers.except!(*rows.map(&:id))
+        revision = answered
+        rows = revision.financial_source_events.includes(:financial_source_evidence).order(:position, :id).to_a
+        mappings = @key.map_rows(doc, rows)
+        @row_answers.merge!(mappings)
+      end
       # A page is reviewed as displayed; answers on that page do not magically
       # teach the earlier questions on the same page a new category.
       rows.each_slice(50) do |page|
@@ -95,6 +104,31 @@ module Scorecard
     end
 
     private
+
+    # A multi-account spreadsheet asks money in or out once per account. Both
+    # views answer from the answer key; a mix of conventions is "I'm not sure".
+    def answer_account_signs(revision, doc)
+      month = doc.fetch("period").fetch("start_on")[0, 7]
+      loop do
+        question = FinancialDocuments::SpreadsheetSignAnswer.account_questions(revision).find { |row| row[:answerable] && row[:answer].nil? }
+        return revision unless question
+        quality[month]["questions_by_kind"]["direction"] += 1
+        count(doc, :direction)
+        mappings = @key.map_rows(doc, question[:lines])
+        pairs = question[:lines].filter_map do |row|
+          answer = mappings[row.id]
+          shown = HouseholdFinance::Money.document_cents(row.financial_source_evidence&.payload&.fetch("source_amount_text", nil), allow_negative: true)
+          [ shown.negative?, answer.fetch("signed_amount_cents").negative? ] if answer && shown&.nonzero?
+        end
+        choice = if question[:single_sign]
+          pairs.all? { |_, out| out } ? "all_out" : pairs.none? { |_, out| out } ? "all_in" : "individual"
+        else
+          pairs.all? { |shown, out| shown == out } ? true : pairs.none? { |shown, out| shown == out } ? false : "individual"
+        end
+        choice = "individual" if pairs.empty?
+        revision = FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: choice, user: @user, source_account_id: question[:account].id)
+      end
+    end
 
     def approve(revision, input)
       @household.with_lock { REVIEW::LineApprover.new(@domain, revision, input).call }
