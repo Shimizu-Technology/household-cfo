@@ -110,6 +110,8 @@ describe('transaction review cards', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Count all $184.88' }))
     await waitFor(() => expect(props.onUpdate).toHaveBeenCalledWith(receipt, { amount: 184.88, splits: [{ id: 41, amount: 184.88 }] }))
     expect(props.onConfirm).not.toHaveBeenCalled()
+    // The chosen button goes away once saved; focus stays on the payment note, not the page.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('region', { name: 'How Tasi Demo Home Store $34.88 on Jun 23 was paid' })))
   })
 
   it('offers the new money back after she counts all of a receipt', async () => {
@@ -119,6 +121,7 @@ describe('transaction review cards', () => {
       amount: 184.88,
       amount_cents: 18488,
       source_type: 'receipt',
+      splits: [],
       receipt_payment: {
         receipt_total: 184.88, receipt_total_cents: 18488, new_money: 34.88, new_money_cents: 3488, counting: 'all',
         message: 'Counting all $184.88, including the $150.00 paid with a voucher or gift card.',
@@ -131,6 +134,7 @@ describe('transaction review cards', () => {
     expect(screen.queryByRole('button', { name: /^Count all/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Count only $34.88' }))
     await waitFor(() => expect(props.onUpdate).toHaveBeenCalledWith(receipt, { amount: 34.88 }))
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.getAttribute('aria-label')).toMatch(/^How Tasi Demo Home Store .* was paid$/))
   })
 
   it('leaves a possible duplicate out of a group confirmation', () => {

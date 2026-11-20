@@ -75,6 +75,29 @@ class HouseholdFinanceReceiptTendersTest < ActiveSupport::TestCase
     assert_nil read(5_000, "Gift card $20.00; Debit card 7302 $50.00; Cash back $20.00")
   end
 
+  test "cash back in any text on the receipt leaves it alone" do
+    assert_nil read(5_000, "Gift card $20.00; Debit $30.00", "Gift card $20.00; Debit $40.00; Cash back $10.00")
+    assert_nil read(5_000, "Gift card $20.00; Debit $30.00", "Customer asked for cashback.")
+    assert_equal 3_000, read(5_000, "Gift card $20.00; Debit $30.00", "Paid with a gift card and a debit card.").new_money_cents
+  end
+
+  test "a minus or bracketed tender amount leaves the receipt alone" do
+    assert_nil read(5_000, "Gift card -$20.00; Debit $30.00")
+    assert_nil read(5_000, "Gift card ($20.00); Debit $30.00")
+    assert_nil read(5_000, "Gift card -20.00; Debit 30.00")
+    assert_equal 3_000, read(5_000, "Gift card $20.00; Debit $30.00").new_money_cents
+    assert_equal 3_000, read(5_000, "Gift card - $20.00; Debit - $30.00").new_money_cents, "A spaced dash is a separator, not a sign"
+  end
+
+  test "edited splits are never replaced by the receipt's snapshot" do
+    split = Struct.new(:id, :amount_cents, :metadata)
+    intact = [ split.new(1, 2_093, { "receipt_amount_cents" => 11_093, "new_money_amount_cents" => 2_093 }), split.new(2, 1_395, { "receipt_amount_cents" => 7_395, "new_money_amount_cents" => 1_395 }) ]
+    assert_equal [ 110.93, 73.95 ], HouseholdFinance::ReceiptTenders.split_amounts(intact, "receipt_amount_cents", 18_488).pluck(:amount)
+    edited = [ split.new(1, 3_000, intact[0].metadata), split.new(2, 488, intact[1].metadata) ]
+    assert_nil HouseholdFinance::ReceiptTenders.split_amounts(edited, "receipt_amount_cents", 18_488)
+    assert_nil HouseholdFinance::ReceiptTenders.split_amounts(edited, "new_money_amount_cents", 3_488)
+  end
+
   test "change without cash handed over leaves the receipt alone" do
     assert_nil read(18_488, "Gift card $150.00; Debit card 7302 $40.00; Change due $5.12")
   end

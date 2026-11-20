@@ -112,6 +112,9 @@ module HouseholdFinance
     # nil when the splits no longer line up with the receipt (she edited them).
     def self.split_amounts(splits, key, cents)
       return nil if cents.zero? || splits.empty?
+      # Once she has edited the splits, neither snapshot describes them any more: offer neither.
+      current = splits.map(&:amount_cents)
+      return nil unless %w[receipt_amount_cents new_money_amount_cents].any? { |snapshot| splits.map { |split| split.metadata.to_h[snapshot] } == current }
       amounts = splits.map { |split| split.metadata.to_h[key] }
       return nil unless amounts.all? { |amount| amount.is_a?(Integer) && amount.positive? } && amounts.sum == cents
 
@@ -139,6 +142,8 @@ module HouseholdFinance
     def call
       return nil unless @total_cents.positive?
       return nil if @texts.any? { |text| refund_to_tender?(text) }
+      # Cash back anywhere on the receipt changes what reached the bank; leave it as read.
+      return nil if @texts.any? { |text| text.match?(CASH_BACK) }
 
       readings = @texts.filter_map { |text| reading_for(text) }
       return nil if readings.empty?
@@ -161,6 +166,8 @@ module HouseholdFinance
         amounts = segment.to_enum(:scan, AMOUNT).map { Regexp.last_match }
         next if amounts.empty?
         return nil if segment.match?(CASH_BACK)
+        # A minus or bracketed amount is money going back, not a way she paid: don't guess.
+        return nil if amounts.any? { |match| match[0].match?(/\A(?:-\$?\d|\()/) }
 
         labelled(segment, amounts).each do |label, cents|
           if label.match?(CHANGE) && !NOT_NEW_MONEY.any? { |_, pattern| label.match?(pattern) }
