@@ -374,6 +374,46 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_equal 14_000, month_total(8)
   end
 
+  # Review fix 3. Only the three most recent withdrawals are offered, but she (or Mia keeping her answer) can name
+  # an older one that still has cash.
+  test "an older withdrawal than the three offered can still be named" do
+    oldest = withdraw(5000, "2026-07-01")
+    newer_withdrawals
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    assert_not_includes draft.dig("cash_payment", "candidates").pluck("financial_source_event_id"), oldest.id
+    confirm(draft, cash_withdrawal_event_id: oldest.id)
+    assert_response :success, response.body
+    assert_equal [ 1000, 4000 ], [ budget_actual(@cash, month: 7) - 2000, budget_actual(@dining, month: 7) ], "$20 of July's Cash is the Jul 20 withdrawal"
+  end
+
+  test "Mia changing a linked purchase keeps its older withdrawal after newer ones arrive" do
+    oldest = withdraw(5000, "2026-07-01")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: oldest.id)
+    assert_response :success, response.body
+    newer_withdrawals
+
+    record = TransactionDraft.find(draft.fetch("id"))
+    HouseholdFinance::PurchaseChange.apply!(household: @household, user: @user, cohort_membership: nil, key: "mia-change-#{SecureRandom.hex(4)}",
+      payload: { "transaction_draft_id" => record.id, "new_amount_cents" => 3500 }, before: HouseholdFinance::PurchaseChange.snapshot(record))
+    purchase = record.reload.confirmed_transaction
+    assert_equal [ oldest.id, 3500 ], purchase.metadata.fetch("cash_withdrawal").values_at("financial_source_event_id", "amount_cents")
+    assert_equal [ 1500, 3500 ], [ budget_actual(@cash, month: 7) - 2000, budget_actual(@dining, month: 7) ]
+  end
+
+  test "Mia can't change an unanswered cash purchase and says why" do
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft)
+    withdraw(10_000, "2026-08-03")
+    record = TransactionDraft.find(draft.fetch("id"))
+    error = assert_raises(HouseholdFinance::PurchaseChange::Stale) do
+      HouseholdFinance::PurchaseChange.apply!(household: @household, user: @user, cohort_membership: nil, key: "mia-change-#{SecureRandom.hex(4)}",
+        payload: { "transaction_draft_id" => record.id, "new_amount_cents" => 3500 }, before: HouseholdFinance::PurchaseChange.snapshot(record))
+    end
+    assert_equal "Tasi Demo Cafe was paid in cash, and I need to know which cash you took out paid for it before I change it, so I left it as it was. " \
+      "Answer \"Paid with cash\" for it in Review, then ask me again. Nothing changed.", error.message
+  end
+
   private
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
@@ -391,6 +431,12 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
 
   def cash_answer(draft, **answer)
     post "/api/v1/transaction_drafts/#{draft.fetch('id')}/cash_answer", params: { transaction_draft: answer }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+  end
+
+  # Three withdrawals after Jul 1, each in its own statement: $20 on Jul 20, $25 on Aug 1, $30 on Aug 3.
+  def newer_withdrawals
+    [ [ 2000, "2026-07-20", "Tasi Demo Branch withdrawal" ], [ 2500, "2026-08-01", "Talun Demo ATM" ], [ 3000, "2026-08-03", "Hagatna Demo ATM" ] ]
+      .map { |cents, on, merchant| withdraw(cents, on, merchant: merchant) }
   end
 
   def move_to_transfer(withdrawal)

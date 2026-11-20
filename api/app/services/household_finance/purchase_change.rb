@@ -111,12 +111,21 @@ module HouseholdFinance
           runner.run(operation_key: "transaction.draft.confirm", idempotency_key: "#{key}:confirm", source: "mia",
             input: { draft_id: draft.id, source_type: "manual_chat", amount: dollars,
                      splits: [ { id: split.id, budget_category_id: payload["new_category_id"] || split.budget_category_id, amount: dollars } ] }.merge(cash_answer))
-        rescue TransactionDraftConfirmer::PossibleDuplicate, TransactionDraftConfirmer::CashWithdrawalQuestion
+        rescue TransactionDraftConfirmer::PossibleDuplicate
           # With the change it would look like another purchase she already
           # has. The change card can't ask "Same purchase?", so leave it alone.
           raise Stale, reopen_to_change_message(draft)
+        rescue TransactionDraftConfirmer::CashWithdrawalQuestion
+          # She paid in cash and hasn't said which cash it was. The change card
+          # can't ask, so leave it alone and send her to the question.
+          raise Stale, cash_question_first_message(draft)
         end
       end
+    end
+
+    def self.cash_question_first_message(draft)
+      "#{draft.merchant} was paid in cash, and I need to know which cash you took out paid for it before I change it, so I left it as it was. " \
+        "Answer \"Paid with cash\" for it in Review, then ask me again. Nothing changed."
     end
 
     # The change card can't ask "Same purchase?", and the purchase stays

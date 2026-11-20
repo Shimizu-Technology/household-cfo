@@ -103,7 +103,7 @@ module HouseholdFinance
     end
 
     # Withdrawals she could have paid a purchase on `on` from: approved, on or before that day (within LOOKBACK_DAYS),
-    # with cash not yet named by another purchase. Most recent first.
+    # with cash not yet named by another purchase. Most recent first, and only the few she is offered.
     # excluding: the purchase being asked about, whose own link doesn't use up the cash it is choosing from.
     def candidates(on:, excluding: nil)
       on = on.to_date
@@ -112,7 +112,16 @@ module HouseholdFinance
         .sort_by { |candidate| [ -candidate.withdrawal.occurred_on.jd, -candidate.withdrawal.id ] }.first(MAX_CANDIDATES)
     end
 
-    def candidate(event_id, on:, excluding: nil) = candidates(on: on, excluding: excluding).find { |row| row.withdrawal.financial_source_event_id == event_id.to_i }
+    # The withdrawal she chose, looked up directly: she may choose one older than the few she is offered, or Mia may
+    # keep her earlier answer after newer withdrawals arrived. The same checks apply: hers, an approved cash withdrawal
+    # in her current picture, on or before the purchase and within LOOKBACK_DAYS, with cash left.
+    def candidate(event_id, on:, excluding: nil)
+      on = on.to_date
+      withdrawal = withdrawals_for([ event_id.to_i ]).values.first
+      return unless withdrawal && withdrawal.occurred_on <= on && withdrawal.occurred_on >= on - LOOKBACK_DAYS
+
+      candidate_for(withdrawal, excluding: excluding)
+    end
 
     # Saves her "Yes" on a purchase: it names up to `cents` of that withdrawal's cash. Locks the withdrawal so two
     # purchases can't name the same cash at once. Raises when the withdrawal no longer has cash left. A purchase that
