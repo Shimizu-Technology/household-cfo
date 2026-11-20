@@ -74,47 +74,78 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
   </div>, document.body)
 }
 
-type AccountDraft = { source_account_id: number; label: string; account_basis: '' | 'asset' | 'liability'; period_start_on: string; period_end_on: string }
+type AccountDraft = { source_account_id: number; choice: string; label: string; account_basis: '' | 'asset' | 'liability'; period_start_on: string; period_end_on: string }
 
 export function StatementAccountSheet({ accounts, reviewed, names, busy, canClose = !busy, error, onSave, onClose }: {
   accounts: SourceAccount[]; reviewed: ReviewedSourceAccount[]; names: Record<number, AccountLabel>; busy: boolean; canClose?: boolean; error: string | null
   onSave: (changes: AccountChange[]) => void; onClose: () => void
 }) {
   const { dialogRef: ref, requestClose } = usePilotDialog(() => { if (canClose) onClose() })
-  const [drafts, setDrafts] = useState<AccountDraft[]>(() => accounts.map((account) => ({
-    source_account_id: account.id, label: names[account.id]?.name ?? '',
-    account_basis: reviewed.find((row) => row.source_account_id === account.id)?.approved?.tracked_account.account_basis ?? (account.account_basis === 'unknown' ? '' : account.account_basis),
-    period_start_on: account.period_start_on ?? '', period_end_on: account.period_end_on ?? '',
-  })))
+  const [drafts, setDrafts] = useState<AccountDraft[]>(() => accounts.map((account) => {
+    const saved = reviewed.find((row) => row.source_account_id === account.id)
+    return {
+      source_account_id: account.id, label: names[account.id]?.name ?? '',
+      choice: saved?.suggested ? String(saved.suggested.id) : '',
+      account_basis: saved?.approved?.tracked_account.account_basis ?? (account.account_basis === 'unknown' ? '' : account.account_basis),
+      period_start_on: saved?.approved?.statement_facts?.period_start_on ?? account.period_start_on ?? '',
+      period_end_on: saved?.approved?.statement_facts?.period_end_on ?? account.period_end_on ?? '',
+    }
+  }))
   const [problem, setProblem] = useState<string | null>(null)
   const update = (index: number, patch: Partial<AccountDraft>) => setDrafts((rows) => rows.map((row, at) => (at === index ? { ...row, ...patch } : row)))
 
   function save(event: FormEvent) {
     event.preventDefault()
+    if (drafts.some(row => !row.choice && reviewed.some(account => account.source_account_id === row.source_account_id && !account.approved && account.choices?.length))) return setProblem('Choose a saved account or a new account.')
     if (drafts.some((row) => !row.account_basis)) return setProblem('Choose bank account or credit card.')
     if (drafts.some((row) => row.period_start_on && row.period_end_on && row.period_start_on > row.period_end_on)) return setProblem('The statement can’t end before it starts.')
     setProblem(null)
-    onSave(drafts.map((row) => ({ source_account_id: row.source_account_id, label: row.label.trim() || undefined, account_basis: row.account_basis as 'asset' | 'liability',
-      period_start_on: row.period_start_on || undefined, period_end_on: row.period_end_on || undefined })))
+    onSave(drafts.map((row) => {
+      const reviewedAccount = reviewed.find(account => account.source_account_id === row.source_account_id)
+      const choice = row.choice || (reviewedAccount?.needs_choice && !reviewedAccount.choices?.length ? 'new' : '')
+      return {
+        source_account_id: row.source_account_id,
+        label: (!choice || choice === 'new') && row.label.trim() !== names[row.source_account_id]?.name ? row.label.trim() || undefined : undefined,
+        tracked_account_id: choice === 'new' ? null : choice ? Number(choice) : undefined,
+        account_basis: row.account_basis as 'asset' | 'liability',
+        period_start_on: row.period_start_on || undefined, period_end_on: row.period_end_on || undefined,
+      }
+    }))
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
     <section ref={ref} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-account-title" tabIndex={-1}>
       <header><h2 id="statement-account-title">{accounts.length > 1 ? 'Your accounts' : 'Your account'}</h2><Button variant="secondary" disabled={!canClose} onClick={requestClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
-        {drafts.map((row, index) => <fieldset key={row.source_account_id}>
-          {drafts.length > 1 && <legend>{row.label || accountSentence(names[row.source_account_id]) || `Account ${index + 1}`}</legend>}
-          <label>Name<input value={row.label} maxLength={120} placeholder="Optional, like Bank of Guam checking" onChange={(event) => update(index, { label: event.target.value })} /></label>
-          <label>Type
-            <select value={row.account_basis} onChange={(event) => update(index, { account_basis: event.target.value as AccountDraft['account_basis'] })}>
-              <option value="">Choose one</option><option value="asset">Bank account</option><option value="liability">Credit card</option>
-            </select>
-          </label>
-          <div className="statement-sheet-pair">
-            <label>Starts<input type="date" value={row.period_start_on} onChange={(event) => update(index, { period_start_on: event.target.value })} /></label>
-            <label>Ends<input type="date" value={row.period_end_on} onChange={(event) => update(index, { period_end_on: event.target.value })} /></label>
-          </div>
-        </fieldset>)}
+        {drafts.map((row, index) => {
+          const account = reviewed.find(item => item.source_account_id === row.source_account_id)
+          const choices = account?.choices ?? []
+          const selected = choices.find(choice => String(choice.id) === row.choice)
+          return <fieldset key={row.source_account_id}>
+            {drafts.length > 1 && <legend>{accountSentence(names[row.source_account_id]) || `Account ${index + 1}`}</legend>}
+            {choices.length > 0 && <label>Account
+              <select value={row.choice} onChange={event => {
+                const choice = choices.find(item => String(item.id) === event.target.value)
+                update(index, { choice: event.target.value, account_basis: choice?.account_basis ?? account?.approved?.tracked_account.account_basis ?? row.account_basis })
+              }}>
+                <option value="">{account?.approved ? 'This account' : 'Choose one'}</option>
+                {choices.map(choice => <option key={choice.id} value={choice.id}>{accountSentence({ name: choice.name ?? '', last4: choice.last4 ?? '' }) || (choice.account_basis === 'asset' ? 'Bank account' : 'Credit card')}</option>)}
+                <option value="new">New account</option>
+              </select>
+            </label>}
+            {!selected && <label>Name<input value={row.label} maxLength={120} placeholder="Optional, like Bank of Guam checking" onChange={(event) => update(index, { label: event.target.value })} /></label>}
+            {!selected && <label>Type
+              <select value={row.account_basis} onChange={(event) => update(index, { account_basis: event.target.value as AccountDraft['account_basis'] })}>
+                <option value="">Choose one</option><option value="asset">Bank account</option><option value="liability">Credit card</option>
+              </select>
+            </label>}
+            <div className="statement-sheet-pair">
+              <label>Starts<input type="date" value={row.period_start_on} onChange={(event) => update(index, { period_start_on: event.target.value })} /></label>
+              <label>Ends<input type="date" value={row.period_end_on} onChange={(event) => update(index, { period_end_on: event.target.value })} /></label>
+            </div>
+          </fieldset>
+        })}
+        {reviewed.some(row => row.approved) && <p>Changing this account means its lines need a quick look again.</p>}
         {(problem || error) && <p role="alert" className="statement-sheet-error">{problem ?? error}</p>}
         {busy && canClose && <p>Close this window to check whether your change saved or try it again.</p>}
         <div className="statement-sheet-actions"><Button type="submit" disabled={busy}>{busy ? 'Saving' : 'Save'}</Button></div>

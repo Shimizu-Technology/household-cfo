@@ -91,30 +91,72 @@ module FinancialDocuments
 
       def link_accounts!
         @linked_now = []
-        revision.financial_source_accounts.order(:id).each do |account|
-          head = domain.account_heads.find_by(financial_source_account_id: account.id)
-          change = Array(input[:accounts]).map { |row| row.to_h.deep_symbolize_keys }.find { |row| row[:source_account_id].to_i == account.id } || {}
+        accounts = revision.financial_source_accounts.order(:id).to_a
+        changes = Array(input[:accounts]).map { |row| row.to_h.deep_symbolize_keys }.index_by { |row| row[:source_account_id].to_i }
+        heads = domain.overlap_context.accounts
+        # Validate what was displayed before writing any links. Multiple sections
+        # of the same new account can reuse the account created in this request.
+        accounts.each { |account| check_suggestion!(account, heads[account.id], changes[account.id] || {}) }
+        accounts.each do |account|
+          head = heads[account.id]
+          change = changes[account.id] || {}
           current = head&.approved_version
           next if current && change.empty?
+
           tracked = current&.source_tracked_account
-          basis = change[:account_basis].presence || tracked&.account_basis || (account.account_basis unless account.account_basis == "unknown")
+          selected_id = change[:tracked_account_id] || change[:expected_tracked_account_id]
+          selected = domain.tracked_account(selected_id) if selected_id.present?
+          basis = selected&.account_basis || change[:account_basis].presence || tracked&.account_basis || account.account_basis
           raise ArgumentError, "Choose whether this is a bank account or a credit card." unless basis.in?(%w[asset liability])
-          label = change[:label].presence || tracked&.label || AccountMatch.default_label(account, basis)
+          label = account_label(account, tracked, change, basis)
+          existing = account_to_link(account, tracked, selected, change, label, basis)
           facts = statement_facts(account, current, change)
-          # A repeat of a change that already saved must not append another identity: that would make every line approved under it stale.
-          # Changing only the dates keeps the account it already is. Looking it up again by a generic name such as "Bank account"
-          # would find another account that says the same thing and merge the two.
-          kept = current && tracked.label == label && tracked.account_basis == basis
-          next if kept && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
-          existing = if kept then tracked
-          elsif change[:label].present? || AccountMatch.named?(label) then AccountMatch.existing(household, label, basis)
-          end
+          next if current && existing == tracked && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
+
           raw = { source_account_id: account.id, tracked_account_id: existing&.id, label: label, account_basis: basis,
             base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, statement_facts: facts, reason: REASON }
           domain.execute("account_link", domain.normalize("account_link", raw))
           domain.overlap_context.refresh!
-          @linked_now << account.id unless head
+          @linked_now << account.id unless current
         end
+      end
+
+      def check_suggestion!(account, head, change)
+        return unless change.key?(:expected_tracked_account_id)
+
+        current = head&.approved_version&.source_tracked_account_id
+        label = AccountMatch.default_label(account, account.account_basis)
+        suggestion = AccountMatch.suggested(household, label, account.account_basis, account: account) unless current
+        expected = change[:expected_tracked_account_id]
+        return if expected == (current || suggestion&.id) &&
+          (current || suggestion || !AccountMatch.ambiguous?(household, label, account.account_basis, account: account))
+
+        raise Domain::StaleReview, "Your saved accounts changed. Refresh to choose which account this is."
+      end
+
+      def account_label(account, tracked, change, basis)
+        return tracked.label if tracked && change[:label].blank? && tracked.account_basis == basis
+
+        default = AccountMatch.default_label(account, basis)
+        previous = AccountName.parts(tracked&.label)
+        last4 = AccountName.parts(change[:label])[:last4] || previous[:last4] || AccountName.parts(default)[:last4]
+        AccountName.default_label(change[:label].presence || previous[:name] || default, ("····#{last4}" if last4), basis)
+      end
+
+      def account_to_link(account, tracked, selected, change, label, basis)
+        return selected if selected
+        return tracked if tracked && tracked.label == label && tracked.account_basis == basis
+        return if change.key?(:tracked_account_id)
+        # Corrections retain the original exact-label behavior. The last-four
+        # heuristic is only for a statement that has never had a saved account.
+        return AccountMatch.existing(household, label, basis) if tracked && AccountMatch.named?(label)
+        return if tracked
+
+        options = { account: account, allow_last_four: change[:label].blank? && !change.key?(:expected_tracked_account_id) }
+        if AccountMatch.ambiguous?(household, label, basis, account: account, allow_last_four: !change.key?(:expected_tracked_account_id))
+          raise Domain::StaleReview, "Your saved accounts changed. Refresh to choose which account this is."
+        end
+        AccountMatch.suggested(household, label, basis, **options)
       end
 
       def statement_facts(account, current, change)

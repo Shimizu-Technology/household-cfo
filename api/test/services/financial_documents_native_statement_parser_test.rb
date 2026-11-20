@@ -128,6 +128,8 @@ class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
     assert_equal [ 1000, 2000 ], split[:funding_components].pluck(:amount_cents)
     assert_equal source[:accounts].sole[:source_key], split[:funding_components].first[:source_key]
     assert_equal 1, source[:accounts].size, "An outside funding component is not a fabricated bank account statement"
+    assert_equal "Apple Cash", source[:accounts].sole.dig(:evidence, :label)
+    assert_includes source[:accounts].sole.dig(:evidence, :header_evidence), "January 2026"
     assert_equal 2, source[:events].count { |event| event[:row_kind] == "informational" }
     assert_equal 10_000, source[:accounts].sole[:opening_balance_cents]
     assert_equal 12_000, source[:accounts].sole[:closing_balance_cents]

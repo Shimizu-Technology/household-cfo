@@ -15,10 +15,42 @@ module FinancialDocuments
         AccountName.default_label(payload["label"], payload["masked_identifier"], basis)
       end
 
+      def candidates(household, basis = nil)
+        scope = SourceTrackedAccount.current_picture.where(household: household).order(:id)
+        basis ? scope.where(account_basis: basis) : scope
+      end
+
+      def suggested(household, label, basis, account:, allow_last_four: true)
+        matches(household, label, basis, account: account, allow_last_four: allow_last_four).then { |rows| rows.first if rows.one? }
+      end
+
+      def ambiguous?(household, label, basis, account:, allow_last_four: true)
+        account.limitations.include?("account_label_ambiguous") ||
+          matches(household, label, basis, account: account, allow_last_four: allow_last_four).many?
+      end
+
+      def matches(household, label, basis, account:, allow_last_four:)
+        return [] if account.limitations.include?("account_label_ambiguous") || !basis.in?(%w[asset liability])
+
+        exact = named?(label) ? exact_matches(household, label, basis) : []
+        return exact if exact.any? || !allow_last_four
+
+        last4 = AccountName.parts(label)[:last4]
+        last4 ? with_last_four(candidates(household, basis), last4) : []
+      end
+
+      def with_last_four(accounts, last4)
+        accounts.select { |account| AccountName.parts(account.label)[:last4] == last4 }
+      end
+
       # The account already tracked under this label (spacing and capitals aside) and basis, or nil.
       def existing(household, label, basis)
-        SourceTrackedAccount.current_picture.where(household: household, account_basis: basis)
-          .where("lower(regexp_replace(btrim(label), '\\s+', ' ', 'g')) = ?", label.to_s.squish.downcase).order(:id).first
+        matches = exact_matches(household, label, basis)
+        matches.first if matches.one?
+      end
+
+      def exact_matches(household, label, basis)
+        candidates(household, basis).where("lower(regexp_replace(btrim(label), '\\s+', ' ', 'g')) = ?", label.to_s.squish.downcase).limit(2).to_a
       end
     end
   end

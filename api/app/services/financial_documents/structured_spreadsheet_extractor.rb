@@ -82,7 +82,7 @@ module FinancialDocuments
     end
 
     def call
-      summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename).call
+      summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename, preserve_cell_keys: true).call
       warnings << SpreadsheetSummarizer.uncalculated_formula_warning(summary[:uncalculated_formula_cells]) if summary[:uncalculated_formula_cells].to_i.positive?
       if summary[:sheet_limit_exceeded]
         return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_SHEETS} worksheets and could not be inspected completely. Remove empty sheets or split it into smaller workbooks so every value can be reviewed.")
@@ -202,9 +202,10 @@ module FinancialDocuments
           merchant_cell = %w[merchant label].any? { |field| map[field].to_i.positive? && cell(values, map, field).present? }
           next unless financial_cell || merchant_cell
           next if !transaction_like_row?(values, map) && item_from_row(values, map, cell_types: row[:cell_types], cell_formats: row[:cell_formats])
-          key = cell(values, map, "account").to_s.presence || "sheet-#{sheet_index}"
+          account_label = cell(values, map, "account").to_s.presence
+          key = source_account_key(row, map, sheet_index)
           basis = @account_basis || cell(values, map, "account_basis").to_s.downcase
-          raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: "Spreadsheet account #{sheet_index + 1}" }
+          raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: SourceReview::AccountName.display_label(account_label).presence || "Spreadsheet account #{sheet_index + 1}" }
           merchant = clean_text(cell(values, map, "merchant").presence || cell(values, map, "label"), max_length: 120)
           notes = clean_text(cell(values, map, "notes"), max_length: 500)
           category = clean_text(cell(values, map, "category"), max_length: 120)
@@ -231,6 +232,14 @@ module FinancialDocuments
           }
         end
       end
+      # Distinct account numbers in one file can have an identical masked label.
+      # Keep their source keys and ask which account each section belongs to.
+      raw_accounts = raw_accounts.uniq { |account| [ account[:account_key], account[:account_basis] ] }
+      raw_accounts.group_by { |account| [ AccountingContract.normalized_text(account[:label], 120)&.downcase, account[:account_basis] ] }.each_value do |group|
+        next unless group.many?
+
+        group.each { |account| account[:limitations] = [ "account_label_ambiguous" ] }
+      end
       contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
       AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },
         coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: parsed_sheet_indices(summary), signed_amount_question: @sign_question, signed_amount_balance_factor: @balance_factor, signed_amount_negative_balances: @negative_balances, signed_amount_single_sign: @single_sign, signed_amount_derived_convention: @derived_convention }).tap do |accounting|
@@ -252,7 +261,7 @@ module FinancialDocuments
         map = header_map_for(header[:values])
         next [] if map.key?("debit") || map.key?("credit") || !map.key?("amount")
         rows.select { |row| row[:row] > header[:row] && !transaction_header?(row[:values]) }
-          .group_by { |row| cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet[:sheet_index] || index}" }
+          .group_by { |row| source_account_key(row, map, sheet[:sheet_index] || index) }
           .map { |key, group| [ [ sheet[:sheet_index] || index, key ], group, map ] }
       end
       unresolved = []
@@ -506,6 +515,10 @@ module FinancialDocuments
         evidence: notes.presence || label,
         metadata: {}
       }
+    end
+
+    def source_account_key(row, map, sheet_index)
+      row.dig(:cell_keys, map["account"]) || cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet_index}"
     end
 
     def cell(values, header_map, key)
