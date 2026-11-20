@@ -240,6 +240,16 @@ describe('budget ledger reversals', () => {
     expect(screen.getAllByRole('button', { name: /^Reopen / }).map((button) => button.getAttribute('aria-label'))).toEqual(['Reopen Pay-Less $25 on Oct 4', 'Reopen Pay-Less $25 on Oct 3'])
   })
 
+  it('shows a known $0 when refunds cancel the month’s purchases, even with no plan', () => {
+    const netZero: SpendingReport = { ...report, actual_known: true, totals: { planned: 0, actual: 0, pending: 0, remaining: 0 },
+      refunds: [{ id: 41, occurred_on: '2026-10-20', merchant: "McDonald's", amount: 25, counted: true, categories: ['Dining out'] }] }
+    const view = render(<CurrentMonthActivityPanel plan={plan} currentMonthIndex={9} spendingReport={netZero} loading={false} error={null} planKnown={false} />)
+    const summary = view.container.querySelector('.spending-report-summary') as HTMLElement
+    expect(summary.textContent).toContain('$0 actual')
+    expect(summary.textContent).not.toContain('Approved spending not known yet')
+    expect(screen.getByText(/^Back to /).textContent).toContain('Dining out')
+  })
+
   it('keeps the ledger read-only without reopen controls (demo workspaces)', () => {
     render(<CurrentMonthActivityPanel plan={plan} currentMonthIndex={9} spendingReport={report} loading={false} error={null} />)
     expect(screen.queryByRole('button', { name: /Reopen|Restore/ })).toBeNull()
