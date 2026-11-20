@@ -16,6 +16,13 @@ describe('confirmAfterCreate', () => {
     expect(confirm).toHaveBeenCalledTimes(2)
   })
 
+  it('asks on the card when she paid with cash she may have taken out', async () => {
+    const cash = new ApiRequestError('Paid with the $100 you took out on Aug 3? Choose on the purchase. Nothing was added to your spending.', { status: 409, code: 'cash_withdrawal_question' })
+    const confirm = vi.fn<() => Promise<AppData>>().mockRejectedValueOnce(cash)
+    await expect(confirmAfterCreate(confirm)).resolves.toEqual({ kind: 'asking' })
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
   it('asks without retrying when the first answer is the refusal', async () => {
     const confirm = vi.fn<() => Promise<AppData>>().mockRejectedValueOnce(refusal())
     await expect(confirmAfterCreate(confirm)).resolves.toEqual({ kind: 'asking' })

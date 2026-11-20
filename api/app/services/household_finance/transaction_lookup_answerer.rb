@@ -140,6 +140,12 @@ module HouseholdFinance
       # Budget's own netting: refunds she approved come back to these categories in the month they posted.
       refunded = refund_cents_for(target)
       refund_line = "#{money(refunded)} in refunds came back to #{label}, so it comes to #{money(total_cents - refunded)}." if refunded.positive?
+      # Budget's cash rule: a purchase paid from cash she took out counts in the month the cash was withdrawn.
+      moved = cash_cents_for(target)
+      if moved.nonzero?
+        cash_line = "Counting cash purchases in the month the cash was taken out, as Budget does, #{label} comes to #{money(total_cents - refunded + moved)}."
+        refund_line = [ refund_line, cash_line ].compact.join(" ")
+      end
 
       if count.zero?
         return "For #{period_label}, based on confirmed transactions, I don’t see confirmed #{label} purchases. #{refund_line}" if refund_line
@@ -295,6 +301,11 @@ module HouseholdFinance
     def refund_cents_for(target)
       return 0 unless target.fetch(:type) == :category
       RefundCredits.new(household, from: start_on, to: end_on).category_cents.slice(*target.fetch(:category_ids)).values.sum
+    end
+
+    def cash_cents_for(target)
+      return 0 unless target.fetch(:type) == :category
+      CashDrawdowns.new(household).category_cents(from: start_on, to: end_on).slice(*target.fetch(:category_ids)).values.sum
     end
 
     def amount_cents_for(transaction, target)

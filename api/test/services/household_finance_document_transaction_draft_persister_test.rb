@@ -185,6 +185,26 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
     assert_equal [ 129.99, 54.89 ], shown.fetch(:count_all_splits).map { |split| split.fetch(:amount).to_f }
   end
 
+  test "a receipt paid in cash keeps its cash so the card can ask which withdrawal it came from" do
+    document = receipt_import
+    payload = voucher_receipt(merchant: "Tasi Demo Cafe", total_amount: 40.42, evidence: "Lunch special 40.42; TOTAL $40.42; Cash $50.00; Change due $9.58", warnings: [],
+      splits: [ { amount: 40.42, category_name: "Dining Out" } ])
+
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ payload ]).call
+
+    draft = document.transaction_drafts.sole
+    assert_equal 4042, draft.total_amount_cents
+    assert_equal({ "source" => "receipt", "cash_cents" => 4042 }, draft.draft_payload.fetch("cash_payment"))
+    assert_nil draft.draft_payload["receipt_payment"], "All of it was new money"
+    assert_equal 4042, HouseholdFinance::CashPayment.cash_cents(draft)
+  end
+
+  test "a voucher receipt paid by card has no cash" do
+    document = receipt_import
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ voucher_receipt ]).call
+    assert_nil document.transaction_drafts.sole.draft_payload["cash_payment"]
+  end
+
   test "counting all of the receipt is her choice and the card then offers the new money back" do
     document = receipt_import
     HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ voucher_receipt ]).call

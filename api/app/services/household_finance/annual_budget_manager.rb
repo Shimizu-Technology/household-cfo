@@ -85,6 +85,8 @@ module HouseholdFinance
         annual_outlook: annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
+        cash_purchase_questions: cash_purchase_questions_payload,
+        cash_purchase_questions_meta: { total_count: cash_drawdowns.open_question_count, limit: CashDrawdowns::MAX_OPEN_QUESTIONS },
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
@@ -355,6 +357,8 @@ module HouseholdFinance
         annual_outlook: annual_outlook_payload(preview_periods, rows, monthly_income, Money.dollars(debt_portfolio.monthly_minimum_cents)),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
+        cash_purchase_questions: cash_purchase_questions_payload,
+        cash_purchase_questions_meta: { total_count: cash_drawdowns.open_question_count, limit: CashDrawdowns::MAX_OPEN_QUESTIONS },
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(read_only_periods),
         archived_categories: archived_categories_payload,
@@ -447,7 +451,7 @@ module HouseholdFinance
         .where(household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .distinct
         .pluck(:budget_category_id)
-      (spent + refund_credits(periods).keys.map(&:first)).uniq
+      (spent + refund_credits(periods).keys.map(&:first) + cash_drawdowns.by_category_and_period(periods).keys.map(&:first)).uniq
     end
 
     # Approved refunds give money back to the category of the purchase they refund, in the month they post.
@@ -462,7 +466,16 @@ module HouseholdFinance
       refund_credits(periods).each do |key, cents|
         sums[key] = sums.fetch(key, 0) - cents if category_ids.include?(key.first)
       end
+      # Cash counts when it is withdrawn: a purchase paid from that cash moves its amount out of the withdrawal's
+      # category into its own, in the month the cash was taken out, and adds nothing.
+      cash_drawdowns.by_category_and_period(periods).each do |key, cents|
+        sums[key] = sums.fetch(key, 0) + cents if category_ids.include?(key.first)
+      end
       sums
+    end
+
+    def cash_drawdowns
+      @cash_drawdowns ||= CashDrawdowns.new(household)
     end
 
     def refund_credits(periods)
@@ -616,8 +629,15 @@ module HouseholdFinance
       pending_drafts_scope(budget_year)
         .includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         .order(created_at: :desc, id: :desc)
-        .limit(MAX_PENDING_TRANSACTION_DRAFTS)
+        .limit(MAX_PENDING_TRANSACTION_DRAFTS).to_a
+        .tap { |drafts| cash_drawdowns.prepare(drafts.select { |draft| CashPayment.paid_in_cash?(draft) }.map(&:occurred_on)) }
         .map { |draft| draft_payload(draft) }
+    end
+
+    # Confirmed cash purchases that need her answer about the cash she took out. Review asks the first
+    # CashDrawdowns::MAX_OPEN_QUESTIONS; cash_purchase_questions_meta counts them all, as Home does.
+    def cash_purchase_questions_payload
+      cash_drawdowns.open_questions.map { |question| CashPayment.open_question_payload(question) }
     end
 
     def pending_drafts_meta(budget_year)
@@ -686,7 +706,8 @@ module HouseholdFinance
         summary: draft_summary(draft),
         splits: ordered_draft_splits_for(draft).map { |split| draft_split_payload(split) },
         matches: ordered_draft_matches_for(draft).map { |match| draft_match_payload(match) },
-        receipt_payment: ReceiptTenders.presentation(draft)
+        receipt_payment: ReceiptTenders.presentation(draft),
+        cash_payment: CashPayment.presentation(draft, drawdowns: cash_drawdowns)
       }
     end
 

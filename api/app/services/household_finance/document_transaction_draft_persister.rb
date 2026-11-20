@@ -83,6 +83,7 @@ module HouseholdFinance
         warnings << "Skipped #{merchant}: split amounts did not equal the transaction total."
         return
       end
+      cash_cents = receipt_cash_cents(draft_payload, source_type, total_amount_cents)
       receipt_payment, total_amount_cents, splits = receipt_payment_for(draft_payload, source_type, total_amount_cents, splits)
 
       match_count_for_draft = persist_draft_transaction!(
@@ -93,7 +94,8 @@ module HouseholdFinance
         source_type: source_type,
         splits: splits,
         index: index,
-        receipt_payment: receipt_payment
+        receipt_payment: receipt_payment,
+        cash_payment: (CashPayment.receipt_payload(cash_cents) if cash_cents)
       )
       @created_count += 1
       @match_count += match_count_for_draft
@@ -109,7 +111,7 @@ module HouseholdFinance
       warnings << "Skipped transaction row #{index + 1}: it could not be saved."
     end
 
-    def persist_draft_transaction!(draft_payload:, occurred_on:, merchant:, total_amount_cents:, source_type:, splits:, index:, receipt_payment: nil)
+    def persist_draft_transaction!(draft_payload:, occurred_on:, merchant:, total_amount_cents:, source_type:, splits:, index:, receipt_payment: nil, cash_payment: nil)
       matcher_results = []
       ApplicationRecord.transaction(requires_new: true) do
         draft = document_import.transaction_drafts.create!(
@@ -123,7 +125,7 @@ module HouseholdFinance
           status: "pending",
           confidence: normalized_decimal(draft_payload[:confidence]),
           raw_input: raw_input_for(draft_payload, merchant),
-          draft_payload: sanitized_draft_payload(draft_payload, index: index).merge({ ReceiptTenders::PAYLOAD_KEY => receipt_payment }.compact)
+          draft_payload: sanitized_draft_payload(draft_payload, index: index).merge({ ReceiptTenders::PAYLOAD_KEY => receipt_payment, CashPayment::PAYLOAD_KEY => cash_payment }.compact)
         )
         splits.each { |split| create_split!(draft, split) }
         matcher_results = TransactionDraftMatcher.new(draft).call
@@ -199,6 +201,15 @@ module HouseholdFinance
         split.merge(amount_cents: share[:amount_cents], metadata: split[:metadata].merge(new_money_amount_cents: share[:amount_cents]))
       end
       [ payment, reading.new_money_cents, scaled ]
+    end
+
+    # A receipt paid wholly or partly in cash names cash she took out (decision 3); the card asks which withdrawal.
+    def receipt_cash_cents(draft_payload, source_type, total_amount_cents)
+      return unless source_type == "receipt" && draft_payload[:financial_source_event_id].blank?
+
+      texts = [ draft_payload[:evidence], *Array(draft_payload[:warnings]) ]
+      texts << @summary if transaction_drafts.length == 1
+      ReceiptTenders.cash_cents(total_cents: total_amount_cents, texts: texts)
     end
 
     def split_sum_valid?(splits, total_amount_cents)

@@ -490,7 +490,9 @@ export type DashboardData = {
     readiness_label: string
   }
   action_center: {
+    /** Purchases waiting in Review, including confirmed cash purchases that need her answer about the cash she took out. */
     transaction_review_count: number
+    cash_question_count?: number
     mia_action_review_count: number
     total_review_count: number
     /** Statement files waiting for review; Home links to them without loading every import. */
@@ -567,6 +569,62 @@ export type TransactionDraft = {
   draft_payload?: Record<string, unknown>
   /** Part of the receipt was paid with a gift card, voucher, store credit or rewards, which is not new money. */
   receipt_payment?: ReceiptPayment | null
+  /** She paid in cash. Cash counts when it is taken out, so the purchase asks which withdrawal paid for it. */
+  cash_payment?: CashPayment | null
+}
+
+export type CashWithdrawalCandidate = {
+  financial_source_event_id: number
+  withdrawn_on: string
+  amount: number
+  amount_cents: number
+  available: number
+  available_cents: number
+  covers_cents: number
+  label: string
+}
+
+export type CashPayment = {
+  source: 'receipt' | 'participant'
+  cash: number
+  cash_cents: number
+  answer?: 'elsewhere' | 'withdrawal' | null
+  /** Pending: withdrawals she can choose from, most recent first. Empty when none has cash left, or when she already chose. */
+  candidates?: CashWithdrawalCandidate[]
+  /** Pending: the withdrawal she already said paid for it, kept while the card asks "Same purchase?". */
+  chosen_event_id?: number
+  question?: string
+  message?: string
+  /** Confirmed: it was paid from cash she took out and adds nothing. */
+  linked?: boolean
+  withdrawn_on?: string
+  linked_cents?: number
+  /** Confirmed, but it needs her answer again (see CashPurchaseQuestion). */
+  open_question?: CashPurchaseQuestion
+}
+
+/**
+ * A cash purchase she already confirmed that needs her answer about the cash she took out. Until she answers, the part
+ * no withdrawal covers counts on its own. unanswered: confirmed before the withdrawal was approved. dropped: the
+ * withdrawal it named is gone. short: the withdrawal now covers less of it.
+ */
+export type CashPurchaseQuestion = {
+  transaction_draft_id: number
+  transaction_id: number
+  state: 'unanswered' | 'dropped' | 'short'
+  merchant: string
+  occurred_on: string
+  amount: number
+  amount_cents: number
+  cash_cents: number
+  covered_cents: number
+  counting_on_its_own_cents: number
+  /** What counts right now, in plain words. */
+  message: string
+  question: string | null
+  candidates: CashWithdrawalCandidate[]
+  /** "No, other cash", "Count it on its own" or "Count the rest on its own". */
+  decline_label: string
 }
 
 export type ReceiptPayment = {
@@ -809,6 +867,8 @@ export type AnnualBudgetPlan = {
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
   pending_transaction_drafts_meta?: { total_count: number; returned_count: number; limit: number; truncated: boolean }
+  cash_purchase_questions?: CashPurchaseQuestion[]
+  cash_purchase_questions_meta?: { total_count: number; limit: number }
   pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]
@@ -4750,12 +4810,12 @@ export async function cancelMiaActionDraft(id: number, idempotencyKey: string): 
   return payload.workspace
 }
 
-export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
+export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null; paid_with_cash: boolean }> & {
   removed_split_ids?: number[]
   splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null }>>
 }
 
-export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null; splits?: TransactionDraftUpdateInput['splits'] }
+export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null; splits?: TransactionDraftUpdateInput['splits']; paid_with_cash?: boolean }
 
 export async function createTransactionDraft(values: TransactionDraftCreateInput, idempotencyKey: string): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
   return fetchJson<{ transaction_draft: TransactionDraft; workspace: AppData }>('/api/v1/transaction_drafts', {
@@ -4775,11 +4835,30 @@ export async function updateTransactionDraft(id: number, values: TransactionDraf
 
 // differentPurchase: she answered "Different purchase" to the app's "Same purchase as …?" question.
 // Without it the server refuses to confirm a purchase that looks like one she already has.
-export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string, options: { differentPurchase?: boolean } = {}): Promise<AppData> {
+// cashWithdrawalEventId / cashFromElsewhere: her Yes or No to "Paid with the $100 you took out on Aug 3?".
+export type ConfirmTransactionOptions = { differentPurchase?: boolean; cashWithdrawalEventId?: number; cashFromElsewhere?: boolean }
+
+// Her answer to "Paid with the $100 you took out on Aug 3?" on a cash purchase she already confirmed.
+export type CashPurchaseAnswer = { cashWithdrawalEventId: number } | { cashFromElsewhere: true }
+
+export async function answerCashPurchaseQuestion(id: number, answer: CashPurchaseAnswer, idempotencyKey: string): Promise<{ message: string; workspace: AppData }> {
+  return fetchJson<{ message: string; workspace: AppData }>(`/api/v1/transaction_drafts/${id}/cash_answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ transaction_draft: 'cashWithdrawalEventId' in answer ? { cash_withdrawal_event_id: answer.cashWithdrawalEventId } : { cash_from_elsewhere: true } }),
+  })
+}
+
+export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string, options: ConfirmTransactionOptions = {}): Promise<AppData> {
+  const answers = {
+    ...(options.differentPurchase ? { different_purchase: true } : {}),
+    ...(options.cashWithdrawalEventId ? { cash_withdrawal_event_id: options.cashWithdrawalEventId } : {}),
+    ...(options.cashFromElsewhere ? { cash_from_elsewhere: true } : {}),
+  }
   const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ transaction_draft: options.differentPurchase ? { ...values, different_purchase: true } : values }),
+    body: JSON.stringify({ transaction_draft: { ...values, ...answers } }),
   })
   return payload.workspace
 }

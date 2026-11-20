@@ -3074,7 +3074,8 @@ module Api
           matches: [],
           matched_transaction_id: draft.matched_transaction_id,
           summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 2)}",
-          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft)
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft),
+          cash_payment: HouseholdFinance::CashPayment.presentation(draft)
         }
       end
 

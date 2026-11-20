@@ -75,6 +75,9 @@ module SpendingPatterns
       credits = HouseholdFinance::RefundCredits.new(@household, from: start, to: finish).counted
       refund_categories = @household.budget_categories.where(id: credits.flat_map { |credit| credit.allocations.pluck(:category_id) }.uniq).index_by(&:id)
       rows += credits.map { |credit| refund_row(credit, refund_categories) }
+      # Budget's cash rule: a purchase paid from cash she took out moves that cash out of the withdrawal's category into
+      # its own, in the month the cash was withdrawn, and adds nothing in its own month.
+      rows += cash_rows(HouseholdFinance::CashDrawdowns.new(@household).call, start, finish)
       rows.each do |row|
         # Check the bank's own wording and the cleaned label, so "Purchase: Venmo to …" is still money sent to a person.
         row[:transfer_to_person] ||= [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) } || row[:merchant].to_s.match?(REMITTANCE)
@@ -84,13 +87,13 @@ module SpendingPatterns
       rows.reject! { |row| row[:amount_cents].zero? }
       # Split rows below keep this, so a purchase split across categories is still one payment.
       rows.each_with_index { |row, index| row[:row_id] = index }
-      purchases = rows.reject { |row| row[:refund] }
+      purchases = rows.reject { |row| row[:refund] || row[:adjustment] }
       # All source classifications inform observed coverage; income-only months
       # are not represented as months with no spending. A month can net below zero
       # after a refund; that is shown as it is, never clamped.
       months = (start.beginning_of_month..finish).select { |day| day.day == 1 }.map do |month|
         in_month = rows.select { |row| row[:date].beginning_of_month == month }
-        { month: month.strftime("%Y-%m"), purchase_count: in_month.count { |row| !row[:refund] }, spending_cents: in_month.any? ? in_month.sum { |row| row[:amount_cents] } : nil }
+        { month: month.strftime("%Y-%m"), purchase_count: in_month.count { |row| !row[:refund] && !row[:adjustment] }, spending_cents: in_month.any? ? in_month.sum { |row| row[:amount_cents] } : nil }
       end
       # A store or category refunded down to nothing (or below) is not somewhere she is spending.
       merchants = group_totals(rows, :merchant).select { |row| row[:total_cents].positive? }
@@ -111,7 +114,7 @@ module SpendingPatterns
       choices = [] unless months.any? { |row| row[:spending_cents] && row[:month] < @today.strftime("%Y-%m") }
       { window: { start_on: start.iso8601, end_on: finish.iso8601 },
         coverage: { status: "partial", months: months, accounts: selected_source.map { |row| row.source_tracked_account.label }.uniq.sort,
-          account_completeness: "unknown", note: "Only confirmed purchases and reviewed statement rows are included. Approved refunds are subtracted from the category of the purchase they refund, in the month they posted; missing months, accounts and unreviewed uploads may change these patterns." },
+          account_completeness: "unknown", note: "Only confirmed purchases and reviewed statement rows are included. Approved refunds are subtracted from the category of the purchase they refund, in the month they posted. A purchase paid from cash she took out counts in the month the cash was withdrawn, out of that withdrawal's category; missing months, accounts and unreviewed uploads may change these patterns." },
         purchase_count: purchases.length, observed_spending_cents: rows.any? ? rows.sum { |row| row[:amount_cents] } : nil,
         merchants: merchants, categories: all_categories, discretionary_merchants: flexible_merchants, recurring_discretionary_merchants: cuttable,
         discretionary_categories: categories,
@@ -137,6 +140,27 @@ module SpendingPatterns
         amount_cents: -credit.amount_cents, splits: credit.allocations.map { |part| split(categories[part[:category_id]], -part[:amount_cents]) } }
     end
 
+    # Moves, never purchases: the linked part of a cash purchase leaves its own month and the withdrawal's category, and
+    # lands in the purchase's categories in the month the cash was taken out.
+    def cash_rows(drawdowns, start, finish)
+      ids = drawdowns.flat_map { |drawdown| (drawdown.cash_parts + drawdown.purchase_parts).pluck(:category_id) }.uniq
+      categories = ids.any? ? @household.budget_categories.where(id: ids).index_by(&:id) : {}
+      parts = ->(list, sign) { list.map { |part| split(categories[part[:category_id]], sign * part[:amount_cents]) } }
+      drawdowns.flat_map do |drawdown|
+        purchase = FinancialDocuments::MerchantNormalizer.call(drawdown.purchase.merchant)
+        rows = []
+        if drawdown.withdrawn_on.between?(start, finish)
+          rows << { adjustment: true, date: drawdown.withdrawn_on, merchant: purchase, amount_cents: drawdown.amount_cents, splits: parts.call(drawdown.purchase_parts, 1) }
+          rows << { adjustment: true, date: drawdown.withdrawn_on, merchant: FinancialDocuments::MerchantNormalizer.call(drawdown.withdrawal.merchant),
+            amount_cents: -drawdown.amount_cents, splits: parts.call(drawdown.cash_parts, -1) }
+        end
+        if drawdown.purchased_on.between?(start, finish)
+          rows << { adjustment: true, date: drawdown.purchased_on, merchant: purchase, amount_cents: -drawdown.amount_cents, splits: parts.call(drawdown.purchase_parts, -1) }
+        end
+        rows
+      end
+    end
+
     def split(category, amount)
       { category_id: category&.id, name: category&.name || "Uncategorized", amount_cents: amount,
         discretionary: category&.stack_key == "discretionary" && !self.class.protected_category?(category&.name) }
@@ -145,7 +169,7 @@ module SpendingPatterns
     def group_totals(rows, key)
       rows.group_by { |row| row[key].to_s.unicode_normalize(:nfkc).squish.downcase }.map do |_, group|
         # One payment per purchase, however many categories it was split across.
-        bought = group.reject { |row| row[:refund] }.group_by { |row| row[:row_id] }
+        bought = group.reject { |row| row[:refund] || row[:adjustment] }.group_by { |row| row[:row_id] }
           .map { |_, parts| parts.first.merge(amount_cents: parts.sum { |part| part[:amount_cents] }) }
         months = (bought.presence || group).map { |row| row[:date].strftime("%Y-%m") }.uniq
         total = group.sum { |row| row[:amount_cents] }

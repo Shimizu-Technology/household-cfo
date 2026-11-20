@@ -18,11 +18,22 @@ module FinancialDocuments
           day = transaction.occurred_on.strftime("%b %-d")
           amount = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(transaction.total_amount_cents))
           name = AccountNumberMask.display(transaction.merchant)
-          if transaction.source_type.in?(RECEIPT_SOURCES)
+          question = if transaction.source_type.in?(RECEIPT_SOURCES)
             "Same purchase as your receipt from #{name} on #{day} (#{amount})?"
           else
             "Same purchase as #{name} on #{day} (#{amount}), already in your spending?"
           end
+          [ question, cash_note ].compact.join(" ")
+        end
+
+        # A purchase she logged as cash: Same purchase says it went on this card instead (CashPayment.paid_by_card!).
+        def cash_note
+          link = transaction.metadata.to_h[HouseholdFinance::CashDrawdowns::LINK_KEY]
+          taken = link.is_a?(Hash) && link["withdrawn_on"].to_s.match?(/\A\d{4}-\d{2}-\d{2}\z/) ? Date.iso8601(link["withdrawn_on"]) : nil
+          return "If it is, it went on this card, so it no longer counts as paid from the cash you took out on #{taken.strftime('%b %-d')}." if taken
+          return unless transaction.transaction_drafts.any? { |draft| HouseholdFinance::CashPayment.paid_in_cash?(draft) }
+
+          "If it is, it went on this card, not in cash."
         end
 
         def summary
