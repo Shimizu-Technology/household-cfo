@@ -198,7 +198,8 @@ class ApiV1StatementRefundsTest < ActionDispatch::IntegrationTest
     assert_response :success, response.body
     get "/api/v1/spending_report", params: { start_on: "2026-03-01", end_on: "2026-03-31" }, headers: headers
     report = response.parsed_body.fetch("spending_report")
-    assert_equal [ true, 0.0 ], [ report.fetch("actual_known"), report.dig("totals", "actual").to_f ]
+    assert_equal true, report.fetch("actual_known")
+    assert_equal 0, HouseholdFinance::Money.cents!(report.fetch("totals").fetch("actual")), "A known $0, not a missing total"
   end
 
   test "a refund she leaves out or calls money in never reduces spending" do
