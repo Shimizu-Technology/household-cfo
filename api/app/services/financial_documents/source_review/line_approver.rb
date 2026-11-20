@@ -332,7 +332,9 @@ module FinancialDocuments
         if category && !category.active?
           raise ArgumentError, "Restore Family support in Budget, then save this answer."
         end
-        category || household.budget_categories.create!(name: "Family support", stack_key: "non_discretionary")
+        category ||= household.budget_categories.create!(name: "Family support", stack_key: "non_discretionary")
+        domain.line_batch[:categories][category.id] = category if domain.line_batch
+        category
       end
 
       # saved: base holds what she saved, not the statement as first read.
@@ -377,6 +379,7 @@ module FinancialDocuments
       end
 
       def stage_and_approve!(event, head, facts)
+        head = domain.line_head(event) if domain.line_batch
         pending = domain.pending_draft(head)
         raw = { event_id: event.id, base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0,
           expected_pending_draft: pending && { id: pending.id, lock_version: pending.lock_version, digest: pending.digest },

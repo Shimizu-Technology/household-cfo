@@ -430,7 +430,11 @@ module FinancialDocuments
         draft.update!(status: "approved")
         # A card line she says is a purchase she logged as cash is proof it went on her card.
         if version.disposition == "match" && version.matched_transaction_id
-          HouseholdFinance::CashPayment.paid_by_card!(household, household.household_transactions.find(version.matched_transaction_id), version: version, user: user)
+          transaction = household.household_transactions.find(version.matched_transaction_id)
+          HouseholdFinance::CashPayment.paid_by_card!(household, transaction, version: version, user: user)
+          # A cash release changes metadata outside this statement event. Never
+          # retain another in-memory copy of the purchase after that write.
+          line_batch[:actuals].delete_if { |_, rows| rows.any? { |row| row.id == transaction.id } } if line_batch
         end
         if version.disposition != "include" || version.event_type.in?(%w[transfer debt_payment])
           legacy_drafts(event).each do |legacy|

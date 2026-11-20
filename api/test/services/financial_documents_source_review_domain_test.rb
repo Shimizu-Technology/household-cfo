@@ -934,6 +934,106 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
       statement_facts: account.attributes.slice("period_start_on", "period_end_on", "opening_balance_cents", "closing_balance_cents", "printed_debit_cents", "printed_credit_cents", "printed_row_count"), reason: "Verified empty account" }
   end
 
+  test "final rebase both legs on one page are approved once in one request" do
+    page = source([ movement(-2900, type: "transfer"), movement(2900, row: 2, type: "transfer").merge(account_key: "savings") ],
+      extra_accounts: [ { account_key: "savings", account_basis: "asset" } ])
+    page[:revision].financial_source_accounts.each do |account|
+      run_operation(OPS::AccountLink, { source_account_id: account.id, account_basis: "asset", label: "Fictional #{account.id}", base_version_id: nil, base_lock_version: 0, statement_facts: {}, reason: "Verified fictional account" })
+    end
+    save_final_page(page) { |line| pair_answer(line) }
+    assert_equal [ 1, 1 ], SourceReviewHead.where(financial_source_event_id: page[:events].map(&:id)).map { |head| head.approved_version.version_number }
+    group = FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_equal 2, group.source_economic_memberships.count
+    assert_empty @household.household_transactions
+  end
+
+  test "final rebase pairs two legs and unpairs with increasing counterpart versions" do
+    debit = source([ movement(-2500, type: "transfer") ])
+    credit = source([ movement(2500, type: "transfer") ])
+    link(debit)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings 4412"))
+    save_final_page(debit) { |line| pair_answer(line) }
+    versions = SourceReviewHead.where(financial_source_event_id: [ debit[:events].sole.id, credit[:events].sole.id ]).map(&:approved_version)
+    assert_equal [ 1, 1 ], versions.map(&:version_number)
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(debit[:events].sole)
+    save_final_page(debit) { |line| { decision: "unpair_transfer" } }
+    versions.each do |previous|
+      current = previous.source_review_head.reload.approved_version
+      assert_equal 2, current.version_number
+      assert_equal previous.id, current.supersedes_id
+    end
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(debit[:events].sole)
+    assert_empty @household.household_transactions
+  end
+
+  test "final rebase mixed 22 line batch preserves pairing person answers and cash release totals" do
+    withdrawal = source([ movement(-10_000, type: "cash_withdrawal") ])
+    identity = link(withdrawal)
+    approve(stage(withdrawal[:events].sole, identity: identity, amount: -10_000, event_type: "cash_withdrawal", projection: { action: "create" }))
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 7))
+    purchase = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-07-07", merchant: "Fictional Market", total_amount_cents: 3200, source_type: "manual_chat", status: "confirmed",
+      metadata: { "cash_withdrawal" => { "financial_source_event_id" => withdrawal[:events].sole.id, "amount_cents" => 3200, "withdrawn_on" => "2026-07-07" } })
+    purchase.transaction_splits.create!(budget_category: @category, amount_cents: 3200)
+    @household.transaction_drafts.create!(occurred_on: purchase.occurred_on, merchant: purchase.merchant, total_amount_cents: 3200, source_type: "manual_chat", status: "confirmed", confirmed_transaction: purchase,
+      draft_payload: { "cash_payment" => HouseholdFinance::CashPayment.participant_payload })
+    initial = HouseholdFinance::AnnualBudgetManager.new(@household.reload, year: 2026).plan_data
+    assert_equal 10_000, initial.fetch(:rows).sum { |row| HouseholdFinance::Money.cents(row.fetch(:months)[6].fetch(:actual)) }
+    credit = source([ movement(2500, type: "transfer") ])
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Fictional savings 4412"))
+    rows = [ movement(-2500, type: "transfer"), movement(-3500, row: 2).merge(merchant: "Zelle to Lina Talun"),
+      movement(-1700, row: 3).merge(merchant: "Venmo to Ana Cruz"), movement(-3200, row: 4).merge(merchant: "Fictional Market") ]
+    old_credit = source([ movement(2600, type: "transfer") ])
+    run_operation(OPS::AccountLink, account_input(old_credit).merge(label: "Fictional savings 5523"))
+    rows << movement(-2600, type: "transfer", row: 5)
+    rows += (6..22).map { |i| movement(-100 - i, row: i).merge(merchant: "Fictional shop #{i}") }
+    page = source(rows)
+    link(page)
+    save_final_page(page, only: [ page[:events][4].id ]) { |line| pair_answer(line) }
+    save_final_page(page) do |line|
+      case page[:events].index { |event| event.id == line.event.id }
+      when 0 then pair_answer(line)
+      when 1 then { decision: "someone_else" }
+      when 2 then { decision: "own_account" }
+      when 3 then { decision: "same_purchase", match_transaction_id: purchase.id }
+      when 4 then { decision: "unpair_transfer" }
+      else { decision: "edited", edit: { kind: "spending", category_id: @category.id } }
+      end
+    end
+    heads = SourceReviewHead.where(financial_source_event_id: page[:events].map(&:id)).includes(:approved_version).index_by(&:financial_source_event_id)
+    page[:events].each_with_index { |event, i| assert_equal(i == 4 ? 2 : 1, heads.fetch(event.id).approved_version.version_number) }
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events][4])
+    assert_equal "transfer", heads.fetch(page[:events][2].id).approved_version.event_type
+    assert_equal "Family support", heads.fetch(page[:events][1].id).approved_version.budget_category.name
+    assert_equal purchase.id, heads.fetch(page[:events][3].id).approved_version.matched_transaction_id
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_nil purchase.reload.metadata[HouseholdFinance::CashDrawdowns::LINK_KEY]
+    assert_equal 1, @household.household_audit_events.where(event_type: "cash_purchase.paid_by_card").count
+    drawdowns = HouseholdFinance::CashDrawdowns.new(@household)
+    assert_empty drawdowns.call
+    assert_equal 10_000, drawdowns.candidates(on: Date.new(2026, 7, 7)).sole.available_cents
+    expected = 10_000 + 3500 + 3200 + (6..22).sum { |i| 100 + i }
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload, year: 2026).plan_data
+    assert_equal expected, plan.fetch(:rows).sum { |row| HouseholdFinance::Money.cents(row.fetch(:months)[6].fetch(:actual)) }
+    assert_equal expected, @household.household_transactions.where(status: "confirmed").sum(:total_amount_cents)
+    save_final_page(page, only: [ page[:events].first.id ]) { |_line| { decision: "unpair_transfer" } }
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events].first)
+    assert_equal expected, @household.household_transactions.where(status: "confirmed").sum(:total_amount_cents)
+  end
+
+  def pair_answer(line)
+    pair = line.pair
+    { decision: "pair_transfer", transfer_pair: { event_id: pair[:event].id, approved_version_id: pair[:version]&.id, account_version_id: pair[:identity].id } }
+  end
+
+  def save_final_page(src, only: nil)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision])
+    entries = plan.lines.select { |line| !only || only.include?(line.event.id) }.map do |line|
+      { event_id: line.event.id, expected_head: line.expected_head, shown: { event_type: line.saved&.event_type || line.event.event_type, category_id: line.category_id } }.merge(yield(line))
+    end
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: entries }).call }
+  end
+
   private
 
   def run_operation(klass, input)

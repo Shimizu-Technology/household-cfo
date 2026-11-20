@@ -81,3 +81,40 @@ At the final fetch, main remains `fa9946f53c1fff2aa7630a742d4c008a1f939c37`; #33
 Final affected gate, including the unchanged Mia deadline test file: 206 tests / 1,675 assertions, zero failures/errors/skips (61.9 seconds). This run follows the last dependency-lock adjustment. Query counts remained exactly 94 / 289 / 991. Its local save times were 4.836 / 4.964 / 5.618 seconds, compared with the earlier isolated 0.063 / 0.182 / 0.752 seconds shown above; local elapsed time varied substantially while database round trips stayed identical. The full-suite timing failure remains recorded and is not presented as a clean full run. Final RuboCop and Brakeman checks also passed.
 
 All seven owned test databases (three named databases and four parallel worker copies) were dropped. The lifecycle session has no active owned resources; the shared PostgreSQL server remains available. The clone/branch are retained for the lead's review and merge.
+
+## Final rebase (November 21, 2026)
+
+Base: `d297da5c8` (main, including B7 #339, C6 #343, B5 #342, B4 #340, C5 #338 and B3b #337). This section supersedes Round 3's pending-integration warning. The agent executes affected backend journeys with fictional data; no production data or paid service is used.
+
+Rebase conflicts were in the domain tests, `Domain#approve!` and `LineApprover#apply!`. Both sides' tests remain. Pair/unpair dispatch, `prior:` facts, cash-card release, transfer/debt legacy-draft cleanup, and edited-fact overlap expansion remain alongside batched reads. B4's confirmed-purchase validator still constructs a fresh matcher for every approval; it is not the page's read-only matcher.
+
+Approvals record counterpart heads and version counters through the common write hook; stage-and-approve resolves the batch's current head before checking its pending draft. Economic-link writes still refresh overlap/account checks and rediscover revision dependencies. A new Family support category is registered immediately in the batch category map. Card matches retain `paid_by_card!` and invalidate any cached actual containing that purchase after its metadata changes. CashDrawdowns instances are local to readers, not stored in the line batch; Budget and drawdown checks construct fresh readers after the writes.
+
+Three new regressions exercise the actual `LineApprover` path under the household lock:
+
+- Two opposing account lines on one page, submitted together, produce one pair and exactly one version per leg, with no spending.
+- One request approves both transfer legs across statements; unpair appends version 2 with the correct supersession on both, removes the active pair, and leaves spending empty.
+- A 22-line page pairs one transfer, unpairs another, answers `someone_else` and `own_account`, matches a bank line to a confirmed cash-linked purchase, and saves 17 ordinary purchases. Assertions cover each saved version, Family support, own-transfer classification, match target, active links, the cash-release audit, restored $100 available cash, and July Budget spending of $186.38. Independent arithmetic is $100 withdrawal + $35 family support + $32 card purchase + $19.38 ordinary purchases; transfers contribute zero. Before card matching, the linked $32 cash purchase adds zero to the $100 withdrawal. Unpairing the remaining pair afterward leaves the total unchanged.
+
+The mixed-page regression first failed on the newly created category missing from the batch map and passed after registration. An initial added-test fixture used a nonexistent account attribute; it was corrected before the final gate. No accounting baseline or validation was relaxed.
+
+Rebased large-history benchmark (serial domain run; SQL includes transaction statements):
+
+| Lines | Queries | Local seconds | Queries/line |
+| --- | --- | --- | --- |
+| 1 | 94 | 0.096 | 94.00 |
+| 22 | 289 | 0.573 | 13.14 |
+| 100 | 991 | 4.325 | 9.91 |
+
+The final related run repeated exactly 94 / 289 / 991 queries, with 4.609 / 4.784 / 5.686 seconds while other gates were running. Wall-clock variability remains; the 22-line round-trip budget stays below 300. These are local measurements, not production latency claims.
+
+Final gates on the rebased source:
+
+- Related domain/controller/CashPayment/Budget tests: **221 tests / 1,974 assertions**, no failures/errors/skips.
+- Full Rails suite, four workers with `PGGSSENCMODE=disable`: **5,679 tests / 84,181 assertions**, 276.3 seconds, one known persona deadline failure (187.9 ms against 150 ms), no errors/skips or PostgreSQL fork crash. A first isolated rerun under gate load also failed at 170.0 ms (1 test / 2 assertions); the final isolated rerun after other gates stopped passed unchanged (1 test / 6 assertions). The full run is not described as clean.
+- Full and fast offline scorecards passed `RATCHET=1`; both parsed JSON and complete JSON bytes equal their committed baselines. Full SHA-256: `65356d4c00b9adb5541729a957f29573c6c63241b65c0ae30976cf03536c23d8`; fast: `c328e48f33131545145172af19ebca720c64aba534a0cc1fd06bae51bbcb2102`. No baseline changes.
+- RuboCop: **1,505 files**, no offenses. Brakeman: **zero warnings**. Zeitwerk and diff whitespace checks passed.
+
+No fresh browser, production-latency or mobile-Safari verification was performed; affected persisted journeys were exercised through the real backend batch and related controller tests. The implementation worker leaves independent review and merge to the lead. Backend-only changes do not require a production frontend build; Netlify previews remain off.
+
+All seven owned databases (`hcfo_c2_final_test`, `hcfo_c2_score_test`, `hcfo_c2_full_test` and its four worker copies) were dropped. No owned background job, server or browser remains; the shared PostgreSQL service is preserved. The clean branch/clone are retained for the lead. The shared-guidance checker still cannot run because this host lacks `~/.config/shimizu-technology/agent-context.json`; synced skills were read directly.
