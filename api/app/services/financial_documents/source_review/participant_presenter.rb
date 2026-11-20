@@ -121,12 +121,24 @@ module FinancialDocuments
         answers = line.kind == :duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS[:duplicate].first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
         question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
         question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
+        # A refund names where its money goes back: the purchase's category, or the one she chose for this store before.
+        refund_names = Array(line.refund_to).filter_map { |id| category_names[id] }
+        question = "Is this a refund? It goes back to #{refund_names.to_sentence}." if line.kind == :refund && refund_names.any?
+        if line.kind == :refund_category && line.category_id
+          question = "Does this refund go back to #{names[line.category_id]}?"
+          answers = ParticipantPlan::ANSWERS[:suggested_category]
+        end
         # A saved line shows what she saved (her corrected amount, name, date and kind), not the statement as first read.
         saved = line.saved
         { event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
           amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
           merchant: saved&.merchant.present? ? AccountNumberMask.display(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
-          category_id: line.category_id, category_name: names[line.category_id], expected_head: line.expected_head }
+          category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head }
+      end
+
+      # A refund can go back to a purchase's category that is no longer active, so this includes every category.
+      def category_names
+        @category_names ||= household.budget_categories.pluck(:id, :name).to_h
       end
 
       def account_details(account, tracked)

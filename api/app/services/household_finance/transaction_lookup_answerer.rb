@@ -133,14 +133,19 @@ module HouseholdFinance
       label = target.fetch(:label)
       category_line = category_breakdown(transactions, target)
       merchant_line = merchant_breakdown(transactions, target)
+      # Budget's own netting: refunds she approved come back to these categories in the month they posted.
+      refunded = refund_cents_for(target)
+      refund_line = "#{money(refunded)} in refunds came back to #{label}, so it comes to #{money(total_cents - refunded)}." if refunded.positive?
 
       if count.zero?
+        return "For #{period_label}, based on confirmed transactions, I don’t see confirmed #{label} purchases. #{refund_line}" if refund_line
         return "For #{period_label}, based on confirmed transactions, I do not see confirmed #{label} spending yet. Purchases waiting for review do not count until you confirm them."
       end
 
       noun = "transaction".pluralize(count)
       lines = [
         "For #{period_label}, based on confirmed transactions, I found #{count} confirmed #{label} #{noun} totaling #{money(total_cents)}.",
+        refund_line,
         category_line,
         merchant_line,
         "Purchases waiting for review do not count until you confirm them."
@@ -279,6 +284,11 @@ module HouseholdFinance
         "#{merchant} #{money(values.fetch(:cents))} (#{values.fetch(:count)} #{'time'.pluralize(values.fetch(:count))})"
       end
       "Top merchants: #{top_merchants.to_sentence}."
+    end
+
+    def refund_cents_for(target)
+      return 0 unless target.fetch(:type) == :category
+      RefundCredits.new(household, from: start_on, to: end_on).category_cents.slice(*target.fetch(:category_ids)).values.sum
     end
 
     def amount_cents_for(transaction, target)

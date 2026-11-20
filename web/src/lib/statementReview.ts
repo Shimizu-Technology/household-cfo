@@ -10,7 +10,7 @@ export type ExpectedLineHead = { approved_version_id: number | null; lock_versio
 export type PlanAttention = {
   event_id: number
   amount_cents?: number | null
-  kind: 'direction' | 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'
+  kind: 'direction' | 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>

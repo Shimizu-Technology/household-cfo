@@ -648,3 +648,49 @@ it('requires direction on a directly opened unresolved row and keeps its amount'
   expect(mutate).not.toHaveBeenCalled()
   expect((within(sheet).getByLabelText('Amount') as HTMLInputElement).value).toBe('50.00')
 })
+
+describe('a refund goes back to the category of what she bought', () => {
+  const refund = (categoryId: number | null) => ({ event_id: 4007, kind: 'refund_category' as const, event_type: 'refund' as const, merchant: 'Tasi Demo Outfitters', posted_on: '2026-03-06', signed_amount_cents: 2999, category_id: categoryId, category_name: categoryId ? 'Clothing' : null,
+    question: categoryId ? 'Does this refund go back to Clothing?' : 'Which category does this refund go back to?',
+    answers: categoryId ? [{ id: 'keep' as const, label: 'Yes' }, { id: 'edit' as const, label: 'Change' }] : [{ id: 'edit' as const, label: 'Choose one' }, { id: 'leave_out' as const, label: 'Leave it out' }] })
+
+  it('asks which category a refund goes back to and saves her choice on the refund', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }, { id: 71, name: 'Clothing' }]
+    data.participant_review!.plan.attention = [refund(null)]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('Which category does this refund go back to?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Clothing: Tasi Demo Outfitters' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'edited', edit: { kind: 'refund', merchant: 'Tasi Demo Outfitters', posted_on: '2026-03-06', amount_cents: 2999, category_id: 71 } }] })
+  })
+
+  it('says Yes to the category she chose for this store before, exactly as shown', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }, { id: 71, name: 'Clothing' }]
+    data.participant_review!.plan.attention = [refund(71)]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('Does this refund go back to Clothing?')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Groceries: Tasi Demo Outfitters' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes: Tasi Demo Outfitters' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'as_read', shown: { event_type: 'refund', category_id: 71 } }] })
+  })
+
+  it('lets the line sheet say which category a refund goes back to', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }, { id: 71, name: 'Clothing' }]
+    data.participant_review!.plan.attention = [refund(null)]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Tasi Demo Outfitters' }))
+    const sheet = await screen.findByRole('dialog')
+    expect(within(sheet).queryByLabelText(/^Category/)).toBeNull()
+    fireEvent.change(within(sheet).getByLabelText(/^Goes back to/), { target: { value: '71' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4007, decision: 'edited', edit: { kind: 'refund', amount_cents: 2999, category_id: 71 } }] })
+  })
+})

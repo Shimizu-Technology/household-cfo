@@ -441,21 +441,34 @@ module HouseholdFinance
     end
 
     def category_ids_with_actuals(periods)
-      TransactionSplit
+      spent = TransactionSplit
         .joins(:budget_category, :household_transaction)
         .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .distinct
         .pluck(:budget_category_id)
+      (spent + refund_credits(periods).keys.map(&:first)).uniq
     end
 
+    # Approved refunds give money back to the category of the purchase they refund, in the month they post.
+    # The month can end below zero; it is shown as it is, never clamped.
     def actuals_by_category_and_period(category_ids, periods)
-      TransactionSplit
+      sums = TransactionSplit
         .joins(:budget_category, :household_transaction)
         .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(budget_category_id: category_ids, household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .group(:budget_category_id, "household_transactions.budget_period_id")
         .sum(:amount_cents)
+      refund_credits(periods).each do |key, cents|
+        sums[key] = sums.fetch(key, 0) - cents if category_ids.include?(key.first)
+      end
+      sums
+    end
+
+    def refund_credits(periods)
+      return {} if periods.empty?
+      @refund_credits ||= {}
+      @refund_credits[periods.map(&:id)] ||= RefundCredits.new(household, from: periods.map(&:starts_on).min, to: periods.map(&:ends_on).max).by_category_and_period(periods)
     end
 
     def plan_coverage

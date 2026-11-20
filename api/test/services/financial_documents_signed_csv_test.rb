@@ -112,7 +112,8 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_equal 1, document.transaction_drafts.pending.count
     assert_equal "Store", document.transaction_drafts.pending.sole.merchant
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(household, resolved)
-    assert_equal [ :transfer, :card_payment, :refund ], plan.attention.filter_map { |line| line.kind if line.kind.in?([ :transfer, :card_payment, :refund ]) }
+    # The store purchase is not saved yet, so the refund asks which category it goes back to (filled in from that purchase).
+    assert_equal [ :transfer, :card_payment, :refund_category ], plan.attention.filter_map { |line| line.kind if line.kind.in?([ :transfer, :card_payment, :refund, :refund_category ]) }
     assert_empty household.household_transactions
   end
 

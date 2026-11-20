@@ -19,7 +19,7 @@ It uses the real API with nothing mocked, and fails if the browser sends any req
 
 | ID | What it proves | Widths |
 |---|---|---|
-| A1 | A fictional bank CSV, reviewed by hand (coverage, account type, own-account transfer, cash withdrawal category, card payment, refund), saves every line. Budget's August 2026 spending is exactly the posted spending, $2,339.65. | Review at 1366 only |
+| A1 | A fictional bank CSV, reviewed by hand (coverage, account type, own-account transfer, cash withdrawal category, card payment, refund), saves every line. Budget's August 2026 spending is exactly the posted spending, $2,339.65, less the $12.99 refund that goes back to the Amazon purchase's category: $2,326.66. | Review at 1366 only |
 | A2 | The saved statement and that August spending read the same on a phone. | 390 (WebKit), 320 |
 | A3 | Go live starts with no group ticked, and only the ticked group gets the program's voice (read back through the API). | 1366 |
 | A4 | The groups list on a phone. | 390 (WebKit), 320 |
@@ -41,7 +41,7 @@ Use the fictional people `bin/local-stack status` lists. Check each at 1366, 390
 | M6 | Ask Mia "What should I cut first?" and "Where is my money going?" with medical and family-support spending present. | No suggestion to cut medical, childcare or family support; no one-off payment offered as a monthly saving; store names are clean. Needs a model key. |
 | M7 | Admin with no program creates a group; admin with one program opens Groups and Coaching. | No program: offered "Start a program". One program: starts inside it, no picker step. |
 | M8 | Join a savings challenge with an invite code, check in "How was today?", set a goal and an amount set aside, reload. | The day, goal and amount set aside are kept; the coach sees check-ins but no amounts. |
-| M9 | At 390 and 320, upload the fictional CSV from A1 and answer each kind of question (coverage, account type, own-account transfer, cash category, card payment, refund), then approve the rest. | Every control is reachable without sideways scrolling; the saved result is the same as A1 ($2,339.65 for August 2026). |
+| M9 | At 390 and 320, upload the fictional CSV from A1 and answer each kind of question (coverage, account type, own-account transfer, cash category, card payment, refund), then approve the rest. | Every control is reachable without sideways scrolling; the saved result is the same as A1 ($2,326.66 for August 2026). |
 
 ## 3. On production, after a release that touches money
 

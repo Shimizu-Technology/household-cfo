@@ -26,7 +26,7 @@ module HouseholdFinance
         end_on: end_on.iso8601,
         plan_available: report_plan_available?,
         plan_starts_on: PlanCoverage.new(household).starts_on.iso8601,
-        actual_known: household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: start_on..end_on).exists?,
+        actual_known: household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: start_on..end_on).exists? || refund_cents.any?,
         totals: {
           planned: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) }),
           actual: Money.dollars(rows.sum { |row| row.fetch(:actual_cents) }),
@@ -44,6 +44,7 @@ module HouseholdFinance
         ),
         categories: rows.map { |row| category_payload(row) } + uncategorized_pending_payload,
         transactions: transactions_payload,
+        refunds: refunds_payload,
         pending_drafts: pending_drafts_payload,
         ignored_drafts: ignored_drafts_payload
       }
@@ -114,12 +115,13 @@ module HouseholdFinance
     end
 
     def category_ids_with_actuals
-      TransactionSplit
+      spent = TransactionSplit
         .joins(:budget_category, :household_transaction)
         .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
         .distinct
         .pluck(:budget_category_id)
+      (spent + refund_cents.keys).uniq
     end
 
     def allocation_sums
@@ -149,13 +151,35 @@ module HouseholdFinance
       (allocation.planned_amount_cents * overlap_days).to_r / period_days
     end
 
+    # The same netting Budget uses: an approved refund reduces the category of the purchase it refunds, dated when it posts.
     def actual_sums
-      @actual_sums ||= TransactionSplit
-        .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
-        .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
-        .group(:budget_category_id)
-        .sum(:amount_cents)
+      @actual_sums ||= begin
+        sums = TransactionSplit
+          .joins(:budget_category, :household_transaction)
+          .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
+          .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
+          .group(:budget_category_id)
+          .sum(:amount_cents)
+        refund_cents.each { |id, cents| sums[id] = sums.fetch(id, 0) - cents }
+        sums
+      end
+    end
+
+    def refund_credits
+      @refund_credits ||= RefundCredits.new(household, from: start_on, to: end_on)
+    end
+
+    def refund_cents
+      @refund_cents ||= refund_credits.category_cents
+    end
+
+    # Refunds she approved in this period: where each one went back, or that it still needs a category before it counts.
+    def refunds_payload
+      names = household.budget_categories.where(id: refund_credits.call.flat_map { |credit| credit.allocations.pluck(:category_id) }).pluck(:id, :name).to_h
+      refund_credits.call.last(MAX_TRANSACTIONS).reverse.map do |credit|
+        { id: credit.version_id, occurred_on: credit.posted_on.iso8601, merchant: credit.merchant.presence || "Refund", amount: Money.dollars(credit.amount_cents),
+          counted: credit.counted?, categories: credit.allocations.filter_map { |part| names[part[:category_id]] } }
+      end
     end
 
     def pending_sums

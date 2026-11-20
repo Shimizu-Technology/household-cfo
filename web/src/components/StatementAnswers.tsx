@@ -18,8 +18,11 @@ export function StatementAnswers({ item, categories, disabled, unsaved, inlineCa
 }) {
   const name = item.merchant ?? 'this line'
   const mine = unsaved?.eventId === item.event_id ? unsaved : null
+  // "Which category does this refund go back to?" picks a category like "What was this for?"; once one is filled in it reads like a suggestion.
+  const picksCategory = item.kind === 'no_category' || (item.kind === 'refund_category' && item.category_id == null)
+  const suggests = item.kind === 'suggested_category' || item.kind === 'still_category' || (item.kind === 'refund_category' && item.category_id != null)
   return <div className="statement-answers" role="group" aria-labelledby={`statement-question-${item.event_id}`}>
-    {item.answers.map((choice) => (item.kind === 'no_category' || (inlineCategory && (item.kind === 'suggested_category' || item.kind === 'still_category'))) && choice.id === 'edit'
+    {item.answers.map((choice) => (picksCategory || (inlineCategory && suggests)) && choice.id === 'edit'
       ? categories.length > 0 && categories.length <= 3
         ? categories.map((category) => <Button key={category.id} variant={mine?.categoryId === category.id ? 'primary' : 'secondary'} aria-pressed={mine?.categoryId === category.id} disabled={disabled} aria-label={`${category.name}: ${name}`} onClick={() => onAnswer('edit', category.id)}>{category.name}</Button>)
         : categories.length === 0

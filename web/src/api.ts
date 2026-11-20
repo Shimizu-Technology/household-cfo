@@ -610,6 +610,8 @@ export type ArchivedBudgetCategory = {
   active: boolean
 }
 
+export type SpendingReportRefund = { id: number; occurred_on: string; merchant: string; amount: number; counted: boolean; categories: string[] }
+
 export type SpendingReport = {
   period_label: string
   start_on: string
@@ -622,6 +624,8 @@ export type SpendingReport = {
   }
   categories: SpendingReportCategory[]
   transactions: RecentTransaction[]
+  /** Refunds she approved in this period. A counted one lowers the categories it went back to; one not counted still needs a category. */
+  refunds?: SpendingReportRefund[]
   pending_drafts: Array<{
     id: number
     occurred_on: string

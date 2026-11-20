@@ -1364,8 +1364,11 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       end
       analyze = -> { SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call }
       assert_equal [ "Ross", "Amazon Marketplace", "Kmart" ], analyze.call[:discretionary_merchants].pluck(:label)
-      row = rows.fetch("Amazon refund order DEMO-8001")
+      # Before the Amazon purchase was saved the refund asked which category it goes back to; now it names the purchase's.
+      assert_equal "refund_category", rows.fetch("Amazon refund order DEMO-8001").fetch("kind")
+      row = review_plan.fetch("attention").find { |item| item["merchant"] == "Amazon refund order DEMO-8001" }
       assert_equal "refund", row.fetch("kind")
+      assert_equal "Is this a refund? It goes back to Everyday spending.", row.fetch("question")
       approve_lines({ lines: [ { event_id: row.fetch("event_id"), decision: "as_read", shown: row.slice("event_type", "category_id") } ] })
       assert_response :success, response.body
       assert_equal [ "Ross", "Kmart", "Amazon Marketplace" ], analyze.call[:discretionary_merchants].pluck(:label)

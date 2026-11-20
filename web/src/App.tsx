@@ -203,6 +203,7 @@ import type {
   PilotFeedbackWorkflow,
   RecentTransaction,
   SpendingReport,
+  SpendingReportRefund,
   TransactionDraft,
   TransactionDraftCreateInput,
   TransactionDraftSplit,
@@ -8871,7 +8872,7 @@ function SpendingReportLedger({ report, reopen, planKnown = true, categories = [
     <div className="spending-report-ledger">
       <div className="spending-report-summary">
         <span>{report.period_label}</span>
-        <strong>{planKnown || report.totals.actual > 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
+        <strong>{planKnown || report.totals.actual !== 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
         {planKnown && <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>}
         <span>{formatReviewMoney(Math.round((report.totals.pending) * 100))} pending</span>
       </div>
@@ -8883,6 +8884,7 @@ function SpendingReportLedger({ report, reopen, planKnown = true, categories = [
         pageSize={8}
         reopen={reopen}
       />
+      {(report.refunds?.length ?? 0) > 0 && <RefundLedger categories={categories} refunds={report.refunds ?? []} />}
     </div>
   )
 }
@@ -8993,6 +8995,23 @@ function TransactionLedger({
           <button type="button" className="secondary-button" disabled={safePage === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Money that came back. Each counted refund lowers the category of what was bought, in the month it came back. */
+function RefundLedger({ refunds, categories }: { refunds: SpendingReportRefund[]; categories: BudgetCategoryRow[] }) {
+  return (
+    <div className="recent-transaction-list transaction-ledger-list refund-ledger">
+      <div className="transaction-ledger-heading"><div><p className="group-label">Refunds</p><span>Each one lowers the category of what you bought, in the month the money came back.</span></div></div>
+      {refunds.map((refund) => (
+        <div className="recent-transaction-row" key={refund.id}>
+          <span>{formatShortDate(refund.occurred_on)}</span>
+          <strong>{refund.merchant}</strong>
+          <span>{refund.counted ? `Back to ${refund.categories.map(name => categoryDisplayName(name, categories.find(row => row.name === name)?.stack_key, categories)).join(', ')}` : 'Not counted yet. Choose its category in Statements.'}</span>
+          <b>{refund.counted ? formatReviewMoney(-Math.round(refund.amount * 100)) : formatReviewMoney(Math.round(refund.amount * 100))}</b>
+        </div>
+      ))}
     </div>
   )
 }
