@@ -242,7 +242,7 @@ module FinancialDocuments
         ProjectionCorrector.new(self, version, draft.projection.deep_symbolize_keys).call
         head.update!(approved_version: version)
         draft.update!(status: "approved")
-        if version.disposition != "include"
+        if version.disposition != "include" || version.event_type.in?(%w[transfer debt_payment])
           household.transaction_drafts.pending.where(financial_source_event: event).order(:id).lock.each do |legacy|
             legacy.update!(status: "ignored", draft_payload: legacy.draft_payload.merge("source_review_version_id" => version.id, "source_review_disposition" => version.disposition))
           end
@@ -319,8 +319,8 @@ module FinancialDocuments
           unless found.call.any? { |match| match.transaction.id == facts[:matched_transaction_id] }
             raise StaleReview, "That purchase changed or no longer matches this line. Nothing was saved. Refresh and look again."
           end
-        elsif facts[:disposition] == "include" && facts[:overlap_disposition] != "distinct" && ConfirmedPurchaseMatch.applies?(facts[:event_type], facts[:signed_amount_cents])
-          counted_before = head.approved_version&.disposition == "include"
+        elsif facts[:disposition] == "include" && (facts[:overlap_disposition] != "distinct" || facts[:external_reference].to_s.start_with?("sent-to-someone:")) && ConfirmedPurchaseMatch.applies?(facts[:event_type], facts[:signed_amount_cents])
+          counted_before = head.approved_version&.disposition == "include" && !head.approved_version.external_reference.to_s.start_with?("overlap-cleared:")
           match = found.call.first unless counted_before
           raise ArgumentError, "#{match.question} Answer Same purchase or Different purchase first. Nothing was saved." if match
         end

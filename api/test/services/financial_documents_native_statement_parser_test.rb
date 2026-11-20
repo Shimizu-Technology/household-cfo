@@ -178,7 +178,7 @@ class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
     assert_equal 2, purchases.size
     assert_equal [ "Tasi Demo Coffee" ] * 2, purchases.map(&:merchant)
     assert purchases.all? { |line| line.kind.in?(%i[no_category suggested_category]) }, purchases.map(&:kind).inspect
-    assert_equal %i[transfer transfer], lines.select { |line| line.event.event_type == "transfer" }.map(&:kind)
+    assert_equal %i[transfer person_payment], lines.select { |line| line.event.event_type == "transfer" }.map(&:kind)
     refute lines.any? { |line| line.kind == :unclear }
   end
 

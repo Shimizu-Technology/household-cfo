@@ -362,6 +362,7 @@ module FinancialDocuments
       description = [ merchant, cell(values, map, "label") ].compact.uniq.join(" ")
       label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), description ].compact.join(" ").downcase
       return "debt_payment" if label.match?(/payment\s+thank\s+you|(?:credit card|card|loan|debt|visa|mastercard)\s+(?:payment|pmt)|payment\s+(?:to|for)\s+(?:card|loan|debt)/)
+      return "debt_payment" if label.match?(/payment\s+(?:to|for)\s+.{1,60}?\b(?:card|loan|debt)\s+(?:ending\s+)?[0-9]{4}\b/)
       return "transfer" if label.match?(/transfer|wallet\s+funding|payment[_ ]sent/)
       return "fee" if amount.to_i.negative? && label.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       # "ATM/POS Purchase" in the description is a purchase; a "Type: purchase" column can't override "ATM Withdrawal".

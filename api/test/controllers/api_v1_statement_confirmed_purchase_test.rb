@@ -67,6 +67,38 @@ class ApiV1StatementConfirmedPurchaseTest < ActionDispatch::IntegrationTest
     assert_equal({ "approved" => 0, "unchanged" => 1 }, response.parsed_body.fetch("result").slice("approved", "unchanged"))
   end
 
+  test "person-worded bank purchases ask duplicate then Same purchase for source overlaps" do
+    receipt = purchase("Venmo Ana Cruz", "2026-08-03", { @groceries => 4000 }, source_type: "manual_chat")
+    build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
+    statement = build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
+    line = statement[:revision].financial_source_events.sole
+    row = plan(statement).fetch("attention").sole
+    assert_not_empty FinancialDocuments::SourceReview::ParticipantPlan.new(@household, statement[:revision]).lines.sole.overlaps
+    assert_equal "duplicate", row.fetch("kind")
+    approve(statement, [ { event_id: line.id, decision: "someone_else", expected_head: row.fetch("expected_head"), shown: row.slice("event_type", "category_id") } ])
+    assert_response :conflict
+    approve(statement, [ { event_id: line.id, decision: "different", expected_head: row.fetch("expected_head"), shown: row.slice("event_type", "category_id") } ])
+    assert_response :success, response.body
+    row = plan(statement).fetch("attention").sole
+    assert_equal "same_purchase", row.fetch("kind")
+    same_purchase(statement, line, row)
+    assert_response :success, response.body
+    assert_equal [ receipt.id ], @household.household_transactions.where(status: %w[confirmed reconciled]).pluck(:id)
+  end
+
+  test "a person duplicate answer cannot bypass a logged purchase via distinct overlap" do
+    purchase("Venmo Ana Cruz", "2026-08-03", { @groceries => 4000 }, source_type: "manual_chat")
+    statement = build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
+    event = statement[:revision].financial_source_events.sole
+    # The person-duplicate answer marks the source overlap distinct. That is
+    # not an answer to the separate confirmed-purchase question.
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    head = SourceReviewHead.new(financial_source_event: event, household: @household)
+    facts = { disposition: "include", event_type: "purchase", signed_amount_cents: -4000, posted_on: "2026-08-03", merchant: "VENMO *ANA CRUZ", overlap_disposition: "distinct", external_reference: "sent-to-someone:#{event.id}" }
+    error = assert_raises(ArgumentError) { domain.send(:validate_confirmed_purchase!, head, facts) }
+    assert_includes error.message, "Answer Same purchase or Different purchase first"
+  end
+
   test "Different purchase counts the bank line as well, on purpose" do
     purchase("Payless Supermarkets", "2026-08-03", { @groceries => 3488 }, source_type: "manual_chat")
     statement = build_source([ [ "PAYLESS SUPERMARKETS", -3488, "purchase", "2026-08-03" ] ])
@@ -179,6 +211,38 @@ class ApiV1StatementConfirmedPurchaseTest < ActionDispatch::IntegrationTest
   private
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
+
+  test "a person payment in two files, also logged by hand, can be answered to the end without a dead end" do
+    purchase("Venmo Ana Cruz", "2026-08-03", { @groceries => 4000 }, source_type: "manual_chat")
+    sources = [ build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ]), build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-04" ] ]) ]
+    asked = []
+    sources.each do |source|
+      6.times do
+        row = plan(source).fetch("attention").first
+        break unless row
+        asked << row.fetch("kind")
+        ids = row.fetch("answers").pluck("id")
+        decision = (ids & %w[different someone_else]).first || flunk("No way forward from #{row.fetch('kind')}: #{ids.inspect}")
+        approve(source, [ { event_id: row.fetch("event_id"), decision: decision, shown: row.slice("event_type", "category_id"), expected_head: row.fetch("expected_head") } ])
+        assert_response :success, "#{row.fetch('kind')} → #{decision}: #{response.body}"
+      end
+      assert_empty plan(source).fetch("attention"), "Every question on this file has an answer that saves"
+    end
+    assert_includes asked, "duplicate", "The second copy is asked whether it is the same charge"
+    family = @household.budget_categories.find_by!(name: "Family support")
+    assert_equal 8000, budget_actual(family, month: 8), "She said both were different payments to someone else"
+  end
+
+  test "a bill she saves as spending in a category she chose is not treated as money sent to someone" do
+    statement = build_source([ [ "Payment to Docomo Pacific", -8000, "purchase", "2026-08-03" ] ])
+    line = statement[:revision].financial_source_events.sole
+    row = plan(statement).fetch("attention").sole
+    approve(statement, [ edit_entry(line, @groceries).merge(expected_head: row.fetch("expected_head")) ])
+    assert_response :success, response.body
+    version = SourceReviewHead.find_by!(financial_source_event: line).approved_version
+    assert_equal @groceries.id, version.budget_category_id
+    refute version.external_reference.to_s.start_with?("sent-to-someone:"), "Mia may still suggest a cut on ordinary spending"
+  end
 
   def plan(source)
     get "/api/v1/document_imports/#{source[:import].id}/source_review", params: { revision_id: source[:revision].id }, headers: headers

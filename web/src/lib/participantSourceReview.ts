@@ -17,6 +17,7 @@ export type TrackedSourceAccount = { id: number; label: string; account_basis: '
 export type SourceAccountChoice = { id: number; account_basis: 'asset' | 'liability'; name: string | null; last4: string | null }
 export type ReviewedSourceAccount = { source_account_id: number; name?: string | null; last4?: string | null; needs_choice?: boolean; suggested?: SourceAccountChoice | null; choices?: SourceAccountChoice[]; head: ReviewHead; approved: { id: number; digest: string; version_number: number; statement_facts: AccountStatementFacts; tracked_account: TrackedSourceAccount } | null }
 export type ParticipantSourceReview = {
+  transfer_pairs?: Array<{ event_id: number; expected_head: ReviewHead; accounts: string[] }>
   schema_version: 1; actor_scope?: StatementReviewActorScope; economic_groups?: ReviewedEconomicGroup[]; rows: Record<string, { head: ReviewHead; approved: ReviewedRow | null; pending: PendingSourceDraft | null }>
   accounts: ReviewedSourceAccount[]; categories: Array<{ id: number; name: string }>
   coverage: { revision_id: number; represented_rows: number; approved_rows: number; pending_corrections: number; content_digest: string; deficiencies: string[] }

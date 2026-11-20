@@ -439,6 +439,314 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_empty @household.household_transactions
   end
 
+  test "review person detector excludes merchants billers and debt and keeps edited categories" do
+    [ [ "PAYPAL *EBAY.COM", "purchase", false ], [ "PAYPAL *NETFLIX.COM", "purchase", false ], [ "Payment to Guam Power Authority", "purchase", false ], [ "Payment to Chase card ending 1234", "debt_payment", false ], [ "Zelle to Ana Cruz", "purchase", true ] ].each do |merchant, type, person|
+      payment = source([ movement(-4599, type: type).merge(merchant: merchant) ])
+      link(payment)
+      event = payment[:events].sole
+      assert_equal person, FinancialDocuments::SourceReview::TransferPairs.person_payment?(event, merchant), merchant
+      line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+      assert_equal :card_payment, line.kind if type == "debt_payment"
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      input = { lines: [ { event_id: event.id, decision: "edited", expected_head: line.expected_head,
+        edit: { kind: type == "debt_payment" ? "card" : "spending", category_id: @category.id } } ] }
+      @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], input).call }
+      assert_equal @category.id, domain.heads.find_by!(financial_source_event: event).approved_version.budget_category_id unless type == "debt_payment"
+    end
+  end
+
+  test "an explicit category on a person-worded line is never replaced" do
+    payment = source([ movement(-4599).merge(merchant: "Payment to Ana Cruz") ])
+    link(payment)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    entry = { event_id: line.event.id, decision: "edited", expected_head: line.expected_head, edit: { kind: "spending", category_id: @category.id } }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], { lines: [ entry ] }).call }
+    assert_equal @category.id, domain.heads.find_by!(financial_source_event: line.event).approved_version.budget_category_id
+  end
+
+  test "incoming person wording and open spreadsheet directions cannot be paired away" do
+    debit = source([ movement(-2500, type: "transfer") ])
+    credit = source([ movement(2500, type: "transfer").merge(merchant: "Zelle from Mom") ])
+    link(debit)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Talun savings ending 4412"))
+    pairs = FinancialDocuments::SourceReview::TransferPairs
+    assert_nil pairs.new(@household).candidate(debit[:events].sole)
+    event = credit[:events].sole
+    event.financial_source_evidence.update!(payload: event.financial_source_evidence.payload.merge("merchant" => "Transfer from checking"))
+    assert pairs.new(@household).candidate(debit[:events].sole)
+    blocked = source([ movement(2800, type: "transfer") ], coverage: { signed_amount_question: true })
+    blocked[:import].update!(filename: "unanswered.csv", content_type: "text/csv")
+    outgoing = source([ movement(-2800, type: "transfer") ])
+    link(outgoing)
+    run_operation(OPS::AccountLink, account_input(blocked).merge(label: "Talun blocked savings"))
+    assert_nil pairs.new(@household).candidate(outgoing[:events].sole)
+    multi = source([ movement(3200, type: "transfer"), movement(nil, row: 2, type: "unknown").merge(account_key: "unclear-account", limitations: [ "transaction_direction_unclear" ], source_amount_text: "25.00") ],
+      extra_accounts: [ { account_key: "unclear-account", account_basis: "asset" } ])
+    multi[:import].update!(filename: "multi.csv", content_type: "text/csv")
+    clear_account = multi[:events].find { |event| event.signed_amount_cents == 3200 }.financial_source_account
+    run_operation(OPS::AccountLink, { source_account_id: clear_account.id, account_basis: "asset", label: "Talun multi savings", base_version_id: nil, base_lock_version: 0, statement_facts: {}, reason: "Verified synthetic account" })
+    questions = FinancialDocuments::SpreadsheetSignAnswer.account_questions(multi[:revision])
+    assert_equal 1, questions.length
+    assert questions.sole[:answerable]
+    other_debit = source([ movement(-3200, type: "transfer") ])
+    link(other_debit)
+    assert_nil pairs.new(@household).candidate(other_debit[:events].sole)
+    refute FinancialDocuments::SpreadsheetSignAnswer.saved_decisions?(multi[:revision])
+  end
+
+  test "scorecard reviews an unmatched pair separately even without corrections or a mapping" do
+    require Rails.root.join("lib/scorecard/approval_simulator")
+    debit = source([ movement(-2500, type: "transfer") ])
+    credit = source([ movement(2500, type: "transfer") ])
+    link(debit)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Talun savings ending 4412"))
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, debit[:revision]).lines.sole
+    key = Object.new
+    def key.event(answer) = answer.fetch("expected")
+    simulator = Scorecard::ApprovalSimulator.new(household: @household, user: @user, answer_key: key, categories: {}, correct_proposals: false)
+    answer = { "leg_id" => "outgoing", "signed_amount_cents" => -2500, "date" => "2026-07-07", "expected" => { "event_kind" => "transfer_own_accounts" } }
+    simulator.row_answers[credit[:events].sole.id] = { "expected" => { "event_kind" => "purchase" } }
+    [ answer, nil ].each do |mapping|
+      entry = simulator.send(:answer_for, line, mapping, "2026-07")
+      assert_equal "edited", entry[:decision]
+      assert_equal "moved", entry[:edit][:kind]
+    end
+  end
+
+  test "participant pairs opposing reviewed accounts and can unpair without spending" do
+    debit = source([ movement(-2500, type: "purchase").merge(merchant: "Zelle to Lina Talun") ])
+    credit = source([ movement(2500, type: "transfer") ])
+    link(debit)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Talun savings ending 4412"))
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, debit[:revision])
+    line = plan.lines.sole
+    assert_equal :transfer_pair, line.kind
+    pair = line.pair
+    prompt = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, debit[:revision], user: @user).context(event_ids: [ line.event.id ])
+    assert_equal FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(pair[:event]), prompt[:plan][:attention].sole[:transfer_pair][:description]
+    input = { lines: [ { event_id: line.event.id, decision: "pair_transfer", expected_head: line.expected_head,
+      shown: { event_type: "purchase", category_id: nil }, transfer_pair: { event_id: pair[:event].id, approved_version_id: nil, account_version_id: pair[:identity].id } } ] }
+    stale = input.deep_dup
+    stale[:lines].first[:transfer_pair][:account_version_id] += 1
+    assert_raises(FinancialDocuments::SourceReview::Domain::StaleReview) do
+      @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, debit[:revision], stale).call }
+    end
+    assert_empty domain.heads.where(financial_source_event: debit[:events].sole)
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, debit[:revision], input).call }
+    group = FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(line.event)
+    assert_equal 2, group.source_economic_memberships.count
+    presented = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, debit[:revision], user: @user).context(event_ids: [ line.event.id ])
+    assert_equal line.event.id, presented[:transfer_pairs].sole[:event_id]
+    retry_result = @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, debit[:revision], input).call }
+    assert_equal 2, retry_result[:unchanged]
+    assert_empty @household.household_transactions
+    fresh = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, debit[:revision]).lines.sole
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, debit[:revision], { lines: [ { event_id: line.event.id, decision: "unpair_transfer", expected_head: fresh.expected_head } ] }).call }
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(line.event)
+    assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).candidate(line.event)
+    reopened = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, debit[:revision]).lines.sole
+    refute reopened.done
+    assert_equal :person_payment, reopened.kind
+    assert_empty @household.household_transactions
+  end
+
+  test "transfer suggestions refuse ambiguous same account and distant movements" do
+    debit = source([ movement(-2500, type: "transfer") ])
+    credit = source([ movement(2500, type: "transfer") ])
+    link(debit, tracked: @identity.source_tracked_account)
+    link(credit, tracked: @identity.source_tracked_account)
+    pairs = FinancialDocuments::SourceReview::TransferPairs
+    assert_nil pairs.new(@household).candidate(debit[:events].sole)
+    head = SourceAccountReviewHead.find_by!(financial_source_account: credit[:revision].financial_source_accounts.sole)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Talun savings ending 4412", base_version_id: head.approved_version_id, base_lock_version: head.lock_version))
+    assert pairs.new(@household).candidate(debit[:events].sole)
+    duplicate = source([ movement(2500, type: "transfer") ])
+    run_operation(OPS::AccountLink, account_input(duplicate).merge(label: "Talun wallet"))
+    assert_nil pairs.new(@household).candidate(debit[:events].sole)
+    distant_debit = source([ movement(-4000, type: "transfer") ])
+    distant_credit = source([ movement(4000, type: "transfer", posted_on: "2026-07-12") ])
+    link(distant_debit, tracked: @identity.source_tracked_account)
+    run_operation(OPS::AccountLink, account_input(distant_credit).merge(label: "Talun distant savings"))
+    assert_nil pairs.new(@household).candidate(distant_debit[:events].sole)
+  end
+
+  test "logged person purchases retain duplicate and ownership guards" do
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.iso8601("2026-07-07"))
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-07-07", merchant: "Venmo Ana Cruz", total_amount_cents: 4000, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: @category, amount_cents: 4000)
+    first = source([ movement(-4000).merge(merchant: "VENMO *ANA CRUZ") ])
+    link(first, tracked: @identity.source_tracked_account)
+    assert_equal :same_purchase, FinancialDocuments::SourceReview::ParticipantPlan.new(@household, first[:revision]).lines.sole.kind
+    second = source([ movement(-4000, posted_on: "2026-07-08").merge(merchant: "VENMO *ANA CRUZ") ])
+    link(second, tracked: @identity.source_tracked_account)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    plan = ->(src) { FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole }
+    assert_equal :duplicate, plan.call(second).kind
+    [ [ second, :same_purchase ], [ second, :person_payment ] ].each do |src, next_kind|
+      line = plan.call(src)
+      @household.with_lock do
+        FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: [ { event_id: line.event.id, decision: "different", expected_head: line.expected_head, shown: { event_type: line.event.event_type, category_id: line.category_id } } ] }).call
+      end
+      fresh = plan.call(src)
+      assert_equal next_kind, fresh.kind
+      if next_kind == :same_purchase
+        assert_raises(ArgumentError) do
+          @household.with_lock do
+            FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: [ { event_id: fresh.event.id, decision: "edited", expected_head: fresh.expected_head, edit: { kind: "spending", merchant: fresh.merchant, posted_on: "2026-07-08", amount_cents: 4000, category_id: @category.id } } ] }).call
+          end
+        end
+      end
+      refute fresh.done
+      assert_equal [ transaction.id ], @household.household_transactions.pluck(:id)
+    end
+  end
+
+  test "different logged person purchase asks ownership before any category spending" do
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.iso8601("2026-07-07"))
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-07-07", merchant: "Venmo Ana Cruz", total_amount_cents: 4000, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: @category, amount_cents: 4000)
+    payment = source([ movement(-4000).merge(merchant: "VENMO *ANA CRUZ") ])
+    link(payment)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    assert_equal :same_purchase, line.kind
+    @household.with_lock do
+      FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], { lines: [ { event_id: line.event.id, decision: "different", expected_head: line.expected_head, shown: { event_type: "purchase", category_id: line.category_id } } ] }).call
+    end
+    fresh = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    assert_equal :person_payment, fresh.kind
+    refute fresh.done
+    assert_equal [ transaction.id ], @household.household_transactions.pluck(:id)
+  end
+
+  test "answered spreadsheet capability does not permanently block transfer candidates" do
+    debit = source([ movement(-2500, type: "transfer") ], coverage: { signed_amount_answerable: true, signed_amount_question: false })
+    debit[:import].update!(filename: "answered.csv", content_type: "text/csv")
+    credit = source([ movement(2500, type: "transfer") ])
+    link(debit)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Talun savings"))
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).candidate(debit[:events].sole)
+  end
+
+  test "own account answer removes a proposed purchase from pending Budget without spending" do
+    payment = source([ movement(-1500).merge(merchant: "Venmo to Talun wallet") ])
+    link(payment)
+    event = payment[:events].sole
+    draft = @household.transaction_drafts.create!(financial_source_event: event, financial_document_import: payment[:import],
+      occurred_on: event.posted_on, merchant: "Venmo to Talun wallet", total_amount_cents: 1500, source_type: "statement", status: "pending", draft_payload: {})
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    input = { lines: [ { event_id: event.id, decision: "own_account", expected_head: line.expected_head, shown: { event_type: "purchase", category_id: line.category_id } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], input).call }
+    assert_equal "ignored", draft.reload.status
+    assert_equal "transfer", domain.heads.find_by!(financial_source_event: event).approved_version.event_type
+    assert_empty @household.household_transactions
+  end
+
+  test "an archived support category gives a plain recovery and leaves the payment unanswered" do
+    @household.budget_categories.create!(name: "Family Support", stack_key: "non_discretionary", active: false)
+    payment = source([ movement(-3500, type: "transfer").merge(merchant: "Zelle to Lina Talun") ])
+    link(payment)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    error = assert_raises(ArgumentError) do
+      @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], { lines: [ { event_id: line.event.id, decision: "someone_else", expected_head: line.expected_head, shown: { event_type: "transfer", category_id: nil } } ] }).call }
+    end
+    assert_equal "Restore Family support in Budget, then save this answer.", error.message
+    assert_empty domain.heads.where(financial_source_event: line.event)
+    assert_empty @household.household_transactions
+  end
+
+  test "a different person payment still requires ownership instead of accepting a spending guess" do
+    earlier = source([ movement(-3500).merge(merchant: "Zelle to Lina Talun") ])
+    identity = link(earlier, tracked: @identity.source_tracked_account)
+    approve(stage(earlier[:events].sole, identity: identity, amount: -3500, merchant: "Zelle to Lina Talun"))
+    payment = source([ movement(-3500).merge(merchant: "Zelle to Lina Talun") ])
+    link(payment, tracked: @identity.source_tracked_account)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    assert_equal :person_payment_duplicate, line.kind
+    input = { lines: [ { event_id: line.event.id, decision: "own_account", expected_head: line.expected_head, shown: { event_type: "purchase", category_id: line.category_id } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], input).call }
+    version = domain.heads.find_by!(financial_source_event: line.event).approved_version
+    assert_equal "transfer", version.event_type
+    assert_equal "distinct", version.overlap_disposition
+    assert_empty @household.household_transactions
+  end
+
+  test "own account keeps a reviewed card payment as a card payment" do
+    payment = source([ movement(-1500, type: "debt_payment").merge(merchant: "Payment to Talun card") ])
+    link(payment)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    assert_equal :card_payment, line.kind
+    input = { lines: [ { event_id: line.event.id, decision: "as_read", expected_head: line.expected_head, shown: { event_type: "debt_payment", category_id: nil } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], input).call }
+    assert_equal "debt_payment", domain.heads.find_by!(financial_source_event: line.event).approved_version.event_type
+    assert_empty @household.household_transactions
+  end
+
+  test "a person payment with unread direction can explicitly choose family support in the line form" do
+    payment = source([ movement(nil, type: "unknown").merge(merchant: "Zelle to Lina Talun", limitations: [ "transaction_direction_unclear" ], source_amount_text: "15.00") ])
+    link(payment)
+    event = payment[:events].sole
+    presenter = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, payment[:revision], user: @user).context(event_ids: [ event.id ])
+    assert presenter[:plan][:attention].sole[:recipient_question]
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    input = { lines: [ { event_id: event.id, decision: "edited", expected_head: line.expected_head,
+      edit: { kind: "spending", money_direction: "out", amount_cents: 1500, category_id: nil } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], input).call }
+    version = domain.heads.find_by!(financial_source_event: event).approved_version
+    assert_equal "Family support", version.budget_category.name
+    assert_equal "sent-to-someone:#{event.id}", version.external_reference
+    assert_equal 1500, @household.household_transactions.sole.total_amount_cents
+  end
+
+  test "platform fees and cash withdrawals keep their existing spending questions" do
+    %w[fee cash_withdrawal].each do |type|
+      payment = source([ movement(-1500, type: type).merge(merchant: "Cash App #{type == 'fee' ? 'service fee' : 'ATM withdrawal'}") ])
+      link(payment)
+      event = payment[:events].sole
+      refute FinancialDocuments::SourceReview::TransferPairs.person_wording?(event, FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event))
+      line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+      refute_includes [ :person_payment, :person_payment_duplicate ], line.kind
+    end
+  end
+
+  test "an older approved uncategorized person payment keeps its category question" do
+    payment = source([ movement(-3500).merge(merchant: "Zelle to Lina Talun") ])
+    identity = link(payment)
+    event = payment[:events].sole
+    approve(stage(event, identity: identity, amount: -3500, merchant: "Zelle to Lina Talun", category: nil))
+    row = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, payment[:revision], user: @user).context(event_ids: [ event.id ])[:plan][:attention].sole
+    assert_equal :no_category, row[:kind]
+    assert_equal false, row[:recipient_question]
+    assert_empty @household.household_transactions
+  end
+
+  test "person payments require an answer and someone else is protected spending" do
+    @household.budget_categories.create!(name: "family support", stack_key: "discretionary")
+    payment = source([ movement(-3500, type: "transfer").merge(merchant: "Zelle Payment to Lina Talun") ])
+    link(payment)
+    evidence = payment[:events].sole.financial_source_evidence
+    evidence.update!(payload: evidence.payload.merge("merchant" => "Lina Talun", "raw_description" => "Zelle to Lina Talun"))
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    assert_equal :person_payment, line.kind
+    assert_empty FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).ready_ids
+    input = { lines: [ { event_id: line.event.id, decision: "someone_else", expected_head: line.expected_head, shown: { event_type: "transfer", category_id: nil } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], input).call }
+    actual = @household.household_transactions.sole
+    assert_equal 3500, actual.total_amount_cents
+    version = domain.heads.find_by!(financial_source_event: line.event).approved_version
+    assert_equal "sent-to-someone:#{line.event.id}", version.external_reference
+    assert_equal "family support", version.budget_category.name
+    assert SpendingPatterns::Analyzer.protected_category?(version.budget_category.name)
+  end
+
   private
 
   def run_operation(klass, input)
@@ -455,14 +763,15 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     { account_key: "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: amount, posted_on: posted_on, merchant: "Synthetic merchant", locator: { page: 1, row: row } }
   end
 
-  def source(rows, checksum: SecureRandom.hex(32), period: "2026-07")
+  def source(rows, checksum: SecureRandom.hex(32), period: "2026-07", coverage: {}, extra_accounts: [])
     import = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.pdf", content_type: "application/pdf", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.pdf", checksum_sha256: checksum)
     attempt = import.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     rows = rows.map { |row| row.merge(posted_on: period + "-07") } if period != "2026-07"
-    net = rows.sum { |row| row[:signed_amount_cents] }
+    amounts_known = rows.none? { |row| row[:signed_amount_cents].nil? }
+    net = rows.sum { |row| row[:signed_amount_cents] } if amounts_known
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
-      accounts: [ { account_key: "synthetic-account", account_basis: "asset", period_start_on: period + "-01", period_end_on: Date.iso8601(period + "-01").end_of_month.iso8601, opening_balance_cents: 20_000, closing_balance_cents: 20_000 + net,
-        printed_debit_cents: rows.sum { |row| [ -row[:signed_amount_cents], 0 ].max }, printed_credit_cents: rows.sum { |row| [ row[:signed_amount_cents], 0 ].max }, printed_row_count: rows.length } ], events: rows, reported_row_count: rows.length }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
+      accounts: [ { account_key: "synthetic-account", account_basis: "asset", period_start_on: period + "-01", period_end_on: Date.iso8601(period + "-01").end_of_month.iso8601, opening_balance_cents: 20_000, closing_balance_cents: net && 20_000 + net,
+        printed_debit_cents: amounts_known ? rows.sum { |row| [ -row[:signed_amount_cents], 0 ].max } : nil, printed_credit_cents: amounts_known ? rows.sum { |row| [ row[:signed_amount_cents], 0 ].max } : nil, printed_row_count: rows.length } ] + extra_accounts, events: rows, reported_row_count: rows.length }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] }.merge(coverage))
     result = FinancialDocuments::SourceAccountingPersister.new(import, attempt: attempt, accounting: accounting).call
     import.update!(metadata: { "source_accounting_revision_id" => result[:revision].id, "source_accounting_review_pending" => true })
     result.merge(import: import)
@@ -478,13 +787,13 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     run_operation(OPS::AccountLink, account_input(source).merge(tracked_account_id: tracked&.id))
   end
 
-  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" }, merchant: "Synthetic merchant")
+  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" }, merchant: "Synthetic merchant", category: @category)
     head = SourceReviewHead.find_by(household: @household, financial_source_event: event)
     purchase = amount&.abs if purchase == :default
     pending = head&.source_review_drafts&.pending&.first
     run_operation(OPS::DraftStage, { event_id: event.id, base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, expected_pending_draft: pending && { id: pending.id, lock_version: pending.lock_version, digest: pending.digest }, reason: reason, projection: projection,
       facts: { source_account_identity_version_id: identity.id, disposition: disposition, event_type: event_type, signed_amount_cents: amount, purchase_amount_cents: purchase, posted_on: posted_on,
-        merchant: merchant, budget_category_id: @category.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
+        merchant: merchant, budget_category_id: category&.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
   end
 
   def draft_input(draft)
