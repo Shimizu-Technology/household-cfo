@@ -113,7 +113,7 @@ module Scorecard
       return HouseholdFinance::TransactionDraftConfirmer::ELSEWHERE unless source
 
       drawdowns = HouseholdFinance::CashDrawdowns.new(@household)
-      chosen = row_answers.filter_map { |id, answer| drawdowns.candidate(id, on: draft.occurred_on) if answer["event_id"] == source }.first
+      chosen = row_answers.filter_map { |id, answer| drawdowns.candidate(id, on: draft.occurred_on) if answer && answer["event_id"] == source }.first
       raise "Answer-key cash withdrawal is not eligible: #{source}" unless chosen
 
       chosen.withdrawal.financial_source_event_id

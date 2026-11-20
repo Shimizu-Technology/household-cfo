@@ -16,11 +16,10 @@ Context: PR #342, base `80b466433`, takeover head `e6abf8101`, November 21, 2026
 
 ## UI evidence and limits
 
-Compiled local QA assets served on port 5428 with the real isolated Rails API on 3428. The build enables the existing development-only fictional sign-in; the normal production build is verified separately. The undo fixture showed $180 and one Paid with cash question at 1366×900 and 390×844. Tapping Yes on the phone saved $140 and removed the question. No horizontal overflow or external requests. Screenshots and execution log retained by the implementation worker in `/tmp/b5-cash-{desktop,phone}.png` and `/tmp/b5-cash-browser.log`.
+Compiled local QA assets served on port 5428 with the real isolated Rails API on 3428. The build enables the existing development-only fictional sign-in; the normal production build is verified separately. The undo fixture showed $180 and one Paid with cash question at 1366×900 and 390×844. Tapping Yes on the phone saved $140 and removed the question. No horizontal overflow or external requests.
 
 The five existing real-API local-stack tests also pass (desktop and compact Chromium). Production authentication deliberately blocks fictional sign-in; the first attempt against production-mode assets was stopped and repeated with the compiled QA build. WebKit and physical-device Safari were not run on this host. Production was not changed. The stack was reset and its database dropped after QA.
 
-The shared-guidance freshness helper could not run because this host lacks `~/.config/shimizu-technology/agent-context.json`. Relevant installed skills resolve to `~/Shared-Guidance/skills` and were read directly. This is a host setup gap, not an application gate failure.
 
 ## Automated gate
 

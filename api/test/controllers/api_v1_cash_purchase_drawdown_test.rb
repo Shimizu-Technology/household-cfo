@@ -620,6 +620,18 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_equal 1, creations
   end
 
+  test "the uploads list reads cash drafts' confirmed purchases once, however many there are" do
+    source = build_source([ [ "Tasi Demo ATM", -10_000, "cash_withdrawal", "2026-08-03" ] ])
+    attach = ->(count, offset) { count.times { |index| confirmed_cash_purchase("Demo cafe #{offset + index}", 500, "2026-08-05").update!(financial_document_import: source[:import]) } }
+    attach.call(1, 0)
+    few = sql_count { get "/api/v1/document_imports", headers: headers }
+    assert_response :success
+    attach.call(4, 1)
+    many = sql_count { get "/api/v1/document_imports", headers: headers }
+    assert_response :success
+    assert_equal few, many
+  end
+
   test "scorecard answers with an eligible withdrawal older than those offered" do
     require Rails.root.join("lib/scorecard/approval_simulator")
     older = withdraw(10_000, "2026-07-01")
@@ -628,7 +640,8 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     refute_includes draft.dig("cash_payment", "candidates").pluck("financial_source_event_id"), older.id
     simulator = Scorecard::ApprovalSimulator.allocate
     simulator.instance_variable_set(:@household, @household)
-    simulator.instance_variable_set(:@row_answers, { 0 => { "event_id" => "old-cash" }, older.id => { "event_id" => "old-cash" } })
+    # An unmapped row (no answer) is skipped, not a crash.
+    simulator.instance_variable_set(:@row_answers, { 0 => { "event_id" => "old-cash" }, -1 => nil, older.id => { "event_id" => "old-cash" } })
     assert_equal older.id, simulator.send(:cash_withdrawal_answer, "old-cash", TransactionDraft.find(draft.fetch("id")))
     assert_equal "elsewhere", simulator.send(:cash_withdrawal_answer, nil, TransactionDraft.find(draft.fetch("id")))
     assert_raises(RuntimeError) { simulator.send(:cash_withdrawal_answer, "missing", TransactionDraft.find(draft.fetch("id"))) }

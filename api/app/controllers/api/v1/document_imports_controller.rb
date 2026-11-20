@@ -38,7 +38,7 @@ module Api
 
       def index
         imports = current_household.financial_document_imports
-          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: :budget_category)
+          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: [ :budget_category, :confirmed_transaction ])
           .recent_first.limit(50)
         render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import, include_details: false) } }
       end
