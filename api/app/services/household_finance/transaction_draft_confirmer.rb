@@ -22,7 +22,7 @@ module HouseholdFinance
         @question = question
       end
     end
-    ELSEWHERE = "elsewhere".freeze
+    ELSEWHERE = CashPayment::ELSEWHERE
     MERCHANT_RULE_INITIAL_CONFIDENCE = BigDecimal("0.83")
     MERCHANT_RULE_UPSERT_SQL = Arel.sql(<<~SQL.squish)
       confidence = LEAST(0.95, merchant_category_rules.confidence + 0.03),
@@ -50,6 +50,19 @@ module HouseholdFinance
 
     def self.cash_question_message(question)
       "#{question.fetch(:question)} Choose on the purchase. Nothing was added to your spending."
+    end
+
+    # A confirm asks one question at a time ("Same purchase?", then "Paid with the $100 you took out?", or the other
+    # way round) and the card sends one answer each time. When a refusal asks the next question, the answer she just
+    # gave is kept on the pending purchase, so she isn't asked it again. Nothing counts until the last answer.
+    # different_purchase rejects the suggestions she was asked about; cash_withdrawal keeps her Yes (or No).
+    def self.keep_answers!(draft, different_purchase: false, cash_withdrawal: nil)
+      return unless draft.pending?
+
+      draft.transaction_draft_matches.proposed.update_all(status: "rejected", updated_at: Time.current) if different_purchase
+      return if cash_withdrawal.blank? || !CashPayment.paid_in_cash?(draft)
+
+      draft.update!(draft_payload: CashPayment.with_answer(draft.draft_payload, cash_withdrawal == ELSEWHERE ? ELSEWHERE : cash_withdrawal.to_i))
     end
 
     # different_purchase: she answered "Different purchase" to "Same purchase as …?".
@@ -119,7 +132,12 @@ module HouseholdFinance
       return cash_withdrawal if cash_withdrawal
       return if CashPayment.payload(draft)["answer"] == ELSEWHERE
 
-      candidates = CashDrawdowns.new(draft.household).candidates(on: draft.occurred_on)
+      drawdowns = CashDrawdowns.new(draft.household)
+      # Her Yes, given while she was also asked "Same purchase?". Asked again if that cash has gone since.
+      chosen = CashPayment.chosen_withdrawal_id(draft)
+      return chosen if chosen && drawdowns.candidate(chosen, on: draft.occurred_on)
+
+      candidates = drawdowns.candidates(on: draft.occurred_on)
       return if candidates.empty?
 
       question = { question: CashPayment.question(candidates, cents), cash_cents: cents,
@@ -161,6 +179,7 @@ module HouseholdFinance
             draft.transaction_draft_matches.proposed.destroy_all
           end
           TransactionDraftMatcher.new(draft.reload).call
+          self.class.keep_answers!(draft, different_purchase: different_purchase, cash_withdrawal: cash_withdrawal)
         end
       end
     rescue InvalidDraftCorrection, ArgumentError, ActiveRecord::RecordInvalid => e

@@ -586,9 +586,11 @@ export type CashPayment = {
   source: 'receipt' | 'participant'
   cash: number
   cash_cents: number
-  answer?: 'elsewhere' | null
-  /** Pending: withdrawals she can choose from, most recent first. Empty when none has cash left. */
+  answer?: 'elsewhere' | 'withdrawal' | null
+  /** Pending: withdrawals she can choose from, most recent first. Empty when none has cash left, or when she already chose. */
   candidates?: CashWithdrawalCandidate[]
+  /** Pending: the withdrawal she already said paid for it, kept while the card asks "Same purchase?". */
+  chosen_event_id?: number
   question?: string
   message?: string
   /** Confirmed: it was paid from cash she took out and adds nothing. */

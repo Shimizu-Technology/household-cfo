@@ -14,17 +14,7 @@ module HouseholdFinance
           require_legacy_draft!(draft)
           source_type = normalized_source_type(input[:source_type])
           normalized = { draft_id: draft.id, source_type: source_type, year: draft.occurred_on.year }
-          # Her answer to "Same purchase as …?". Only present when she said it is a different purchase.
-          normalized[:different_purchase] = true if ActiveModel::Type::Boolean.new.cast(input[:different_purchase]) == true
-          # Her answer to "Paid with the $100 you took out on Aug 3?": Yes names that withdrawal, No says the cash came from elsewhere.
-          if ActiveModel::Type::Boolean.new.cast(input[:cash_from_elsewhere]) == true
-            normalized[:cash_withdrawal] = TransactionDraftConfirmer::ELSEWHERE
-          elsif input[:cash_withdrawal_event_id].present?
-            event_id = input[:cash_withdrawal_event_id].to_s.match?(/\A\d{1,18}\z/) ? input[:cash_withdrawal_event_id].to_i : 0
-            raise ArgumentError, "Choose a cash withdrawal from your approved statements" unless event_id.positive? && FinancialSourceEvent.where(household_id: household.id, id: event_id).exists?
-
-            normalized[:cash_withdrawal] = event_id
-          end
+          normalized.merge!(normalized_confirm_answers(input))
           if input[:occurred_on].present?
             occurred_on = parsed_date(input[:occurred_on])
             normalized[:occurred_on] = occurred_on.iso8601

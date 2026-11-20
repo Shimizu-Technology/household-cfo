@@ -8626,7 +8626,7 @@ function TransactionDraftReviewCard({
             {proposedMatches.length > 1 && <div className="transaction-duplicate-question__actions">{differentPurchaseButton}</div>}
           </section>
         )}
-        {cashPayment && !askSamePurchase && (
+        {cashPayment && (!askSamePurchase || cashPayment.chosen_event_id != null) && (
           // Yes: the cash already counted when she took it out, so this moves part of it into this purchase's
           // category and adds nothing. No: the cash came from somewhere else and this counts on its own.
           <section className="transaction-duplicate-question transaction-cash-question" aria-label={`Which cash paid for ${itemName}`}>

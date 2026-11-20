@@ -73,6 +73,8 @@ module HouseholdFinance
           end
           # "Paid with cash" on the purchase card. Only what she says; never guessed.
           normalized[:paid_with_cash] = ActiveModel::Type::Boolean.new.cast(input[:paid_with_cash]) == true if input.key?(:paid_with_cash) && !input[:paid_with_cash].nil?
+          # Answers she gave on a confirm that was refused to ask her next question (TransactionDraftConfirmer.keep_answers!).
+          normalized.merge!(normalized_confirm_answers(input))
           raise ArgumentError, "Tell me what to change on that pending transaction review" if normalized.keys == %i[draft_id source_type year]
 
           normalized
@@ -131,6 +133,7 @@ module HouseholdFinance
           if input.key?(:paid_with_cash) && CashPayment.paid_in_cash?(result.draft) != input[:paid_with_cash]
             result.draft.update!(draft_payload: CashPayment.with_paid_in_cash(result.draft.draft_payload, input[:paid_with_cash]))
           end
+          TransactionDraftConfirmer.keep_answers!(result.draft, different_purchase: input[:different_purchase] == true, cash_withdrawal: input[:cash_withdrawal])
 
           result.draft
         end

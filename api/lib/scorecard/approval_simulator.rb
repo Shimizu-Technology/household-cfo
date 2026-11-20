@@ -371,28 +371,32 @@ module Scorecard
               { id: split.id, budget_category_id: category&.id, amount: HouseholdFinance::Money.dollars(split.amount_cents) }
             end
           end
-          different = false
+          # The card asks one question at a time and sends one answer each time; the app keeps each answer while it
+          # asks the next one. Both views answer every question from the answer key.
           result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes).call
-          if result.possible_matches.present?
-            # The app asks "Same purchase as …?" before it can count twice. Both
-            # views answer from the answer key, like any other duplicate question.
-            same = result.possible_matches.find { |candidate| bank_event_id(candidate.fetch(:transaction_id)) == event_id }
-            if same
-              accept_asked_receipt_match!(draft, same.fetch(:transaction_id), doc)
-              next
+          matched = false
+          2.times do
+            if result.possible_matches.present?
+              # "Same purchase as …?" before it can count twice, like any other duplicate question.
+              same = result.possible_matches.find { |candidate| bank_event_id(candidate.fetch(:transaction_id)) == event_id }
+              if same
+                accept_asked_receipt_match!(draft, same.fetch(:transaction_id), doc)
+                matched = true
+                break
+              end
+              result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes, different_purchase: true).call
+            elsif result.cash_question.present?
+              # A receipt paid in cash asks "Paid with the $100 you took out …?": the withdrawal it was paid from
+              # (paid_from_withdrawal_event_id), otherwise No.
+              count(doc, :cash_withdrawal)
+              source = @key.event(answer)["paid_from_withdrawal_event_id"]
+              chosen = result.cash_question.fetch(:candidates).find { |candidate| source && row_answers[candidate.fetch(:financial_source_event_id)]&.fetch("event_id") == source }
+              result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes,
+                cash_withdrawal: chosen ? chosen.fetch(:financial_source_event_id) : HouseholdFinance::TransactionDraftConfirmer::ELSEWHERE).call
             end
-            different = true
-            result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes, different_purchase: true).call
           end
-          if result.cash_question.present?
-            # A receipt paid in cash asks "Paid with the $100 you took out …?". Both views answer from the answer key:
-            # the withdrawal it was paid from (paid_from_withdrawal_event_id), otherwise No.
-            count(doc, :cash_withdrawal)
-            source = @key.event(answer)["paid_from_withdrawal_event_id"]
-            chosen = result.cash_question.fetch(:candidates).find { |candidate| source && row_answers[candidate.fetch(:financial_source_event_id)]&.fetch("event_id") == source }
-            result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes, different_purchase: different,
-              cash_withdrawal: chosen ? chosen.fetch(:financial_source_event_id) : HouseholdFinance::TransactionDraftConfirmer::ELSEWHERE).call
-          end
+          next if matched
+
           count(doc, :receipt_confirmation)
           raise "Receipt confirmation failed: #{result.errors.join(', ')}" unless result.success?
           transaction_answers[result.transaction.id] = doc.fetch("lines").first

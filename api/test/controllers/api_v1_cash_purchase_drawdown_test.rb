@@ -189,6 +189,91 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_nil response.parsed_body.dig("transaction_draft", "cash_payment")
   end
 
+  # Review fix 1. The card sends one answer each time. Each answer she gives is kept while the next question is
+  # asked, so a purchase that gets both questions can be confirmed, and nothing counts until her last answer.
+  test "Different purchase, then which cash: each answer is kept and the next question is asked" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    earlier = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining)
+    confirm(earlier)
+    assert_response :success, response.body
+    assert_equal 14_000, month_total(8)
+
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft)
+    assert_response :conflict
+    assert_equal "possible_duplicate", response.parsed_body.fetch("code")
+
+    confirm(draft, different_purchase: true)
+    assert_response :conflict
+    assert_equal "cash_withdrawal_question", response.parsed_body.fetch("code")
+    card = response.parsed_body.fetch("transaction_draft")
+    assert_equal "pending", card.fetch("status")
+    assert_equal [ "rejected" ], card.fetch("matches").pluck("status").uniq, "Her Different purchase is kept"
+    assert_equal "Paid with the $100 you took out on Aug 3?", card.dig("cash_payment", "question"), "so the card asks the cash question next"
+    assert_equal 14_000, month_total(8), "Nothing counts yet"
+
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :success, response.body
+    assert_equal [ 6000, 8000, 14_000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+    assert_equal 2, @household.household_transactions.where(merchant: "Tasi Demo Cafe", status: "confirmed").count
+  end
+
+  test "which cash first, then Different purchase: her Yes is kept while Same purchase? is asked" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    assert_equal "Paid with the $100 you took out on Aug 3?", draft.dig("cash_payment", "question")
+    # A purchase she logs by hand meanwhile looks like the same one.
+    other = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining)
+    confirm(other, different_purchase: true)
+    assert_response :success, response.body
+
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :conflict
+    assert_equal "possible_duplicate", response.parsed_body.fetch("code")
+    card = response.parsed_body.fetch("transaction_draft")
+    assert_equal [ "proposed" ], card.fetch("matches").pluck("status").uniq
+    assert_equal [ withdrawal.id, [] ], card.fetch("cash_payment").values_at("chosen_event_id", "candidates"), "Her Yes is kept"
+    assert_equal "You said this was paid with the $100 you took out on Aug 3, so it won't add to your spending.", card.dig("cash_payment", "message")
+    assert_nil @household.household_transactions.where("metadata ? 'cash_withdrawal'").first
+    assert_equal 14_000, month_total(8), "Nothing counts yet"
+
+    confirm(draft, different_purchase: true)
+    assert_response :success, response.body
+    purchase = TransactionDraft.find(draft.fetch("id")).confirmed_transaction
+    assert_equal withdrawal.id, purchase.metadata.dig("cash_withdrawal", "financial_source_event_id")
+    assert_equal [ 6000, 8000, 14_000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+  end
+
+  test "a caller that confirms directly, like the scorecard, also has each answer kept" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    confirm(log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining))
+    record = TransactionDraft.find(log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true).fetch("id"))
+
+    assert HouseholdFinance::TransactionDraftConfirmer.new(record).call.possible_matches.present?
+    asked = HouseholdFinance::TransactionDraftConfirmer.new(record.reload, different_purchase: true).call
+    assert_equal "Paid with the $100 you took out on Aug 3?", asked.cash_question.fetch(:question)
+    assert_equal [ "rejected" ], record.transaction_draft_matches.reload.pluck(:status).uniq
+    done = HouseholdFinance::TransactionDraftConfirmer.new(record.reload, cash_withdrawal: withdrawal.id).call
+    assert done.success?, done.errors.to_sentence
+    assert_equal 14_000, month_total(8)
+  end
+
+  test "a kept Yes whose cash is gone by the time she answers Same purchase? is asked again" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    other = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining)
+    confirm(other, different_purchase: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_equal "possible_duplicate", response.parsed_body.fetch("code")
+    # Meanwhile the withdrawal is re-reviewed as a transfer.
+    move_to_transfer(withdrawal)
+    assert_empty TransactionDraft.find(draft.fetch("id")).then { |record| HouseholdFinance::CashPayment.presentation(record).fetch(:candidates) }
+
+    confirm(draft, different_purchase: true)
+    assert_response :success, response.body
+    assert_nil TransactionDraft.find(draft.fetch("id")).confirmed_transaction.metadata["cash_withdrawal"], "That cash is gone, so it counts on its own"
+  end
+
   private
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
@@ -204,9 +289,17 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     post "/api/v1/transaction_drafts/#{draft.fetch('id')}/confirm", params: { transaction_draft: answer }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
   end
 
+  def move_to_transfer(withdrawal)
+    version = SourceReviewHead.find_by!(financial_source_event: withdrawal).approved_version
+    head = version.source_review_head
+    approve(@sources.fetch(withdrawal.id), [ { event_id: withdrawal.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version, account_version_id: version.source_account_identity_version_id },
+      decision: "edited", edit: { kind: "moved" } } ])
+    assert_response :success, response.body
+  end
+
   # A statement with one ATM withdrawal, approved as read into Cash.
-  def withdraw(cents, on)
-    source = build_source([ [ "Tasi Demo ATM withdrawal", -cents, "cash_withdrawal", on ] ])
+  def withdraw(cents, on, merchant: "Tasi Demo ATM withdrawal")
+    source = build_source([ [ merchant, -cents, "cash_withdrawal", on ] ])
     event = source[:revision].financial_source_events.sole
     row = plan(source).fetch("ready").sole
     assert_equal @cash.id, row.fetch("category_id")

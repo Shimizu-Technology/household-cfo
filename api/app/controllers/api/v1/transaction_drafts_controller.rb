@@ -216,8 +216,14 @@ module Api
       # on the purchase, which stays pending, the same way "Save draft" does.
       # The update also refreshes the suggestions for the corrected purchase,
       # so its card can ask "Same purchase as …?" and accept that match.
+      # It also keeps the answer she just gave ("Different purchase", or which
+      # cash paid for it) when the refusal asks her the other question, so the
+      # card asks that one next instead of asking the first one again.
       def keep_correction_for_review!
-        corrections = confirm_params.to_h.except("different_purchase", "cash_withdrawal_event_id", "cash_from_elsewhere")
+        corrections = confirm_params.to_h
+        corrections = corrections.except("different_purchase") unless ActiveModel::Type::Boolean.new.cast(corrections["different_purchase"]) == true
+        corrections = corrections.except("cash_from_elsewhere") unless ActiveModel::Type::Boolean.new.cast(corrections["cash_from_elsewhere"]) == true
+        corrections = corrections.except("cash_withdrawal_event_id") if corrections["cash_withdrawal_event_id"].blank?
         return if corrections.empty?
 
         operation_runner.run(

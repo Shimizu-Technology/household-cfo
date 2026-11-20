@@ -7,9 +7,13 @@ module HouseholdFinance
   # choice on the form or the purchase card, or her own words to Mia. Cash is never guessed from nothing.
   #
   # draft_payload["cash_payment"] = { "source" => "receipt" | "participant", "cash_cents" => receipt cash (receipt only),
-  #   "answer" => nil | "elsewhere" }. "elsewhere" is her "No": the cash came from somewhere else, so it counts on its own.
+  #   "answer" => nil | "elsewhere" | "withdrawal", "withdrawal_event_id" => the withdrawal she chose (with "withdrawal") }.
+  # "elsewhere" is her "No": the cash came from somewhere else, so it counts on its own. "withdrawal" is her "Yes",
+  # kept while the purchase is asked "Same purchase?" too, so she answers each question once.
   module CashPayment
     PAYLOAD_KEY = "cash_payment".freeze
+    ELSEWHERE = "elsewhere".freeze
+    WITHDRAWAL = "withdrawal".freeze
     SOURCES = %w[receipt participant].freeze
     NOT_CASH = /(?:\bcash\s*(?:-\s*)?(?:back|app|card)\b|\bapple\s*cash\b)/i
     # "paid with cash", "paid $40 cash", "in cash", "with cash", "cash purchase". Not cash back, Cash App or Apple Cash.
@@ -54,11 +58,22 @@ module HouseholdFinance
       payload.merge(PAYLOAD_KEY => existing.is_a?(Hash) && existing["source"] == "receipt" ? existing.except("answer") : participant_payload)
     end
 
+    # answer: ELSEWHERE, a withdrawal's event id (her Yes), or nil to forget her answer.
     def with_answer(draft_payload, answer)
       value = draft_payload.to_h[PAYLOAD_KEY]
       return draft_payload.to_h unless value.is_a?(Hash)
 
-      draft_payload.to_h.merge(PAYLOAD_KEY => answer ? value.merge("answer" => answer) : value.except("answer"))
+      value = value.except("answer", "withdrawal_event_id")
+      value = value.merge("answer" => ELSEWHERE) if answer == ELSEWHERE
+      value = value.merge("answer" => WITHDRAWAL, "withdrawal_event_id" => answer.to_i) if answer.is_a?(Integer) && answer.positive?
+      draft_payload.to_h.merge(PAYLOAD_KEY => value)
+    end
+
+    # The withdrawal she said paid for this pending purchase, if she said so before it could be confirmed.
+    def chosen_withdrawal_id(draft)
+      value = payload(draft)
+      id = value && value["answer"] == WITHDRAWAL ? value["withdrawal_event_id"].to_i : 0
+      id.positive? ? id : nil
     end
 
     # What the purchase card shows. Pending: the withdrawals she can choose from, or that none has cash left.
@@ -70,9 +85,14 @@ module HouseholdFinance
       cents = cash_cents(draft)
       base = { source: value["source"], cash: Money.dollars(cents), cash_cents: cents, answer: value["answer"] }
       if draft.pending?
-        return base.merge(candidates: [], message: "You said the cash came from somewhere else, so it counts as its own purchase.") if value["answer"] == "elsewhere"
+        return base.merge(candidates: [], message: "You said the cash came from somewhere else, so it counts as its own purchase.") if value["answer"] == ELSEWHERE
 
         drawdowns ||= CashDrawdowns.new(draft.household)
+        chosen = chosen_withdrawal_id(draft) && drawdowns.candidate(chosen_withdrawal_id(draft), on: draft.occurred_on)
+        if chosen
+          return base.merge(candidates: [], chosen_event_id: chosen.withdrawal.financial_source_event_id,
+            message: "You said this was paid with #{candidate_label(chosen)}, so it won't add to your spending.")
+        end
         candidates = cents.positive? ? drawdowns.candidates(on: draft.occurred_on) : []
         return base.merge(candidates: [], message: none_message(draft)) if candidates.empty?
 

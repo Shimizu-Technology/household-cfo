@@ -50,6 +50,23 @@ module HouseholdFinance
           source_type
         end
 
+        # Her answers to the questions a confirm asks: "Same purchase as …?" (only present when she said it is a
+        # different purchase) and "Paid with the $100 you took out on Aug 3?" (Yes names that withdrawal, No says the
+        # cash came from elsewhere).
+        def normalized_confirm_answers(input)
+          answers = {}
+          answers[:different_purchase] = true if ActiveModel::Type::Boolean.new.cast(input[:different_purchase]) == true
+          if ActiveModel::Type::Boolean.new.cast(input[:cash_from_elsewhere]) == true
+            answers[:cash_withdrawal] = TransactionDraftConfirmer::ELSEWHERE
+          elsif input[:cash_withdrawal_event_id].present?
+            event_id = input[:cash_withdrawal_event_id].to_s.match?(/\A\d{1,18}\z/) ? input[:cash_withdrawal_event_id].to_i : 0
+            raise ArgumentError, "Choose a cash withdrawal from your approved statements" unless event_id.positive? && FinancialSourceEvent.where(household_id: household.id, id: event_id).exists?
+
+            answers[:cash_withdrawal] = event_id
+          end
+          answers
+        end
+
         def validate_source!(input, source)
           expected = source.to_s == "mia" ? "manual_chat" : "manual_ui"
           return if input.fetch(:source_type) == expected

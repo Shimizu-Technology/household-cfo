@@ -782,6 +782,32 @@ describe('cash purchases', () => {
     expect(screen.getByRole('button', { name: /^Confirm / })).toBeTruthy()
   })
 
+  // The card asks one question at a time and sends one answer each time; the server keeps each answer while it asks the next.
+  it('asks which cash next once she said Different purchase', async () => {
+    const lunch = draft({ id: 243, merchant: 'Tasi Demo Cafe', amount: 40, amount_cents: 4000, occurred_on: '2026-08-05',
+      matches: [{ id: 77, status: 'rejected', confidence: 0.9, match_reason: 'same amount', transaction: { id: 12, occurred_on: '2026-08-05', merchant: 'Tasi Demo Cafe', amount: 40, source_type: 'manual_ui', categories: ['Dining'] } }],
+      cash_payment: { source: 'participant', cash: 40, cash_cents: 4000, question: 'Paid with the $100 you took out on Aug 3?', candidates: [candidate(904, 'the $100 you took out on Aug 3', '2026-08-03', 100)] } })
+    const props = stackProps([lunch])
+    render(<TransactionDraftReviewStack {...props} />)
+    expect(screen.queryByText(/^Same purchase as/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes: Tasi Demo Cafe $40 on Aug 5 was paid with the $100 you took out on Aug 3' }))
+    await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(lunch, { cashWithdrawalEventId: 904 }))
+  })
+
+  it('asks Same purchase? next once she chose the cash, and says which cash she chose', async () => {
+    const lunch = draft({ id: 244, merchant: 'Tasi Demo Cafe', amount: 40, amount_cents: 4000, occurred_on: '2026-08-05',
+      matches: [{ id: 78, status: 'proposed', confidence: 0.9, match_reason: 'same amount', transaction: { id: 13, occurred_on: '2026-08-05', merchant: 'Tasi Demo Cafe', amount: 40, source_type: 'manual_ui', categories: ['Dining'] } }],
+      cash_payment: { source: 'participant', cash: 40, cash_cents: 4000, answer: 'withdrawal', chosen_event_id: 905, candidates: [],
+        message: 'You said this was paid with the $100 you took out on Aug 3, so it won’t add to your spending.' } })
+    const props = stackProps([lunch])
+    render(<TransactionDraftReviewStack {...props} />)
+    expect(screen.getByText(/^Same purchase as Tasi Demo Cafe on Aug 5/)).toBeTruthy()
+    expect(screen.getByText('You said this was paid with the $100 you took out on Aug 3, so it won’t add to your spending.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Yes: / })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Different purchase: / }))
+    await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(lunch, { differentPurchase: true }))
+  })
+
   it('says on a confirmed purchase which cash paid for it', () => {
     const confirmed = draft({ status: 'confirmed', cash_payment: { source: 'participant', cash: 40, cash_cents: 4000, linked: true, linked_cents: 4000, withdrawn_on: '2026-08-03',
       message: "Paid with $40 of the $100 you took out on Aug 3. It doesn't add to your spending: that cash already counted when you took it out." } })
