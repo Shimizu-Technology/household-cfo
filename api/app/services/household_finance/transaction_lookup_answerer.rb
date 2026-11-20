@@ -92,7 +92,9 @@ module HouseholdFinance
     def merchant_comparison_target
       return unless message.match?(/\b(more|less|compare|versus|vs\.?|or)\b/i)
 
+      # Named the way she reads them, never with the bank's wording ("Purchase authorized on …").
       matches = known_merchants.select { |merchant| normalized_message.include?(normalize(merchant)) }.first(4)
+        .map { |merchant| display_merchant(merchant) }.uniq { |label| label.downcase }
       return if matches.length < 2
 
       { type: :merchant_comparison, labels: matches }
@@ -103,7 +105,7 @@ module HouseholdFinance
         normalized_merchant = normalize(merchant)
         normalized_merchant.present? && normalized_message.include?(normalized_merchant)
       end
-      return { type: :merchant, label: known_merchant } if known_merchant.present?
+      return { type: :merchant, label: display_merchant(known_merchant) } if known_merchant.present?
 
       extracted = message.match(/\b(?:at|from)\s+([a-z0-9'&.\-\s]+?)(?:\s+(?:this|last|in|for|during|between|from|and how|how much|how many)|[?.!]|$)/i)&.[](1)&.squish
       extracted = extracted&.gsub(/\b(today|yesterday)\b/i, "")&.squish
@@ -314,6 +316,8 @@ module HouseholdFinance
     def transaction_category_ids(transaction)
       lookup_splits(transaction).map(&:budget_category_id)
     end
+
+    def display_merchant(merchant) = SpendingPatterns::MerchantName.call(merchant).presence || merchant
 
     def known_merchants
       @known_merchants ||= (base_transactions.map(&:merchant) + base_bank_transactions.map { |transaction| transaction.merchant_name.presence || transaction.name }).compact.uniq

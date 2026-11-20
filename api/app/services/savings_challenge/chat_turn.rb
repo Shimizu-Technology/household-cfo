@@ -425,6 +425,11 @@ module SavingsChallenge
         @topic = { type: "challenge_patterns", choices: [] }
         return true
       end
+      if SpendingPatterns::WhereMoneyGoes.question?(@message)
+        @answer = SpendingPatterns::WhereMoneyGoes.new(@household, @patterns, today: @enrollment.local_today).call
+        @topic = { type: "challenge_patterns", choices: [] }
+        return true
+      end
       if (partial = SpendingPatterns::Answerer.partial_month_summary(@patterns, today: @enrollment.local_today))
         @answer = partial
         @topic = { type: "challenge_patterns", choices: [] }
@@ -440,7 +445,7 @@ module SavingsChallenge
       else
         "From #{present.first} to #{present.last} in the recorded purchases,"
       end
-      flexible = @patterns[:discretionary_merchants].first(2).map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
+      flexible = SpendingPatterns::Answerer.flexible_stops(@patterns).map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
       observed = if flexible.any?
         "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest everyday spending item' : 'were your biggest everyday spending items'}."
       else
@@ -453,7 +458,7 @@ module SavingsChallenge
       reference = SpendingPatterns::Answerer.question_reference(message: @message, observed: observed, waterfall: waterfall, estimate: estimate, question: choices_question(choices))
       narrator = PatternsNarrator.new(user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
         answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: reference, available_product_modules: @available_product_modules,
-          verified_facts: { merchants: @patterns[:discretionary_merchants].first(2), cluster: cluster, choices: choices,
+          verified_facts: { merchants: SpendingPatterns::Answerer.flexible_stops(@patterns), cluster: cluster, choices: choices,
             months_with_purchases: present, missing_months: missing } })
       @answer = narrator.call
       @supplied_content_context = narrator.supplied_content_context

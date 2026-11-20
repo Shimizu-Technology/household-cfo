@@ -115,7 +115,9 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
     ].each do |reply|
       assert_equal [ "protected_cut" ], rules_for(reply, ledger: PROTECTED_LEDGER), reply
     end
-    assert_empty rules_for("Cut back on what goes to Auntie Lina.")
+    # Without the ledger a bare name is just a name; a relative ("Auntie") is protected on its own.
+    assert_empty rules_for("Cut back on what goes to Lina.")
+    assert_equal [ "protected_cut" ], rules_for("Cut back on what goes to Auntie Lina.")
   end
 
   test "protected_cut catches lower, skip, pause, put on hold and fewer" do

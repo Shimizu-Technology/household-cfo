@@ -83,6 +83,7 @@ module HouseholdFinance
     RAW_DESCRIPTORS = [
       /\b(?:recurring\s+payment|purchase(?:\s+with\s+cash\s+back\s+\$[\d.,]+)?|money\s+transfer|non-wf\s+atm\s+withdrawal)\s+authorized\s+on\b/i,
       /\b[A-Z]\*\s*[·•*xX]{2,}\d{2,}/,
+      /\b[A-Z][·•]{2,}\d{4}\b/,
       /\bcard\s+(?!20\d{2}\b)\d{4}\b/i,
       /\bref\s*#\s*[a-z0-9]{6,}/i
     ].freeze

@@ -51,6 +51,76 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_equal 41_000 * 2 + 30_000 * 2 + 9_000 * 2 + 69_000 + 50_000 + (12_000 + 8_000 + 6_000) * 2, result[:observed_spending_cents]
   end
 
+  test "a clinic, pharmacy, daycare, insurer or money for family filed as flexible spending is never a cut" do
+    family = @household.budget_categories.create!(name: "Sent to Nana", stack_key: "discretionary", sort_order: 2)
+    cover = @household.budget_categories.create!(name: "Car insurance", stack_key: "discretionary", sort_order: 3)
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      # "Optional shopping" names nothing protected; the store names do.
+      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Talofofo Prenatal Clinic Talofofo GU S····5237 Card 5237", 20_500)
+      purchase(date, "Coral Reef Pharmacy", 4_200)
+      purchase(date, "Little Tasi Daycare", 30_000)
+      purchase(date, "Zelle to Tia Rosa", 15_000)
+      purchase(date, "Remittance to Nana Talun", 10_000, category: family)
+      purchase(date, "Harbor Mutual Insurance", 9_000, category: cover)
+      purchase(date, "Seabreeze Snack Bar", 3_000)
+    end
+    result = analyze
+    assert_equal [ "Seabreeze Snack Bar" ], result[:candidate_changes].pluck(:merchant)
+    assert_equal [ "Seabreeze Snack Bar" ], result[:discretionary_merchants].pluck(:label)
+    assert_equal [ "Optional shopping" ], result[:discretionary_categories].pluck(:label)
+    assert_equal 3_000 * 2, result[:discretionary_categories].first[:total_cents]
+    # They still count as spending, and "where does it go" still sees them.
+    assert_equal (20_500 + 4_200 + 30_000 + 15_000 + 10_000 + 9_000 + 3_000) * 2, result[:observed_spending_cents]
+    assert_includes result[:merchants].pluck(:label), "Talofofo Prenatal Clinic"
+    assert_equal [ "Optional shopping", "Sent to Nana", "Car insurance" ], result[:categories].pluck(:label)
+  end
+
+  test "a one-off payment is never averaged into a monthly saving" do
+    # Bought once: never a monthly habit, whatever the months recorded.
+    purchase(Date.new(2026, 9, 27), "Coral Crib Outlet", 69_000)
+    # A $690 one-off at a store she visits for $20 leaves only one regular month: no cut.
+    purchase(Date.new(2026, 9, 3), "Hafa Home Goods", 2_000)
+    purchase(Date.new(2026, 10, 18), "Hafa Home Goods", 69_000)
+    # A store she keeps going back to: the one-off is left out of its monthly figure.
+    purchase(Date.new(2026, 8, 6), "Seabreeze Snack Bar", 6_000)
+    purchase(Date.new(2026, 9, 6), "Seabreeze Snack Bar", 7_000)
+    purchase(Date.new(2026, 10, 6), "Seabreeze Snack Bar", 69_000)
+    result = analyze
+    assert_equal [ "Seabreeze Snack Bar" ], result[:candidate_changes].pluck(:merchant)
+    # Half of the $65 regular months, not half of ($60 + $70 + $690) / 3.
+    assert_equal 3_250, result[:candidate_changes].first[:monthly_impact_cents]
+    assert_equal [ "Seabreeze Snack Bar" ], result[:recurring_discretionary_merchants].pluck(:label)
+    refute_includes result[:recurring_discretionary_merchants].pluck(:label), "Coral Crib Outlet"
+    # Totals are unchanged: the one-offs were spent.
+    assert_equal 82_000, result[:discretionary_merchants].find { |row| row[:label] == "Seabreeze Snack Bar" }[:total_cents]
+  end
+
+  test "cut first and where the money goes are different answers" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      rent = @household.budget_categories.create!(name: "Rent", stack_key: "non_discretionary", sort_order: 2)
+      [ 9, 10 ].each do |month|
+        purchase(Date.new(2026, month, 1), "Harbor View Apartments", 150_000, category: rent)
+        purchase(Date.new(2026, month, 8), "Purchase authorized on #{month}/08 Seabreeze Snack Bar Hagatna GU S····5237 Card 5237", 6_000)
+        purchase(Date.new(2026, month, 14), "Talofofo Prenatal Clinic", 20_500)
+      end
+      purchase(Date.new(2026, 10, 20), "Coral Crib Outlet", 69_000)
+      reply = ->(message) { SpendingPatterns::Answerer.new(household: @household, message: message, persona: Mia::Persona.neutral, history: [], approved_content: []).call }
+      assert SpendingPatterns::Answerer.observation_question?("What should I cut first?")
+      assert SpendingPatterns::Answerer.observation_question?("Where is my money going?")
+      cut = reply.call("What should I cut first?")
+      where = reply.call("Where is my money going?")
+      refute_equal cut, where
+      assert_includes cut, "Seabreeze Snack Bar ($120)"
+      assert_includes cut, "could free about $30 a month"
+      assert_includes cut, "medical care and money for family aren’t on this list"
+      refute_match(/Prenatal|Crib|Harbor View|Purchase authorized|S····/, cut)
+      assert_includes where, "most of your money went to Rent ($3,000)"
+      assert_includes where, "Harbor View Apartments ($3,000)"
+      assert_includes where, "Coral Crib Outlet ($690)"
+      refute_match(/could free|cut|Purchase authorized|S····/i, where)
+    end
+  end
+
   test "R2 current month reviewed purchases are visible without claiming a complete month" do
     purchase(Date.new(2026, 11, 3), "Ross", 6000)
     result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 7)).call

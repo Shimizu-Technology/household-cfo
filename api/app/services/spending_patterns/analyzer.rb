@@ -6,17 +6,27 @@ module SpendingPatterns
     # The Household CFO Method never suggests cutting the roof, utilities, medical care, children or family
     # (Mrs. Mel: "I would never tell someone… don't take care of your family"). These stay in spending totals
     # but are not flexible spending and are never offered as a cut.
-    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health|pharmacy|prescriptions?|hospital|clinic|therapy|child(?:ren)?|childcare|daycare|kids?|baby|babies|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
+    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health|healthcare|pharmacy|prescriptions?|hospital|clinic|therapy|prenatal|pediatrics?|optical|child(?:ren)?|childcare|daycare|preschool|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|support|remittances?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
+    # Bills, not a store habit. Kept apart from the words above because "cut your debt" is good advice.
+    BILL_CATEGORY = /\b(?:insurance|premiums?|loans?|debts?|(?:car|card|credit\s+card)\s+payments?)\b/i
+    # A store name that is care or a bill, whatever category it was filed under: a clinic filed as
+    # "Flexible spending" is still medical care. Narrower than the category words, so "Family Mart" or
+    # "Mom's Kitchen" can still be a store.
+    PROTECTED_MERCHANT = /\b(?:clinic|hospital|medical|health\s*care|health\s+(?:center|centre|services?)|pharmacy|drugs?(?:\s*store)?|rx|dental|dentist|orthodont\w*|doctors?|physicians?|pediatric\w*|prenatal|ob\s*-?\s*gyn|obstetric\w*|urgent\s+care|optometr\w*|optical|chiropract\w*|therapy|counsel(?:ing|ling|or)|laborator(?:y|ies)|daycare|childcare|child\s+care|preschool|montessori|insurance|assurance|takecare|loan|mortgage)\b/i
     # Money sent to a person is usually support or paying someone back, not a store habit to halve.
     PERSON_TRANSFER = /\A(?:zelle\b|venmo\b|cash\s*app\b|money\s+transfer\b|online\s+transfer\b|transfer\s+(?:to|from)\b|payment\s+to\b)|paypal\s*\*\s*[a-z]+\.[a-z]+/i
     # A store seen in only one month is a one-off, not a monthly habit.
     MIN_MONTHS_FOR_A_CUT = 2
+    # A payment this many times a store's usual one is a one-off there ($690 once at a store where
+    # she usually spends $20). It is left out of the store's monthly figure.
+    ONE_OFF_MULTIPLE = 3
     # Services people pay for every month. With the bank's own "Recurring Payment" marker, these may change
     # price or skip a statement and still read as a subscription.
     KNOWN_SERVICE = /\b(?:netflix|hulu|disney|youtube|spotify|apple\.com|icloud|apple\s+(?:music|tv|one)|google\s+(?:one|workspace|storage)|amazon\s+prime|prime\s+video|audible|peacock|paramount|hbo|starlink|chatgpt|zoom|adobe|microsoft\s+365|dropbox|xbox|playstation|nintendo|crunchyroll)/i
     BANK_RECURRING = /\Arecurring\s+payment\b/i
 
-    def self.protected_category?(name) = name.to_s.match?(PROTECTED_CATEGORY)
+    def self.protected_category?(name) = name.to_s.match?(PROTECTED_CATEGORY) || name.to_s.match?(BILL_CATEGORY)
+    def self.protected_merchant?(name) = name.to_s.match?(PROTECTED_MERCHANT)
 
     def initialize(household, today: Time.current.in_time_zone("Pacific/Guam").to_date, from: nil, to: nil)
       @household, @today, @from, @to = household, today, from, to
@@ -62,21 +72,27 @@ module SpendingPatterns
       end
       # A store or category refunded down to nothing (or below) is not somewhere she is spending.
       merchants = group_totals(rows, :merchant).select { |row| row[:total_cents].positive? }
-      discretionary = rows.flat_map { |row| row[:splits].select { |split| split[:discretionary] && split[:amount_cents].nonzero? }.map { |split| row.merge(amount_cents: split[:amount_cents], category: split[:name], category_id: split[:category_id]) } }
+      by_category = rows.flat_map { |row| row[:splits].select { |split| split[:amount_cents].nonzero? }.map { |split| row.merge(amount_cents: split[:amount_cents], category: split[:name], category_id: split[:category_id], discretionary: split[:discretionary]) } }
+      all_categories = group_totals(by_category, :category).select { |row| row[:total_cents].positive? }
+      # Care, bills and money sent to a person stay in the totals above but are never flexible spending,
+      # whichever category they were filed under.
+      discretionary = by_category.select { |row| row[:discretionary] && !row[:transfer_to_person] && !self.class.protected_merchant?(row[:merchant]) }
       flexible_merchants = group_totals(discretionary, :merchant).select { |row| row[:total_cents].positive? }
       categories = group_totals(discretionary, :category).select { |row| row[:total_cents].positive? }
-      cuttable = flexible_merchants.select { |row| row[:observed_months].length >= MIN_MONTHS_FOR_A_CUT && !row[:transfer_to_person] }
+      # Only a store she keeps going back to, without its one-off payments, can be a monthly cut.
+      cuttable = flexible_merchants.select { |row| row[:regular_months].length >= MIN_MONTHS_FOR_A_CUT && row[:monthly_average_cents].positive? }
       choices = cuttable.first(3).map.with_index do |row, index|
         { id: "choice-#{index + 1}", label: "Cut back on #{row[:label]}", merchant: row[:label],
           monthly_impact_cents: (row[:monthly_average_cents] / 2.0).floor,
-          description: "Try spending half as much at #{row[:label]}", assumption: "Half of the average in months with recorded purchases; an estimate, not saved money" }
+          description: "Try spending half as much at #{row[:label]}", assumption: "Half of the average in months with recorded purchases there, leaving out one-off payments; an estimate, not saved money" }
       end.select { |row| row[:monthly_impact_cents].positive? }
       choices = [] unless months.any? { |row| row[:spending_cents] && row[:month] < @today.strftime("%Y-%m") }
       { window: { start_on: start.iso8601, end_on: finish.iso8601 },
         coverage: { status: "partial", months: months, accounts: selected_source.map { |row| row.source_tracked_account.label }.uniq.sort,
           account_completeness: "unknown", note: "Only confirmed purchases and reviewed statement rows are included. Approved refunds are subtracted from the category of the purchase they refund, in the month they posted; missing months, accounts and unreviewed uploads may change these patterns." },
         purchase_count: purchases.length, observed_spending_cents: rows.any? ? rows.sum { |row| row[:amount_cents] } : nil,
-        merchants: merchants, discretionary_merchants: flexible_merchants, discretionary_categories: categories,
+        merchants: merchants, categories: all_categories, discretionary_merchants: flexible_merchants, recurring_discretionary_merchants: cuttable,
+        discretionary_categories: categories,
         small_purchase_clusters: clusters(purchases), possible_subscriptions: recurring(purchases), candidate_changes: choices,
         savings_inferred: false }
     end
@@ -109,13 +125,26 @@ module SpendingPatterns
         bought = group.reject { |row| row[:refund] }
         months = (bought.presence || group).map { |row| row[:date].strftime("%Y-%m") }.uniq
         total = group.sum { |row| row[:amount_cents] }
+        one_offs = one_off_payments(bought)
+        regular_months = (bought - one_offs).map { |row| row[:date].strftime("%Y-%m") }.uniq
+        regular_total = total - one_offs.sum { |row| row[:amount_cents] }
         { label: (bought.first || group.first)[key], total_cents: total, purchase_count: bought.length,
-          observed_months: months.sort, monthly_average_cents: total.div(months.length),
+          observed_months: months.sort, regular_months: regular_months.sort,
+          monthly_average_cents: regular_months.any? ? regular_total.div(regular_months.length) : 0,
           transfer_to_person: group.any? { |row| row[:transfer_to_person] } }
       end.sort_by { |row| [ -row[:total_cents], row[:label] ] }
     end
 
-    def autopay_protected?(name) = self.class.protected_category?(name) || name.to_s.match?(/\b(?:insurance|premiums?|takecare|loan|mortgage|tuition)\b/i)
+    # Payments far above what she usually pays there. The usual payment is the lower middle one,
+    # so one large payment can't raise it.
+    def one_off_payments(bought)
+      return [] if bought.length < 2
+
+      usual = bought.map { |row| row[:amount_cents] }.sort[(bought.length - 1) / 2]
+      bought.select { |row| row[:amount_cents] > usual * ONE_OFF_MULTIPLE }
+    end
+
+    def autopay_protected?(name) = self.class.protected_category?(name) || self.class.protected_merchant?(name) || name.to_s.match?(/\b(?:insurance|premiums?|takecare|loan|mortgage|tuition)\b/i)
 
     def bank_charge?(row)
       return row[:kind].in?(%w[fee interest]) if row[:kind].present?

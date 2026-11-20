@@ -10,6 +10,9 @@ module SpendingPatterns
     ACTION_REQUEST = /\b(?:draft|prepare|log|record|transfer|cancel)\s+(?:a|an|the|my|our|this|that|these|those|it|them|me|\$|\d)/i.freeze
     # The subscriptions must be what she's asking about: "what subscriptions do we pay for?",
     # not "how are we doing after cancelling the gym membership?" or "a Costco membership?".
+    # "What should we cut first?", "What can I cut?": asking for a cut, not only where she could look.
+    CUT_QUESTION = /\b(?:what|which|where)\b[^.?!]{0,30}\b(?:cut|trim)\b(?:\s+(?:first|back|down|out))?[^.?!]{0,30}(?:\?|\z)/i.freeze
+    PROTECTED_NOTE = "Rent, bills, medical care and money for family aren’t on this list.".freeze
     SUBSCRIPTIONS_QUESTION = /\b(?:what|which|any|list|show|check|tell\s+me|how\s+many|how\s+much|too\s+many)\b[^.?!]{0,40}\b(?:subscriptions|memberships|subscription\s+(?:charges|services)|streaming\s+services|recurring\s+(?:charges|payments|bills))\b|\bwhich\s+subscription\b|\b(?:do|am|are)\s+(?:i|we)\s+(?:have|paying|pay(?:ing)?\s+for)\s+(?:any\s+|too\s+many\s+|an?\s+[\w+.]+\s+)?(?:subscriptions?|memberships|streaming\s+services)\b/i.freeze
 
     # Conservative read-only floor for an unavailable reader. The live reader
@@ -22,11 +25,14 @@ module SpendingPatterns
       return true if HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns")
       return false if HouseholdFinance::MessageReplyIntent.known?(message)
 
+      return true if WhereMoneyGoes.question?(message) || cut_question?(message)
+
       (message.match?(/\b(?:what(?:s|['’]s)?|which|show|tell|notice|spot|see|look|analy[sz]e)\b/i) && message.match?(PATTERN)) ||
         message.match?(/\b(?:notice|stands? out|unusual|weird)\b.{0,45}\b(?:spending|statement|purchases?)\b|\b(?:where|how)\b.{0,20}\b(?:cut back|trim spending)\b(?:[?.!]*\s*\z|.{0,25}\b(?:spending|purchases|shopping|groceries|takeout|budget)\b)|\bsmall (?:buys|purchases)\b.{0,20}\badd(?:ing)? up\b/i)
     end
 
     def self.subscriptions_question?(message) = message.to_s.match?(SUBSCRIPTIONS_QUESTION)
+    def self.cut_question?(message) = message.to_s.match?(CUT_QUESTION)
 
     def self.matches?(message)
       current = HouseholdFinance::ParticipantMessageReader::Current
@@ -77,6 +83,10 @@ module SpendingPatterns
       "#{span}, #{found.one? ? 'this repeats' : 'these repeat'} about monthly at a steady price, so #{found.one? ? 'it looks like a subscription' : 'they look like subscriptions'}: #{list.to_sentence}.#{together} #{other_accounts} Is there one you don’t use anymore?"
     end
 
+    # Stores she keeps going back to, so a one-off payment is never named beside a cut. With only one
+    # month recorded every store is new, so name the biggest; no cut is offered for them.
+    def self.flexible_stops(patterns) = (patterns[:recurring_discretionary_merchants].presence || patterns[:discretionary_merchants]).first(2)
+
     def self.money(cents) = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
 
     def initialize(household:, message:, persona:, history:, approved_content:, available_product_modules: nil)
@@ -89,26 +99,29 @@ module SpendingPatterns
     def call
       @supplied_content_context = []
       return subscriptions_answer if self.class.subscriptions_question?(@message)
-      period = RequestedPeriod.new(@message).call
+      period = RequestedPeriod.new(WhereMoneyGoes.question?(@message) ? WhereMoneyGoes.period_text(@message) : @message).call
       @patterns = Analyzer.new(@household, **period).call
       if period.present? && @patterns[:purchase_count].zero?
         label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}"
         return "I don’t have reviewed purchases for #{label}, so I can’t tell what you spent then. You can review a statement or tell me about purchases from that period."
       end
+      if period.present?
+        period_label = period[:from].strftime("%B %Y")
+        period_label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}" unless period[:from] == period[:from].beginning_of_month && period[:to] == period[:from].end_of_month
+      end
+      return WhereMoneyGoes.new(@household, @patterns, period_label: period_label).call if WhereMoneyGoes.question?(@message)
       partial = self.class.partial_month_summary(@patterns, today: Time.current.in_time_zone("Pacific/Guam").to_date) if period.empty?
       return partial if partial
       choices = @patterns[:candidate_changes].first(2)
       coverage = @patterns[:coverage]
       present = coverage[:months].select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }
       missing = coverage[:months].any? { |row| row[:spending_cents].nil? }
-      merchants = @patterns[:discretionary_merchants].first(2)
+      merchants = self.class.flexible_stops(@patterns)
       if merchants.empty?
         return "I don’t have enough reviewed purchases in flexible categories to spot a pattern yet. You can review a statement or tell me about a few purchases to start. A store name alone doesn’t tell me what you needed."
       end
       window = if period.present?
-        label = period[:from].strftime("%B %Y")
-        label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}" unless period[:from] == period[:from].beginning_of_month && period[:to] == period[:from].end_of_month
-        "For #{label}#{missing ? ", I only see purchases for #{present.to_sentence}:" : ' in the recorded purchases,'}"
+        "For #{period_label}#{missing ? ", I only see purchases for #{present.to_sentence}:" : ' in the recorded purchases,'}"
       else
         missing ? "I only see purchases for #{present.to_sentence}:" : "From #{present.first} to #{present.last} in the recorded purchases,"
       end
@@ -116,6 +129,7 @@ module SpendingPatterns
       category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") }
       observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spending stop' : 'were your biggest flexible spending stops'}."
       observed = "#{observed} Your largest flexible spending #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
+      observed = "#{observed} #{PROTECTED_NOTE}" if self.class.cut_question?(@message)
       cluster = @patterns[:small_purchase_clusters].first
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
       impact = choices.first

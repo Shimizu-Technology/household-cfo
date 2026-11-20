@@ -30,6 +30,21 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     assert_includes answer, "1 bank-pending Amazon transaction totaling $5"
   end
 
+  test "category and merchant answers name stores without the bank's wording" do
+    [ 3, 10 ].each do |day|
+      period = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 8, 1))
+      row = @household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 8, day), merchant: "Purchase authorized on 08/#{day.to_s.rjust(2, '0')} Coral Market Tamuning GU S····5237 Card 5237",
+        total_amount_cents: 4_000, source_type: "statement", status: "confirmed")
+      row.transaction_splits.create!(budget_category: @category, amount_cents: 4_000)
+    end
+
+    category = HouseholdFinance::TransactionLookupAnswerer.new(@household, "How much did I spend on Shopping this month?", today: Date.new(2026, 8, 16)).call
+    assert_includes category, "Top merchants: Coral Market $80 (2 times)."
+    comparison = HouseholdFinance::TransactionLookupAnswerer.new(@household,
+      "Did I spend more at purchase authorized on 08/03 coral market tamuning gu s····5237 card 5237 or purchase authorized on 08/10 coral market tamuning gu s····5237 card 5237?", today: Date.new(2026, 8, 16)).call
+    refute_match(/Purchase authorized|S····|Card 5237/i, comparison.to_s)
+  end
+
   test "bank summary leaves transfers and card payments out of outflows and review counts" do
     plaid_transaction("purchase-shop", 1_000, merchant: "Island Market")
     plaid_transaction("card-payment", 207_850, merchant: "Card Payment", primary: "LOAN_PAYMENTS", detailed: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
