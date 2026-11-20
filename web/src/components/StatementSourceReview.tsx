@@ -14,12 +14,14 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onChanged, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
   onSignAnswered?: (revisionId: number) => void
   focusAfterSign?: boolean
   onSignFocusDone?: () => void
   onSaved?: () => void
+  /** Any save before the statement is finished, so the upload's status in the list doesn't go stale. */
+  onChanged?: () => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
 }) {
@@ -29,7 +31,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
-  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
+  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onChanged, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
   const { data, error, review, plan, categories, names, needBasis, needsAccountChoice, needsAccount, counts, mutation, busy, coverage, savingLines, unsavedAnswer, focusAfterRef, save } = state
   const pageData = data && data.pagination.page === page ? data : undefined
 

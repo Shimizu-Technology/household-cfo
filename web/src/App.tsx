@@ -4886,6 +4886,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            onStatementChanged={() => { void refreshDocumentImports({ quiet: true }) }}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -4931,6 +4932,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            onStatementChanged={() => { void refreshDocumentImports({ quiet: true }) }}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -5537,6 +5539,7 @@ function DocumentImportWorkspace({
   onAskMia,
   onReturnToStart,
   onStatementSaved,
+  onStatementChanged,
   sectionRef,
   isRealWorkspace,
   imports,
@@ -5574,6 +5577,8 @@ function DocumentImportWorkspace({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
+  /** A line or answer was saved before the statement is finished: the upload's status in the list moves with it. */
+  onStatementChanged?: () => void
   onReturnToStart?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
@@ -5676,6 +5681,7 @@ function DocumentImportWorkspace({
           onReviewBaseline={onReviewBaseline}
           onAskMia={onAskMia}
           onStatementSaved={onStatementSaved}
+          onStatementChanged={onStatementChanged}
         />}
       </div>
 
@@ -5922,6 +5928,7 @@ export function DocumentReviewPanel({
   onReviewBaseline,
   onAskMia,
   onStatementSaved,
+  onStatementChanged,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -5949,6 +5956,8 @@ export function DocumentReviewPanel({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
+  /** A line or answer was saved before the statement is finished: the upload's status in the list moves with it. */
+  onStatementChanged?: () => void
 }) {
   const { assistantName } = useBrand()
   const [signFocus, setSignFocus] = useState<{ importId: number; revisionId: number } | null>(null)
@@ -6058,6 +6067,7 @@ export function DocumentReviewPanel({
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           onSaved={onStatementSaved}
+          onChanged={onStatementChanged}
           onSignAnswered={revisionId => setSignFocus({ importId: documentImport.id, revisionId })}
           focusAfterSign={signFocus?.importId === documentImport.id && signFocus.revisionId === documentImport.metadata.source_accounting_revision_id}
           onSignFocusDone={() => setSignFocus(null)}

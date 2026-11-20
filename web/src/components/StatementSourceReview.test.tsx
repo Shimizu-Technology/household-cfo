@@ -14,7 +14,7 @@ const mount = () => render(<StatementSourceReview importId={1203} revisionId={88
 const region = () => screen.getByRole('region', { name: 'Statement review' })
 afterEach(() => cleanup())
 beforeEach(() => {
-  sessionStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+  sessionStorage.clear(); localStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
   fetchReview.mockReset(); fetchReview.mockImplementation(async (_id, _revision, page, filter) => participantReviewFixture(page, filter))
   mutate.mockReset(); mutate.mockResolvedValue({ result: { approved: 0, left_out: 0, unchanged: 0, complete: false } })
 })
@@ -106,12 +106,15 @@ describe('statement review a participant can finish', () => {
     data.participant_review!.plan.attention = [{ event_id: 4007, kind: 'no_category', event_type: 'purchase', question: 'What was this for?', answers: [{ id: 'edit', label: 'Choose one' }, { id: 'leave_out', label: 'Leave it out' }], merchant: 'Mystery shop', posted_on: '2026-09-05', signed_amount_cents: -500, category_id: null, category_name: null }]
     fetchReview.mockResolvedValue(data)
     const saved = vi.fn()
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} />)
+    const changed = vi.fn()
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} onChanged={changed} />)
     const choice = await screen.findByRole('button', { name: 'Everyday spending: Mystery shop' })
     expect(screen.queryByRole('combobox', { name: 'Category for Mystery shop' })).toBeNull()
     fireEvent.click(choice)
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'edited', edit: { kind: 'spending', merchant: 'Mystery shop', posted_on: '2026-09-05', amount_cents: 500, category_id: 71 } }] })
+    // The statement isn't finished, but the upload's status in the list ("Some lines saved") is read back now.
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1))
     expect(saved).not.toHaveBeenCalled()
   })
 
@@ -390,6 +393,33 @@ describe('statement review a participant can finish', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Later lines' }))
     await screen.findByRole('button', { name: 'Fictional entry 51' })
     expect(fetchReview).toHaveBeenLastCalledWith(1203, 88, 2, 'all', expect.any(AbortSignal))
+  })
+
+  it('keeps an early "Is anything missing?" answer when she leaves and comes back, and sends it with her next save', async () => {
+    const data = participantReviewFixture(); data.participant_review!.plan.coverage = { question: 'Your statement shows 27 lines and we found 26. Is anything missing?', answer: null, version_id: 930 }
+    fetchReview.mockResolvedValue(data)
+    const first = mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Something’s missing' }))
+    expect(mutate).not.toHaveBeenCalled()
+    first.unmount()
+    mount()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true'))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toMatchObject({ coverage_answer: 'something_missing', expected_coverage_id: 930 })
+  })
+
+  it('drops a kept answer once the question changes', async () => {
+    const data = participantReviewFixture(); data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: 931 }
+    fetchReview.mockResolvedValue(data)
+    const first = mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Something’s missing' }))
+    first.unmount()
+    const changed = participantReviewFixture(); changed.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: 932 }
+    fetchReview.mockResolvedValue(changed)
+    mount()
+    await screen.findByRole('button', { name: 'Something’s missing' })
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).not.toBe('true')
   })
 
   it('asks one plain question when the statement cannot show nothing is missing, and sends only her answer', async () => {

@@ -9,6 +9,21 @@ import {
 import { isStatementReviewActor } from './statementReviewRecovery'
 import { useStatementReviewMutation } from './useStatementReviewMutation'
 
+/**
+ * The server records "Is anything missing?" only once every line is saved, so an earlier answer is kept on this device
+ * for that statement and that question. Leaving and coming back doesn't lose it; a changed question or a recorded answer drops it.
+ */
+const coverageKey = (importId: number, revisionId: number) => `hcfo:statement-coverage:${importId}:${revisionId}`
+function keptCoverage(key: string, version: number | null): CoverageAnswer | null {
+  try {
+    const kept = JSON.parse(localStorage.getItem(key) ?? 'null') as { version: number | null; answer: CoverageAnswer } | null
+    return kept && kept.version === version && (kept.answer === 'nothing_missing' || kept.answer === 'something_missing') ? kept.answer : null
+  } catch { return null }
+}
+function keepCoverage(key: string, value: { version: number | null; answer: CoverageAnswer } | null) {
+  try { if (value) localStorage.setItem(key, JSON.stringify(value)); else localStorage.removeItem(key) } catch { /* The answer still rides with her next save. */ }
+}
+
 export type UnsavedAnswer = { input: ApproveLinesInput; index: number | null; eventId?: number; choice?: PlanAnswerId; categoryId?: number; accountId?: number; basis?: 'asset' | 'liability' }
 
 /**
@@ -61,7 +76,15 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
       validateSourceReview(payload, importId, revisionId, page, 'all')
       const review = payload.participant_review
       if (!review?.plan || !review.actor_scope || !Number.isSafeInteger(review.actor_scope.user_id) || !Number.isSafeInteger(review.actor_scope.household_id)) throw new Error('This statement review isn’t available right now. Refresh to continue.')
-      if (live) { setResult({ key: requestKey, data: payload }); clearMutationError(); if ((review.plan.coverage.version_id ?? null) !== coverageVersion.current) { setCoverageAnswer(null); setCoverageFailed(false) } }
+      if (live) {
+        setResult({ key: requestKey, data: payload }); clearMutationError()
+        const version = review.plan.coverage.version_id ?? null
+        if (version !== coverageVersion.current) { setCoverageAnswer(null); setCoverageFailed(false) }
+        const key = coverageKey(importId, revisionId)
+        const kept = review.plan.coverage.answer ? null : keptCoverage(key, version)
+        if (review.plan.coverage.answer) keepCoverage(key, null)
+        if (kept) { coverageVersion.current = version; setCoverageAnswer(kept) }
+      }
     }).catch((failure: unknown) => {
       if (live) setResult((previous) => ({ key: requestKey, data: previous?.data, error: participantErrorMessage(failure, 'Could not load this statement.') }))
     })
@@ -114,6 +137,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   // The question is hers to answer. If every line is already saved the answer is saved now; otherwise it goes with the next save.
   function answerCoverage(value: CoverageAnswer) {
     coverageVersion.current = plan?.coverage.version_id ?? null
+    keepCoverage(coverageKey(importId, revisionId), { version: coverageVersion.current, answer: value })
     setCoverageAnswer(value)
     setCoverageFailed(false)
     if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value }).then((saved) => setCoverageFailed(!saved))
@@ -154,6 +178,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   function reload() { setAttempt((value) => value + 1) }
   function resetAndReload() {
     setUnsavedAnswer(null); setCoverageAnswer(null); setCoverageFailed(false); coverageVersion.current = null
+    keepCoverage(coverageKey(importId, revisionId), null)
     reload()
   }
 
