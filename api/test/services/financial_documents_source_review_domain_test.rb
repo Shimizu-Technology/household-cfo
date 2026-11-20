@@ -815,6 +815,34 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert SpendingPatterns::Analyzer.protected_category?(version.budget_category.name)
   end
 
+  test "overlap preload survives references undated facts and counterpart invalidation" do
+    page = source((1..22).map { |i| movement(-1000 - i, row: i) })
+    identity = link(page)
+    copy = source([ movement(-1001) ])
+    copy_identity = link(copy)
+    approved = approve(stage(copy[:events].sole, identity: copy_identity, amount: -1001))
+    context = FinancialDocuments::SourceReview::OverlapDetector::Context.new(@household, excluded_revision_id: page[:revision].id)
+    context.preload!(page[:events], page[:import].checksum_sha256)
+    facts = FinancialDocuments::SourceReview::ParticipantPlan.facts_as_read(page[:events].first, identity_id: identity.id, merchant: "Synthetic merchant", category_id: @category.id)
+    [ "own-account:1", "sent-to-someone:2", "overlap-cleared:3", "unpaired-transfer:4", nil ].each do |reference|
+      changed = facts.merge(external_reference: reference)
+      changed = changed.merge(posted_on: nil) unless reference
+      detector = FinancialDocuments::SourceReview::OverlapDetector
+      assert_equal detector.new(@household, page[:events].first, changed).call,
+        detector.new(@household, page[:events].first, changed, context: context).call
+    end
+    context.invalidate_event!(copy[:events].sole)
+    queries = []
+    ActiveSupport::Notifications.subscribed(->(*args) { queries << args.last[:sql] unless args.last[:name] == "SCHEMA" }, "sql.active_record") do
+      page[:events].each do |event|
+        context.candidates(facts.merge(signed_amount_cents: event.signed_amount_cents), page[:import].checksum_sha256, event.locator)
+      end
+    end
+    puts "MIXED_PRELOAD ordinary_followup_queries=#{queries.length}"
+    assert_empty queries, "Special answers must not turn off the preload for the rest of the page"
+    assert_equal approved.id, context.heads.fetch(copy[:events].sole.id).approved_version_id
+  end
+
   test "large household statement save has bounded plan preparation and history reads" do
     template = approve(stage(@source[:events].sole))
     4.times do |account_number|
@@ -1067,7 +1095,14 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     rows += (6..22).map { |i| movement(-100 - i, row: i).merge(merchant: "Fictional shop #{i}") }
     page = source(rows)
     link(page)
+    # A reviewed-out copy triggers the shared overlap pool without asking a
+    # different question or changing any of this page's financial outcomes.
+    history = source([ movement(-106) ])
+    history_identity = link(history)
+    approve(stage(history[:events].sole, identity: history_identity, amount: -106, disposition: "exclude", overlap: "excluded", purchase: nil, category: nil))
     save_final_page(page, only: [ page[:events][4].id ]) { |line| pair_answer(line) }
+    queries = []
+    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { |*args| queries << args.last[:sql] unless args.last[:name] == "SCHEMA" }
     save_final_page(page) do |line|
       case page[:events].index { |event| event.id == line.event.id }
       when 0 then pair_answer(line)
@@ -1078,6 +1113,9 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
       else { decision: "edited", edit: { kind: "spending", category_id: @category.id } }
       end
     end
+    ActiveSupport::Notifications.unsubscribe(subscriber)
+    puts "MIXED_STATEMENT_SAVE queries=#{queries.length}"
+    assert_operator queries.length, :<=, 740 unless ENV["STATEMENT_SAVE_BASELINE"]
     heads = SourceReviewHead.where(financial_source_event_id: page[:events].map(&:id)).includes(:approved_version).index_by(&:financial_source_event_id)
     page[:events].each_with_index { |event, i| assert_equal(i == 4 ? 2 : 1, heads.fetch(event.id).approved_version.version_number) }
     assert_nil FinancialDocuments::SourceReview::TransferPairs.new(@household).paired(page[:events][4])

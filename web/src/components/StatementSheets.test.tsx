@@ -105,3 +105,21 @@ it('offers categorized spending for a bill with person wording', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ kind: 'spending', category_id: 7 }))
 })
+
+it('keeps corrected purchase facts after a stale-match refusal and offers Save rather than Same purchase in the editor', () => {
+  const onSave = vi.fn()
+  const props = { line: { eventId: 1, kind: 'spending' as const, merchant: 'Talun Demo Market', postedOn: '2026-08-03', amountCents: 5000, categoryId: null, leftOut: false }, categories: [], busy: false, onSave, onLeaveOut: vi.fn(), onClose: vi.fn() }
+  const { rerender } = render(<StatementLineSheet {...props} error={null} />)
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Talun Demo Hardware' } })
+  fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-08-20' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '60.00' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const error = 'This line changed while you were reviewing it. Nothing was saved. Refresh and try again.'
+  rerender(<StatementLineSheet {...props} error={error} />)
+  expect(screen.getByRole('alert').textContent).toBe(error)
+  expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Talun Demo Hardware')
+  expect((screen.getByLabelText('Date') as HTMLInputElement).value).toBe('2026-08-20')
+  expect((screen.getByLabelText('Amount') as HTMLInputElement).value).toBe('60.00')
+  expect(screen.queryByRole('button', { name: /Same purchase/ })).toBeNull()
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ merchant: 'Talun Demo Hardware', posted_on: '2026-08-20', amount_cents: 6000 }))
+})

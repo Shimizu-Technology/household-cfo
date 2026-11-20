@@ -44,11 +44,26 @@ module FinancialDocuments
               artifact == @preloaded_artifact && facts[:external_reference].blank?
             return @preloaded if covered
 
-            # read_candidates also replaces the head/draft maps. Discard the
-            # superset so later lines cannot combine it with those narrower maps.
-            @preloaded = nil
+            # A correction/reference needs its own lookup, but later ordinary
+            # lines still share the original pool and its head/draft maps.
+            heads, pending = @heads, @pending
+            rows = read_candidates(facts, artifact, locator)
+            @heads = heads.merge(@heads)
+            @pending = pending.merge(@pending)
+            return rows
           end
           read_candidates(facts, artifact, locator)
+        end
+
+        # A counterpart writer changes one event, not the whole save's pool.
+        def invalidate_event!(event)
+          @accounts = @tracked = nil
+          head = SourceReviewHead.includes(approved_version: :matched_version).find_by(household: @household, financial_source_event_id: event.id)
+          @heads&.delete(event.id)
+          @pending&.delete(head.id) if head
+          record_approval!(event, head) if head
+          draft = head&.source_review_drafts&.pending&.first
+          @pending[head.id] = draft if @pending && draft
         end
 
         def record_approval!(event, head)

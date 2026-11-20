@@ -287,6 +287,7 @@ module FinancialDocuments
           check_shown!(line, entry)
         when "same_purchase"
           # "Same purchase" names the purchase she was shown; one that changed since is asked about again.
+          raise stale if entry[:edit].present?
           raise stale unless line.kind == :same_purchase && !line.done && entry[:match_transaction_id].to_i == line.purchase_match&.transaction&.id
           check_shown!(line, entry)
         end

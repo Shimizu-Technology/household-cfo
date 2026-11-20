@@ -49,8 +49,9 @@ module FinancialDocuments
       end
 
       # dates: the posted dates about to be checked, so a whole statement reads her purchases once.
-      def initialize(household, dates: [])
+      def initialize(household, dates: [], include_claimed: false)
         @household = household
+        @include_claimed = include_claimed
         days = Array(dates).compact.map(&:to_date)
         @range = (days.min - WINDOW_DAYS)..(days.max + WINDOW_DAYS) if days.any?
       end
@@ -68,7 +69,7 @@ module FinancialDocuments
         pool_for(day).filter_map do |transaction|
           next unless (transaction.occurred_on - day).abs <= WINDOW_DAYS
           next unless match_amounts.fetch(transaction.id) == amount
-          next if claimed.fetch(transaction.id, []).any? { |claimer| claimer != head_id }
+          next if !@include_claimed && claimed.fetch(transaction.id, []).any? { |claimer| claimer != head_id }
 
           score = score(transaction, day, merchant)
           Match.new(transaction: transaction, score: score) if score >= MIN_SCORE
