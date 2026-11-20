@@ -18705,3 +18705,42 @@ test('BOG UI F5 fix1 account-only partially saved file offers server-authorized 
   await f5Capture(page, 'delete-account-only-partial')
   await expect(page.getByRole('button', {name: 'Delete upload & record', exact: true})).toBeEnabled()
 })
+
+// Decision 4: a gift card or voucher is not new money. Fictional Talun receipt.
+test('BOG UI a voucher receipt says only the card money counts and lets her count all of it', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  const payment = (counting: 'new_money' | 'all') => counting === 'new_money'
+    ? { receipt_total: 184.88, receipt_total_cents: 18488, new_money: 34.88, new_money_cents: 3488, counting, message: '$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts. The receipt total was $184.88.', count_all_label: 'Count all $184.88', count_all_splits: [{ id: 8851, amount: 184.88 }] }
+    : { receipt_total: 184.88, receipt_total_cents: 18488, new_money: 34.88, new_money_cents: 3488, counting, message: 'Counting all $184.88, including the $150.00 paid with a voucher or gift card.', count_new_money_label: 'Count only $34.88', count_new_money_splits: [{ id: 8851, amount: 34.88 }] }
+  const receipt = (cents: number, counting: 'new_money' | 'all') => ({ id: 7851, occurred_on: '2026-11-15', merchant: 'Tasi Demo Home Store', amount: cents / 100, amount_cents: cents, status: 'pending', source_type: 'receipt', financial_document_import_id: 61, category_id: 2, category_name: 'Flexible spending', splits: [{ id: 8851, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', amount: cents / 100, amount_cents: cents, metadata: { receipt_amount_cents: 18488, new_money_amount_cents: 3488 } }], matches: [], receipt_payment: payment(counting) })
+  workspace.budget.annual_plan.pending_transaction_drafts = [receipt(3488, 'new_money')]
+  f2SyncSnapshot(workspace)
+  const updates: unknown[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts/7851', async route => {
+    const body = route.request().postDataJSON().transaction_draft
+    updates.push(body)
+    const draft = Number(body.amount) === 184.88 ? receipt(18488, 'all') : receipt(3488, 'new_money')
+    workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
+    await route.fulfill({ json: { transaction_draft: draft, workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const card = page.locator('[data-review-item="7851"]')
+  const note = card.getByRole('region', { name: /was paid$/ })
+  await expect(note).toContainText('$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts.')
+  await expect(card.getByRole('button', { name: /^Confirm / })).toBeVisible()
+
+  await card.getByRole('button', { name: 'Count all $184.88' }).click()
+  await expect(note).toContainText('Counting all $184.88, including the $150.00 paid with a voucher or gift card.')
+  await card.getByRole('button', { name: 'Count only $34.88' }).click()
+  await expect(note).toContainText('only the $34.88 on your card counts')
+  expect(updates).toEqual([{ amount: 184.88, splits: [{ id: 8851, amount: 184.88 }] }, { amount: 34.88, splits: [{ id: 8851, amount: 34.88 }] }])
+
+  await page.setViewportSize({ width: 320, height: 720 })
+  const button = card.getByRole('button', { name: 'Count all $184.88' })
+  const box = await button.boundingBox()
+  const cardBox = await card.boundingBox()
+  expect(box!.height).toBeGreaterThanOrEqual(44)
+  expect(box!.width).toBeGreaterThan(cardBox!.width * 0.7)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})

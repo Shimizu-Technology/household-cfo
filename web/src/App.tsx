@@ -8386,6 +8386,7 @@ function TransactionDraftReviewCard({
   }
   const [editError, setEditError] = useState<string | null>(null)
   const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
+  const receiptSectionRef = useRef<HTMLElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
   const allowsNewCategory = ['manual_chat', 'manual_ui'].includes(draft.source_type ?? '') && !draft.financial_document_import_id
   const isPending = draft.status === 'pending'
@@ -8412,6 +8413,13 @@ function TransactionDraftReviewCard({
       {confirming ? 'Adding' : 'Different purchase'}
     </button>
   )
+  const receiptPayment = isPending ? draft.receipt_payment : null
+  // Count all of the receipt, or only its new money. Splits go back to what
+  // the receipt said; without that split detail only a draft with no splits can change its amount.
+  const receiptChoices = receiptPayment && onUpdate ? [
+    receiptPayment.count_new_money_label ? { label: receiptPayment.count_new_money_label, amount: receiptPayment.new_money, splits: receiptPayment.count_new_money_splits } : null,
+    receiptPayment.count_all_label ? { label: receiptPayment.count_all_label, amount: receiptPayment.receipt_total, splits: receiptPayment.count_all_splits } : null,
+  ].filter((choice): choice is { label: string; amount: number; splits: Array<{ id: number; amount: number }> | undefined } => Boolean(choice && (choice.splits || (draft.splits ?? []).length === 0))) : []
   const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id || placeholderCategoryName(split.category_name))
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending || Boolean(action)
   const impactDraft = editing ? {
@@ -8530,6 +8538,27 @@ function TransactionDraftReviewCard({
       )}
       {isPending && <div className="transaction-draft-main">
         <PurchaseReviewSummary categoryRows={categories} draft={draft} date={formatShortDate(draft.occurred_on)} needsCategory={needsCategoryReview} effect={effect} />
+
+        {receiptPayment && (
+          // A gift card, voucher or store credit is not new money, so only what
+          // she paid by card or cash counts unless she chooses to count it all.
+          <section className="transaction-receipt-payment" aria-label={`How ${itemName} was paid`} ref={receiptSectionRef} tabIndex={-1}>
+            <p>{receiptPayment.message}</p>
+            {receiptChoices.length > 0 && (
+              <div className="transaction-duplicate-question__actions">
+                {receiptChoices.map((choice) => (
+                  <button key={choice.label} type="button" className="ui-btn ui-btn--tonal" disabled={actionsDisabled || editing || saving} onClick={event => void runAction(async () => {
+                    await onUpdate?.(draft, { amount: choice.amount, ...(choice.splits ? { splits: choice.splits } : {}) })
+                    // The chosen button is replaced by the other choice; keep her place on the payment note.
+                    receiptSectionRef.current?.focus({ preventScroll: true })
+                  }, event.currentTarget)}>
+                    {saving ? 'Saving' : choice.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {isPending && needsCategoryReview && (
           <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">

@@ -235,6 +235,11 @@ module Scorecard
 
     def review_receipts(document, doc)
       # Legacy receipt reviews use transaction drafts, not source-line review.
+      # A receipt partly paid with a gift card or voucher is already proposed
+      # as its new money (ReceiptTenders), so the matcher offers its bank line.
+      # The question-only view accepts that proposal as shown; the careful
+      # user still corrects the amount from the answer key when it differs
+      # (for example "Count all"), through the same form.
       document.transaction_drafts.where(financial_source_event_id: nil, status: "pending").each do |draft|
         matches = HouseholdFinance::TransactionDraftMatcher.new(draft).call
         event_id = doc.fetch("receipt").fetch("matching_bank_event_id")

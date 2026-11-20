@@ -116,7 +116,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
         document_import.items.create!(item_attributes.merge(selected: false))
       end
       extracted_transaction_drafts = typed_accounting ? source_result.fetch(:transaction_drafts) : Array(data[:transaction_drafts])
-      draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, extracted_transaction_drafts).call
+      draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, extracted_transaction_drafts,
+        summary: (data[:summary] unless typed_accounting)).call
       if !typed_accounting && extracted_transaction_drafts.any? && draft_result.fetch(:created_count).zero? &&
           !document_import.items.where(applied_at: nil, ignored: false).exists?
         reason = draft_result.fetch(:warnings).first.presence || "No transaction could be safely validated."

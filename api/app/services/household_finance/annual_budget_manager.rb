@@ -685,7 +685,8 @@ module HouseholdFinance
         stack_label: draft.budget_category&.stack_label,
         summary: draft_summary(draft),
         splits: ordered_draft_splits_for(draft).map { |split| draft_split_payload(split) },
-        matches: ordered_draft_matches_for(draft).map { |match| draft_match_payload(match) }
+        matches: ordered_draft_matches_for(draft).map { |match| draft_match_payload(match) },
+        receipt_payment: ReceiptTenders.presentation(draft)
       }
     end
 

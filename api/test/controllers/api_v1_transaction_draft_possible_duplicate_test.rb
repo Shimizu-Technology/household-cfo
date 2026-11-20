@@ -123,6 +123,42 @@ class ApiV1TransactionDraftPossibleDuplicateTest < ActionDispatch::IntegrationTe
 
   private
 
+  test "a voucher receipt: the card says what counts, Count all is saved only as a pending change, and Same purchase leaves one $34.88" do
+    travel_to Date.new(2026, 7, 1) do
+      bank_line = bank_purchase(merchant: "Purchase authorized on 06/23 Tasi Demo Home Store Tamuning Gum", cents: 3_488, on: Date.new(2026, 6, 23))
+      document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "receipt", status: "processing",
+        filename: "receipt.jpg", content_type: "image/jpeg", byte_size: 100, s3_key: "household-cfo/test/voucher-api.jpg")
+      HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ { occurred_on: "2026-06-23", merchant: "TASI DEMO HOME STORE", total_amount: 184.88,
+        source_type: "receipt", evidence: "TOTAL $184.88; Voucher / gift card $150.00; Debit card 7302 $34.88", splits: [ { amount: 184.88, category_name: "Groceries" } ] } ]).call
+      receipt = document.transaction_drafts.sole
+
+      patch "/api/v1/transaction_drafts/#{receipt.id}", params: { transaction_draft: { amount: "184.88" } }, headers: auth_headers, as: :json
+
+      assert_response :success
+      payment = response.parsed_body.dig("transaction_draft", "receipt_payment")
+      assert_equal "all", payment.fetch("counting")
+      assert_equal "Counting all $184.88, including the $150.00 paid with a voucher or gift card.", payment.fetch("message")
+      assert_equal "Count only $34.88", payment.fetch("count_new_money_label")
+      assert_equal "pending", receipt.reload.status
+      assert_equal [ bank_line.id ], @household.household_transactions.pluck(:id), "nothing counts until she confirms"
+
+      patch "/api/v1/transaction_drafts/#{receipt.id}", params: { transaction_draft: { amount: "34.88" } }, headers: auth_headers, as: :json
+
+      assert_response :success
+      pending = response.parsed_body.dig("workspace", "budget", "annual_plan", "pending_transaction_drafts").find { |draft| draft.fetch("id") == receipt.id }
+      assert_equal "$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts. The receipt total was $184.88.", pending.dig("receipt_payment", "message")
+      assert_equal "Count all $184.88", pending.dig("receipt_payment", "count_all_label")
+      match = pending.fetch("matches").sole
+      assert_equal bank_line.id, match.dig("transaction", "id")
+
+      post "/api/v1/transaction_drafts/#{receipt.id}/match", params: { match_id: match.fetch("id") }, headers: auth_headers, as: :json
+
+      assert_response :success
+      assert_equal "matched", receipt.reload.status
+      assert_equal 3_488, @household.household_transactions.where(status: %w[confirmed reconciled]).sum(:total_amount_cents)
+    end
+  end
+
   def bank_purchase(merchant: "Payless Supermarket", cents: 10_342, on: Date.new(2026, 8, 3))
     period = HouseholdFinance::AnnualBudgetManager.new(@household, year: on.year).current_period_for(on)
     @household.household_transactions.create!(budget_period: period, occurred_on: on, merchant: merchant,

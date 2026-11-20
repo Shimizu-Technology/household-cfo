@@ -812,10 +812,10 @@
           },
           "matched_to_bank": true,
           "extracted_new_money": {
-            "actual_cents": 18488,
+            "actual_cents": 3488,
             "expected_cents": 3488,
-            "error_cents": 15000,
-            "absolute_error_percent": 430.0459
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
           },
           "category_allocation_error_cents": 0
         }
@@ -830,14 +830,14 @@
         "card_payment": 1,
         "receipt_match": 1
       },
-      "manual_correction": 3,
+      "manual_correction": 2,
       "manual_exclusion": 0,
       "accepted_as_proposed": 21,
       "corrections_by_field": {
         "type": 0,
-        "amount": 1,
+        "amount": 0,
         "date": 0,
-        "category": 3,
+        "category": 2,
         "direction": 0
       },
       "questions_by_kind": {
@@ -1769,7 +1769,7 @@
     "transfer_leakage_spending_cents": 0,
     "transfer_leakage_income_cents": 0,
     "decisions": 82,
-    "manual_correction": 22,
+    "manual_correction": 21,
     "manual_exclusion": 21,
     "accepted_as_proposed": 55,
     "unmapped_spending_cents": 0,
@@ -1789,8 +1789,8 @@
       "transfer": 12
     },
     "corrections_by_field": {
-      "amount": 1,
-      "category": 21,
+      "amount": 0,
+      "category": 20,
       "date": 0,
       "direction": 3,
       "type": 4
@@ -1804,7 +1804,7 @@
       "still_category": 1,
       "transfer": 12
     },
-    "receipt_extraction_absolute_error_cents": 15000,
+    "receipt_extraction_absolute_error_cents": 0,
     "receipt_count": 1,
     "receipt_matches": 1,
     "receipt_new_money_absolute_error_cents": 0,
@@ -2517,10 +2517,10 @@
       },
       "2026-06": {
         "total_spending": {
-          "actual_cents": 296471,
+          "actual_cents": 277983,
           "expected_cents": 277983,
-          "error_cents": 18488,
-          "absolute_error_percent": 6.6508
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -2578,10 +2578,10 @@
             "absolute_error_percent": 0.0
           },
           "Household": {
-            "actual_cents": 21976,
+            "actual_cents": 3488,
             "expected_cents": 3488,
-            "error_cents": 18488,
-            "absolute_error_percent": 530.0459
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
           },
           "Clothing": {
             "actual_cents": 0,
@@ -2621,31 +2621,31 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 296471,
+          "actual_cents": 277983,
           "expected_cents": 277983,
-          "error_cents": 18488,
-          "absolute_error_percent": 6.6508
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
-        "double_counts": 1,
+        "double_counts": 0,
         "transfer_leakage_cents": 0,
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [
           {
             "new_money": {
-              "actual_cents": 21976,
+              "actual_cents": 3488,
               "expected_cents": 3488,
-              "error_cents": 18488,
-              "absolute_error_percent": 530.0459
+              "error_cents": 0,
+              "absolute_error_percent": 0.0
             },
-            "matched_to_bank": false,
+            "matched_to_bank": true,
             "extracted_new_money": {
-              "actual_cents": 18488,
+              "actual_cents": 3488,
               "expected_cents": 3488,
-              "error_cents": 15000,
-              "absolute_error_percent": 430.0459
+              "error_cents": 0,
+              "absolute_error_percent": 0.0
             },
-            "category_allocation_error_cents": 18488
+            "category_allocation_error_cents": 0
           }
         ],
         "decisions": 10,
@@ -2655,7 +2655,7 @@
           "no_category": 2,
           "transfer": 4,
           "card_payment": 1,
-          "receipt_confirmation": 1
+          "receipt_match": 1
         },
         "manual_correction": 2,
         "manual_exclusion": 0,
@@ -3481,10 +3481,10 @@
     },
     "annual": {
       "total_spending": {
-        "actual_cents": 685300,
+        "actual_cents": 666812,
         "expected_cents": 640623,
-        "error_cents": 44677,
-        "absolute_error_percent": 6.974
+        "error_cents": 26189,
+        "absolute_error_percent": 4.0881
       },
       "income": {
         "actual_cents": 1356300,
@@ -3493,10 +3493,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 685300,
+        "actual_cents": 666812,
         "expected_cents": 640623,
-        "error_cents": 44677,
-        "absolute_error_percent": 6.974
+        "error_cents": 26189,
+        "absolute_error_percent": 4.0881
       },
       "spending_by_category": {
         "Housing": {
@@ -3554,10 +3554,10 @@
           "absolute_error_percent": 0.0
         },
         "Household": {
-          "actual_cents": 33175,
+          "actual_cents": 14687,
           "expected_cents": 14687,
-          "error_cents": 18488,
-          "absolute_error_percent": 125.88
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "Clothing": {
           "actual_cents": 5426,
@@ -3590,7 +3590,7 @@
           "absolute_error_percent": 0.0
         }
       },
-      "double_counts": 4,
+      "double_counts": 3,
       "transfer_leakage_cents": 0,
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
@@ -3609,7 +3609,7 @@
         "duplicate": 3,
         "duplicate_guard": 14,
         "no_category": 15,
-        "receipt_confirmation": 1,
+        "receipt_match": 1,
         "refund_category": 1,
         "transfer": 12
       },
@@ -3628,11 +3628,11 @@
         "refund_category": 1,
         "transfer": 12
       },
-      "receipt_extraction_absolute_error_cents": 15000,
+      "receipt_extraction_absolute_error_cents": 0,
       "receipt_count": 1,
-      "receipt_matches": 0,
-      "receipt_new_money_absolute_error_cents": 18488,
-      "receipt_category_allocation_error_cents": 18488
+      "receipt_matches": 1,
+      "receipt_new_money_absolute_error_cents": 0,
+      "receipt_category_allocation_error_cents": 0
     },
     "source_coverage": {
       "expected_rows": 102,
