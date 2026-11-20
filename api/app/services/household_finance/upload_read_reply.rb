@@ -38,6 +38,10 @@ module HouseholdFinance
       merchant = SpendingPatterns::MerchantName.call(draft.merchant).presence || "a shop whose name I couldn’t read"
       amount = draft.total_amount_cents ? Money.plain(draft.total_amount_cents) : "an amount I couldn’t read"
       date = draft.occurred_on ? "on #{draft.occurred_on.strftime('%b %-d, %Y')}" : "with no readable date"
+      # Part paid with a voucher or gift card: the card proposes only the new money, and says so.
+      if (payment = ReceiptTenders.presentation(draft))
+        return [ warning, "I read a receipt from #{merchant}, #{date}. #{payment[:message]} The purchase card below is waiting for your tap to review and approve it. It won’t count in your spending until you approve it." ].compact.join(" ")
+      end
       [ warning, "I read a receipt from #{merchant} for #{amount}, #{date}. The purchase card below is waiting for your tap to review and approve it. It won’t count in your spending until you approve it." ].compact.join(" ")
     end
   end

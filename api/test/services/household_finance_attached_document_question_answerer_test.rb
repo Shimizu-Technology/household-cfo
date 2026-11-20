@@ -47,6 +47,27 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     refute_includes other, "no attached transaction row"
   end
 
+  test "a receipt the reader saw a voucher on says what was read, what counts and how to count all" do
+    @document_import.update!(document_kind: "receipt", status: "processing")
+    HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, [ {
+      occurred_on: "2026-11-14", merchant: "ROSS DRESS FOR LESS #0417", total_amount: 184.88, source_type: "receipt", category_name: "Groceries",
+      evidence: "Kids shoes 129.99; Towels 54.89; TOTAL $184.88; Voucher $150.00; Debit card 7302 $34.88; Balance due $0.00"
+    } ]).call
+    @document_import.update!(status: "needs_review")
+    assert_equal 3_488, @document_import.transaction_drafts.sole.total_amount_cents
+
+    answer = answer_for("voucher $150 plus debit $34.88")
+    assert_includes answer, "I read your receipt from Ross, dated Nov 14, 2026."
+    assert_includes answer, "only the $34.88 on your card counts. The receipt total was $184.88."
+    assert_includes answer, "If all of it should count, choose Count all $184.88 on the card."
+    refute_includes answer, "reads $34.88"
+    refute_includes answer, "no attached transaction row"
+    read = answer_for("Here is my receipt.")
+    assert_includes read, "I read a receipt from Ross, on Nov 14, 2026."
+    assert_includes read, "The receipt total was $184.88."
+    refute_includes read, "for $34.88"
+  end
+
   test "structured lists take priority over receipt acknowledgements" do
     @document_import.update!(document_kind: "receipt")
     create_draft!(merchant: "Pay-Less", amount_cents: 6951, occurred_on: Date.new(2026, 11, 14))
