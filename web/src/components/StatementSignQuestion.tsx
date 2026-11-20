@@ -69,7 +69,7 @@ function AccountSignQuestions({ state, disabled, questions }: { state: ReviewSta
         ? <>Every amount in {current.label} is shown the same way. Is it all money out, all money in, or a mix?</>
         : <>In {current.label}, is money you spent shown as a negative amount (with a minus sign or parentheses)?</>}</p>
       <p>Your answer applies only to this account’s lines whose direction was unclear. You’ll still review the lines before approving them.</p>
-      <SignAnswers singleSign={current.single_sign} disabled={busy} answer={(choice) => { setChanging(null); void state.answerSign(choice, current.source_account_id) }} />
+      <SignAnswers singleSign={current.single_sign} disabled={busy} answer={(choice) => { void state.answerSign(choice, current.source_account_id).then(saved => { if (saved) setChanging(null) }) }} />
       {previous && <p className="statement-sign-result" tabIndex={-1} role="status">{previous.effect}</p>}
     </> : answered.length > 0 && <>
       <p className="statement-sign-result" tabIndex={-1} role="status">{answered.length === 1 ? answered[0].effect : `You answered money in or out for ${answered.length} accounts. That set the direction of ${lines} ${lines === 1 ? 'line' : 'lines'}.`}</p>

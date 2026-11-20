@@ -170,21 +170,24 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   function retryUnsaved() {
     if (unsavedAnswer) void save(unsavedAnswer.input, unsavedAnswer.index).then((saved) => { if (saved) setUnsavedAnswer(null) })
   }
-  async function answerSign(negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual', sourceAccountId?: number) {
+  /** Resolves true once the answer is saved, so a question she is changing stays open after a failed save. */
+  async function answerSign(negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual', sourceAccountId?: number): Promise<boolean> {
     const actor = review?.actor_scope
-    if (!actor || !isStatementReviewActor(actor)) return
+    if (!actor || !isStatementReviewActor(actor)) return false
     const assertContext = captureApiOperation()
     setSignBusy(true); setSignError(null)
     try {
       const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut, sourceAccountId)
       assertContext()
-      if (!isStatementReviewActor(actor)) return
+      if (!isStatementReviewActor(actor)) return false
       focusAfter.current = null
       setAnsweredRevision(result.revision_id)
       onSignAnswered?.(result.revision_id)
       changedCallback.current?.()
+      return true
     } catch (failure) {
       setSignError(participantErrorMessage(failure, 'We couldn’t save that answer. Please try again.'))
+      return false
     } finally { setSignBusy(false) }
   }
   function reload() { setAttempt((value) => value + 1) }

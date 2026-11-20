@@ -5,7 +5,7 @@ import type { ComponentProps } from 'react'
 import { StatementSignQuestion } from './StatementSignQuestion'
 
 afterEach(cleanup)
-const state = (effect?: string, answerable = true) => ({ needBasis: [], plan: { signed_amount_question: !effect, signed_amount_answerable: answerable, sign_effect: effect }, answerSign: vi.fn() }) as unknown as ComponentProps<typeof StatementSignQuestion>['state']
+const state = (effect?: string, answerable = true) => ({ needBasis: [], plan: { signed_amount_question: !effect, signed_amount_answerable: answerable, sign_effect: effect }, answerSign: vi.fn(async () => true) }) as unknown as ComponentProps<typeof StatementSignQuestion>['state']
 it('asks the unanswered question', () => {
   render(<StatementSignQuestion state={state()} />)
   expect(screen.getByRole('button', { name: 'Yes, spending is negative' })).toBeTruthy()
@@ -27,7 +27,7 @@ it('offers no whole-file change after a saved decision', () => {
 })
 
 const account = (id: number, label: string, choice: boolean | 'all_in' | null = null, extra: object = {}) => ({ source_account_id: id, label, account_basis: 'asset', single_sign: false, choice, answerable: true, lines: choice === null ? 0 : 3, effect: choice === null ? null : `You said spending in ${label} is shown as negative. That set the direction of 3 lines.`, ...extra })
-const accountState = (questions: object[]) => ({ needBasis: [], plan: { signed_amount_question: questions.some(question => (question as { choice: unknown }).choice === null), account_sign_questions: questions }, answerSign: vi.fn() }) as unknown as ComponentProps<typeof StatementSignQuestion>['state']
+const accountState = (questions: object[], extra: object = {}) => ({ needBasis: [], plan: { signed_amount_question: questions.some(question => (question as { choice: unknown }).choice === null), account_sign_questions: questions }, answerSign: vi.fn(async () => true), ...extra }) as unknown as ComponentProps<typeof StatementSignQuestion>['state']
 it('asks a multi-account file once per account, the next unanswered account first', () => {
   const model = accountState([account(11, 'Talun checking ····4410', true), account(12, 'Talun card ····6074'), account(13, 'Talun savings ····8642', null, { single_sign: true })])
   render(<StatementSignQuestion state={model} />)
@@ -61,4 +61,17 @@ it('lets her change one account after every account is answered, and only while 
   expect(screen.getByRole('status').textContent).toBe('You answered money in or out for 2 accounts. That set the direction of 6 lines.')
   expect(screen.getByText('See each account')).toBeTruthy()
   expect(screen.queryByRole('button')).toBeNull()
+})
+
+it('keeps the account she is changing open when saving her answer fails', async () => {
+  const model = accountState([account(11, 'Talun checking ····4410', true), account(12, 'Talun card ····6074', true)], { answerSign: vi.fn(async () => false), signError: 'We couldn’t save that answer. Please try again.' })
+  render(<StatementSignQuestion state={model} />)
+  fireEvent.click(screen.getByText('See or change each account'))
+  fireEvent.click(screen.getByRole('button', { name: 'Change Talun card ····6074' }))
+  fireEvent.click(screen.getByRole('button', { name: 'I’m not sure' }))
+  expect(model.answerSign).toHaveBeenCalledWith('individual', 12)
+  await Promise.resolve(); await Promise.resolve()
+  expect(document.querySelector('[data-sign-next]')?.textContent).toBe('In Talun card ····6074, is money you spent shown as a negative amount (with a minus sign or parentheses)?')
+  expect(screen.getByRole('button', { name: 'I’m not sure' })).toBeTruthy()
+  expect(screen.getByRole('alert').textContent).toBe('We couldn’t save that answer. Please try again.')
 })

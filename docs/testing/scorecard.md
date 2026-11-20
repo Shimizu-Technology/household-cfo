@@ -42,19 +42,19 @@ The original full 79-document run, including both independent approval views, to
 
 | Metric | Careful-user corrections | Uncorrected / answers only |
 | --- | --- | --- |
-| Spending (expected $44,242.95) | $44,242.95; $0.00 / 0.0000% | $44,463.57; +$220.62 / 0.4987% |
-| Monthly absolute spending error | 0.0000%–0.0000% | 0.0000%–4.9761% |
+| Spending (expected $44,242.95) | $44,242.95; $0.00 / 0.0000% | $44,278.69; +$35.74 / 0.0808% |
+| Monthly absolute spending error | 0.0000%–0.0000% | 0.0000%–0.5929% |
 | Income (expected $91,263.50) | $91,263.50 | $91,263.50 |
-| Double counts | 0 | 3 |
+| Double counts | 0 | 2 |
 | Transfer leakage (spending / income) | $0 / $0 | $0 / $0 |
-| Decisions, without adding diagnostic counters | 682 | 665 |
-| Accepted as proposed | 564 | 555 |
-| Correction actions, including answers that edit fields | 28 | 23 |
+| Decisions, without adding diagnostic counters | 683 | 666 |
+| Accepted as proposed | 566 | 557 |
+| Correction actions, including answers that edit fields | 25 | 21 |
 | Manual exclusions without a duplicate question | 2 | 0 |
 | Unmapped spending count / money | 0 / $0 | 0 / $0 |
-| Offered receipt matches accepted | 3 of 3 | 2 of 3 |
+| Offered receipt matches accepted | 3 of 3 | 3 of 3 |
 
-Careful-user correction fields: type **3**, amount **1**, date **0**, category **28**, direction **0**. Several fields can change in one action. The question-only run's edits, restricted to its displayed questions, change type **2**, amount **0**, date **0**, category **23**, direction **0**. The multi-account CSV asks **5 direction questions in both full-year views** (one per account; 2 in the CI sample), instead of one per line (298). Every Talun CSV line copies a statement line, so the careful user now answers 331 duplicate questions (35 before) and 2 copies the app did not flag are manual exclusions (298 before); careful decisions go from 677 to 682, the five account questions. The question-only view no longer saves CSV copies: its decisions fall from 897 to 665, double counts from 44 to 3 and spending error from +$2,476.57 to +$220.62. Its one worse field is May Fees, $10.00 to $15.00 under: a double-counted $5 CSV fee copy used to offset the statement's $15 late fee, which the reader files outside Fees.
+Careful-user correction fields: type **3**, amount **0**, date **0**, category **25**, direction **0**. Several fields can change in one action. The question-only run's edits, restricted to its displayed questions, change type **2**, amount **0**, date **0**, category **21**, direction **0**. The multi-account CSV asks **5 direction questions in both full-year views** (one per account; 2 in the CI sample), instead of one per line (298). Every Talun CSV line copies a statement line, so the careful user now answers 331 duplicate questions (35 before) and 2 copies the app did not flag are manual exclusions; careful decisions go from 678 to 683, the five account questions. The question-only view no longer saves CSV copies: compared with the B4 baselines its decisions fall from 898 to 666, double counts from 43 to 2 and spending error from +$2,291.69 to +$35.74. Its one worse field is May Fees, $10.00 to $15.00 under: a double-counted $5 CSV fee copy used to offset the statement's $15 late fee, which the reader files outside Fees.
 
 All four product targets retain their original thresholds. Every monthly total within 1%, zero double counts and zero transfer leakage pass in the careful-user view; fewer than 200 annual decisions still fails. All twelve months match exactly. March's $29.99 refund has no findable store in its descriptor, so review asks which category it goes back to; both views answer Clothing, and it reduces March Clothing (it used to leave March $29.99 high). The answer-only spending error grows because the CSV duplicates now include cash withdrawals; missing cash previously offset some duplicates. Its monthly/category/income errors and 96 doubles remain separate ratchet failures if they worsen. Budget and the spending analyzer agree on these observed totals; their outputs remain independently measured.
 
