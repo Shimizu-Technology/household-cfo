@@ -771,8 +771,9 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
       link(fresh)
       entries = fresh[:events].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: @category.id } } }
       queries = []
+      callers = Hash.new(0)
       elapsed = Benchmark.realtime do
-        ActiveSupport::Notifications.subscribed(->(*args) { payload = args.last; queries << payload[:sql] unless payload[:name] == "SCHEMA" }, "sql.active_record") do
+        ActiveSupport::Notifications.subscribed(->(*args) { payload = args.last; queries << payload[:sql] unless payload[:name] == "SCHEMA"; callers[[ payload[:sql], caller.find { |loc| loc.include?("/app/") } ]] += 1 }, "sql.active_record") do
           @household.with_lock do
             domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
             result = FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], { lines: entries }).call
@@ -780,9 +781,11 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
           end
         end
       end
-      puts "STATEMENT_SAVE size=#{size} seconds=#{elapsed.round(3)} queries=#{queries.length}"
+      File.write("/tmp/hcfo-query-profile-#{size}.txt", callers.sort_by { |_, n| -n }.map { |(sql, loc), n| "#{n} #{loc} #{sql}" }.join("\n")) if ENV["PROFILE_SAVE"]
+      puts "STATEMENT_SAVE size=#{size} seconds=#{elapsed.round(3)} queries=#{queries.length} queries_per_line=#{(queries.length.to_f / size).round(2)} estimated_production_seconds=#{(queries.length * 0.01).round(2)}"
       assert_equal size, @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).count
       unless ENV["STATEMENT_SAVE_BASELINE"]
+        assert_operator queries.length, :<=, { 1 => 60, 22 => 250, 100 => 875 }.fetch(size)
         refute queries.any? { |sql| sql.include?('SELECT "financial_source_events".*') && sql.include?("DISTINCT ON") && !sql.include?('"signed_amount_cents"') }, "Overlap checks must narrow the household history"
         assert_operator queries.count { |sql| sql.include?('FROM "budget_allocations"') }, :<=, 12
       end

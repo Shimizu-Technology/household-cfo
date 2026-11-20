@@ -21,7 +21,7 @@ module FinancialDocuments
             raise Domain::StaleReview, "The linked financial transaction changed or is outside this source row."
           end
         end
-        if action == "create" && domain.household.household_transactions.where(financial_source_event: event, status: %w[confirmed reconciled]).exists?
+        if action == "create" && domain.actuals_for(event).any?
           raise ArgumentError, "This source row already has approved spending. Review an explicit replacement."
         end
         replacement = nil
@@ -37,12 +37,14 @@ module FinancialDocuments
             financial_source_event: event, source_import: event.financial_extraction_revision.financial_document_import,
             occurred_on: version.posted_on, merchant: version.merchant, total_amount_cents: version.purchase_amount_cents,
             source_type: "statement", status: "confirmed", metadata: { source_review_version_id: version.id })
+          replacement.association(:transaction_splits).loaded!
           replacement.transaction_splits.create!(budget_category: version.budget_category, amount_cents: version.purchase_amount_cents)
           replacement.validate_split_total!
+          domain.line_batch[:actuals][event.id] = [ replacement ] if domain.line_batch
         end
         previous&.update!(status: "ignored")
         if replacement
-          domain.household.transaction_drafts.pending.where(financial_source_event: event).order(:id).lock.each do |draft|
+          domain.legacy_drafts(event).each do |draft|
             draft.update!(status: "corrected", confirmed_transaction: replacement, draft_payload: draft.draft_payload.merge("source_review_version_id" => version.id))
           end
         end

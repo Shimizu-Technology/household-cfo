@@ -371,6 +371,7 @@ module HouseholdFinance
 
       budget_year = household.budget_years.find_by(year: year) ||
         create_plan_record!(household.budget_years, { year: year }, status: "active")
+      budget_year.budget_periods.load
       ensure_periods!(budget_year)
       ensure_categories_from_expenses!
       ensure_allocations_from_expenses!(budget_year)
@@ -422,8 +423,10 @@ module HouseholdFinance
 
     def ensure_allocations_for_active_categories!(budget_year)
       periods = budget_year.budget_periods.to_a
+      existing = BudgetAllocation.where(budget_period: periods).pluck(:budget_period_id, :budget_category_id).to_set
       household.budget_categories.active.find_each do |category|
         periods.each do |period|
+          next if existing.include?([ period.id, category.id ])
           BudgetAllocation.find_or_create_by!(budget_period: period, budget_category: category) do |allocation|
             allocation.planned_amount_cents = 0
             allocation.source = "manual"

@@ -19,7 +19,12 @@ module FinancialDocuments
       end
 
       def call
-        TOOLS.each { |key| CohortReleases::OperationAccess.require!(household: household, user: domain.user, key: key, membership: @cohort_membership) }
+        HouseholdFinance::FinancialGenerationGuard.request!(household)
+        FinancialPicture.set(household_id: household.id, generation: household.financial_generation) { perform }
+      end
+
+      def perform
+        CohortReleases::OperationAccess.require_all!(household: household, user: domain.user, keys: TOOLS, membership: @cohort_membership)
         entries = Array(input[:lines]).map { |entry| entry.to_h.deep_symbolize_keys }
         answer = input[:coverage_answer].presence
         raise ArgumentError, "Choose whether anything is missing from this statement" if answer && !answer.in?(CoverageQuestion::ANSWERS)
@@ -32,17 +37,31 @@ module FinancialDocuments
         domain.overlap_context = OverlapDetector::Context.new(household)
         check_account_heads!(entries)
         link_accounts!
-        plan = ParticipantPlan.new(household, revision, unlinked_account_ids: @linked_now)
+        plan = ParticipantPlan.new(household, revision, unlinked_account_ids: @linked_now, overlap_context: domain.overlap_context, accounts: @source_accounts)
         check_expected!(plan, entries)
+        domain.begin_line_batch!(plan.lines.map(&:event), revision: revision, plan: plan)
+        candidate_events = plan.lines.map(&:event) + entries.filter_map do |entry|
+          next unless entry[:decision] == "edited"
+          line = plan.line_for(entry.fetch(:event_id).to_i)
+          next unless line
+          identity = domain.overlap_context.accounts[line.event.financial_source_account_id]&.approved_version
+          facts = facts_for(line, "edited", entry[:edit].to_h.deep_symbolize_keys, identity.id, (domain.line_head(line.event)&.approved_version if line.done))
+          line.event.dup.tap do |event|
+            event.signed_amount_cents = facts[:signed_amount_cents]
+            event.posted_on = facts[:posted_on]
+          end
+        end
+        domain.overlap_context.preload!(candidate_events, revision.financial_document_import&.checksum_sha256) if candidate_events.drop(plan.lines.length).any? { |edited| plan.lines.none? { |line| line.event.signed_amount_cents == edited.signed_amount_cents && line.event.posted_on == edited.posted_on } }
         counts = Hash.new(0)
         entries.sort_by { |entry| plan.line_for(entry.fetch(:event_id).to_i)&.event&.position.to_i }.each do |entry|
           apply!(plan, entry, counts)
-          domain.overlap_context.refresh!
         end
+        domain.flush_line_batch!
         { approved: counts[:approved], left_out: counts[:left_out], unchanged: counts[:unchanged], complete: finish_coverage!(answer) }
       rescue KeyError, TypeError
         raise ArgumentError, "Statement review request is missing required fields"
       ensure
+        domain.end_line_batch! if domain.line_batch
         domain.overlap_context = nil
         domain.projection_periods = nil
       end
@@ -95,6 +114,7 @@ module FinancialDocuments
       def link_accounts!
         @linked_now = []
         accounts = revision.financial_source_accounts.order(:id).to_a
+        @source_accounts = accounts.index_by(&:id)
         changes = Array(input[:accounts]).map { |row| row.to_h.deep_symbolize_keys }.index_by { |row| row[:source_account_id].to_i }
         heads = domain.overlap_context.accounts
         # Validate what was displayed before writing any links. Multiple sections
@@ -184,8 +204,8 @@ module FinancialDocuments
         elsif decision == "unpair_transfer"
           return unpair!(line, entry, counts)
         end
-        identity = domain.account_heads.find_by(financial_source_account_id: event.financial_source_account_id)&.approved_version
-        head = domain.heads.find_by(financial_source_event_id: event.id)
+        identity = domain.overlap_context.accounts[event.financial_source_account_id]&.approved_version
+        head = domain.line_head(event)
         facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done), prior: head&.approved_version)
         if line.done && same_facts?(head.approved_version, facts)
           counts[:unchanged] += 1
@@ -362,19 +382,19 @@ module FinancialDocuments
       end
 
       def stage_and_approve!(event, head, facts)
-        pending = head&.source_review_drafts&.pending&.first
+        pending = domain.pending_draft(head)
         raw = { event_id: event.id, base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0,
           expected_pending_draft: pending && { id: pending.id, lock_version: pending.lock_version, digest: pending.digest },
           facts: facts, projection: projection_for(event, facts), reason: REASON }
-        draft = domain.execute("stage", domain.normalize("stage", raw)).reload
+        draft = domain.execute("stage", domain.normalize("stage", raw))
         domain.execute("approve", domain.normalize("approve", draft_id: draft.id, draft_lock_version: draft.lock_version, draft_digest: draft.digest))
       end
 
       # Counts as spending only when the participant approved a categorized purchase outflow.
       def projection_for(event, facts)
-        actuals = household.household_transactions.where(financial_source_event: event, status: %w[confirmed reconciled]).order(:id).limit(2).to_a
+        actuals = domain.actuals_for(event)
         actual = actuals.one? ? actuals.first : nil
-        category = facts[:budget_category_id] && household.budget_categories.find_by(id: facts[:budget_category_id])
+        category = facts[:budget_category_id] && domain.category(facts[:budget_category_id])
         spending = facts[:disposition] == "include" && facts[:event_type].in?(ParticipantPlan::EXPENSE_TYPES) && facts[:signed_amount_cents].to_i.negative? &&
           category&.active && facts[:purchase_amount_cents] == facts[:signed_amount_cents].abs && facts[:posted_on] &&
           HouseholdFinance::AnnualBudgetManager.supported_year?(Date.iso8601(facts[:posted_on]).year)
@@ -388,9 +408,10 @@ module FinancialDocuments
       # proves its own coverage (its printed totals match) needs no question; otherwise there is no coverage approval until
       # she answers, and "something's missing" is recorded as not attested.
       def finish_coverage!(answer)
-        return false unless revision.financial_source_events.exists? || answer.present?
+        return false unless domain.line_batch[:events].any? || answer.present?
 
-        state = ApprovalState.new(household, revision).call
+        state = ApprovalState.new(household, revision, batch: domain.line_batch, accounts: domain.overlap_context.accounts.slice(*domain.line_batch[:source_accounts].keys)).call
+        domain.line_batch[:approval_state] = state if domain.line_batch
         return false if (state[:deficiencies] & NOT_REVIEWED).any? || state[:pending_corrections].positive?
         asked = CoverageQuestion.text(revision, deficiencies: state[:deficiencies]).present?
         said = answer || CoverageQuestion.answer(revision)
@@ -399,8 +420,8 @@ module FinancialDocuments
         accounted = said != "something_missing" && (!asked || said == "nothing_missing")
         last = SourceRevisionApproval.where(household: household, financial_extraction_revision: revision).order(version_number: :desc).first
         return true if last&.digest == state[:content_digest] && last.coverage_attestation["all_document_rows_accounted"] == accounted
-        accounts = revision.financial_source_accounts.order(:id).map do |account|
-          identity = domain.account_heads.find_by(financial_source_account_id: account.id).approved_version
+        accounts = domain.line_batch[:source_accounts].values.sort_by(&:id).map do |account|
+          identity = domain.overlap_context.accounts[account.id].approved_version
           { source_account_id: account.id, identity_version_id: identity.id, period_start_on: identity.statement_facts["period_start_on"],
             period_end_on: identity.statement_facts["period_end_on"], all_rows_accounted: accounted }
         end

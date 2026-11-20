@@ -29,16 +29,22 @@ module FinancialDocuments
           dated = events.select { |event| event.signed_amount_cents && event.posted_on }
           days = dated.map(&:posted_on)
           window = ((days.min - CROSS_FILE_DAYS)..(days.max + CROSS_FILE_DAYS)) if days.any?
-          @preloaded = read_candidates({ signed_amount_cents: dated.map(&:signed_amount_cents).uniq }, artifact, nil, days: window, all_physical: true)
+          @preloaded = read_candidates({ signed_amount_cents: dated.map(&:signed_amount_cents).uniq }, artifact, nil, days: window, all_physical: true, known_events: events)
         end
 
         def candidates(facts, artifact, locator)
           @preloaded || read_candidates(facts, artifact, locator)
         end
 
+        def record_approval!(event, head)
+          @preloaded << event if @preloaded && @preloaded.none? { |row| row.id == event.id }
+          @heads[event.id] = head if @heads
+          @pending&.delete(head.id)
+        end
+
         private
 
-        def read_candidates(facts, artifact, locator, days: nil, all_physical: false)
+        def read_candidates(facts, artifact, locator, days: nil, all_physical: false, known_events: [])
           scope = FinancialSourceEvent.where(household: @household)
           revisions = FinancialExtractionRevision.where(household: @household)
             .where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)")
@@ -65,7 +71,9 @@ module FinancialDocuments
           end
           reviewed = reviewed.or(versions.where(external_reference: facts[:external_reference])) if facts[:external_reference].present?
           matches = matches.or(scope.where(id: SourceReviewHead.where(approved_version_id: reviewed.select(:id)).select(:financial_source_event_id)))
-          rows = matches.where(financial_extraction_revision_id: revisions).includes(:financial_source_evidence, financial_extraction_revision: :financial_document_import).to_a
+          known = known_events.select(&:persisted?).index_by(&:id)
+          rows = matches.where(financial_extraction_revision_id: revisions).map { |row| known[row.id] || row }
+          ActiveRecord::Associations::Preloader.new(records: rows, associations: [ :financial_source_evidence, { financial_extraction_revision: :financial_document_import } ]).call
           @heads = SourceReviewHead.where(household: @household, financial_source_event_id: rows.map(&:id)).includes(approved_version: :matched_version).index_by(&:financial_source_event_id)
           @pending = SourceReviewDraft.where(household: @household, source_review_head_id: @heads.values.map(&:id)).pending.index_by(&:source_review_head_id)
           rows

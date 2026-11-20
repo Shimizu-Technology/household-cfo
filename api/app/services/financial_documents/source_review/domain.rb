@@ -7,6 +7,7 @@ module FinancialDocuments
       attr_reader :household, :user
       # A bulk save sets one so every line is checked against the same read of the household's events; it refreshes it after each write.
       attr_accessor :overlap_context, :projection_periods
+      attr_reader :line_batch
 
       def initialize(household, user: nil)
         @household, @user = household, user
@@ -21,6 +22,70 @@ module FinancialDocuments
 
         periods = projection_periods[date.year] ||= manager.ensure_plan_inside_household_lock!.budget_periods.index_by(&:starts_on)
         periods.fetch(date.beginning_of_month)
+      end
+
+      # Enter only while the caller holds the household lock. All regular fact,
+      # pending-draft and optimistic-head checks still run against these records.
+      def begin_line_batch!(events, revision:, plan:)
+        authorize!
+        related = if plan.review_heads.values.none?(&:approved_version_id)
+          events.map(&:financial_extraction_revision_id)
+        else
+          related_revision_ids(events.map(&:id))
+        end
+        lock_revisions!((related + [ revision.id ]).uniq)
+        @line_batch = {
+          events: events.index_by(&:id),
+          source_accounts: plan.accounts_for_save,
+          heads: plan.review_heads,
+          identities: overlap_context.accounts.values.filter_map { |head| head.approved_version.tap { |identity| identity.source_account_review_head = head if identity } }.index_by(&:id),
+          categories: plan.categories_for_save.index_by(&:id),
+          version_numbers: SourceReviewVersion.where(source_review_head_id: plan.review_heads.values.map(&:id)).group(:source_review_head_id).maximum(:version_number),
+          actuals: household.household_transactions.where(financial_source_event_id: events.map(&:id), status: %w[confirmed reconciled]).order(:id).includes(:transaction_splits).group_by(&:financial_source_event_id),
+          legacy: household.transaction_drafts.pending.where(financial_source_event_id: events.map(&:id)).order(:id).lock.group_by(&:financial_source_event_id),
+          drafts: {}, revisions: {}
+        }
+        ActiveRecord::Associations::Preloader.new(records: line_batch[:heads].values, associations: :source_review_drafts).call
+        events.map { |event| event.financial_extraction_revision.financial_document_import }.uniq(&:id).each { |source| HouseholdFinance::FinancialGenerationGuard.source!(source, locked_household: household) }
+      end
+
+      def flush_line_batch!
+        line_batch[:revisions].each_value { |record| mark_review_pending!(record) }
+        line_batch[:revisions].clear
+      end
+
+      def end_line_batch!
+        @line_batch = nil
+      end
+
+      def category(id)
+        return household.budget_categories.find(id) unless line_batch
+        line_batch[:categories].fetch(id.to_i) { raise ActiveRecord::RecordNotFound }
+      end
+
+      def line_head(event)
+        return heads.find_by(financial_source_event_id: event.id) unless line_batch
+        line_batch[:heads][event.id]
+      end
+
+      def pending_draft(head)
+        return head&.source_review_drafts&.pending&.first unless line_batch
+        head&.source_review_drafts&.find { |draft| draft.status == "pending" }
+      end
+
+      def actuals_for(event)
+        return household.household_transactions.where(financial_source_event: event, status: %w[confirmed reconciled]).order(:id).limit(2).to_a unless line_batch
+        line_batch[:actuals].fetch(event.id, []).select { |row| row.status.in?(%w[confirmed reconciled]) }
+      end
+
+      def legacy_drafts(event)
+        return household.transaction_drafts.pending.where(financial_source_event: event).order(:id).lock unless line_batch
+        line_batch[:legacy].fetch(event.id, []).select { |row| row.status == "pending" }
+      end
+
+      def review_draft(id)
+        return drafts.find(id) unless line_batch
+        line_batch[:drafts].fetch(id.to_i) { raise ActiveRecord::RecordNotFound }
       end
 
       def authorize!(subject = nil)
@@ -50,7 +115,7 @@ module FinancialDocuments
             expected_pending_draft: input[:expected_pending_draft]&.to_h&.symbolize_keys&.slice(:id, :lock_version, :digest),
             facts: reviewed_facts(event, input.fetch(:facts)), projection: projection(input.fetch(:projection, { action: "none" })), reason: required_text(input[:reason], 500) }
         when "approve", "cancel"
-          draft = drafts.find(input.fetch(:draft_id))
+          draft = review_draft(input.fetch(:draft_id))
           { draft_id: draft.id, draft_lock_version: integer(input.fetch(:draft_lock_version)), draft_digest: input.fetch(:draft_digest).to_s }
         when "project"
           version = versions.find(input.fetch(:version_id))
@@ -64,7 +129,7 @@ module FinancialDocuments
           coverage = input.fetch(:coverage_attestation).to_h.deep_symbolize_keys
           accounts = Array(coverage[:accounts]).map do |row|
             row = row.to_h.deep_symbolize_keys
-            identity = identities.find(row.fetch(:identity_version_id))
+            identity = line_batch ? current_identity!(line_batch[:events].values.find { |event| event.financial_source_account_id == row[:source_account_id].to_i }, row.fetch(:identity_version_id)) : identities.find(row.fetch(:identity_version_id))
             { source_account_id: source_account(row.fetch(:source_account_id)).id, identity_version_id: identity.id,
               period_start_on: coverage_date(row.fetch(:period_start_on), identity, "period_start_on", status),
               period_end_on: coverage_date(row.fetch(:period_end_on), identity, "period_end_on", status), all_rows_accounted: row[:all_rows_accounted] == true }
@@ -97,7 +162,7 @@ module FinancialDocuments
         when "stage"
           event_snapshot(source_event(input[:event_id]), input[:facts], input[:projection])
         when "approve", "cancel"
-          draft = drafts.find(input[:draft_id])
+          draft = review_draft(input[:draft_id])
           { draft: draft_state(draft), event: event_snapshot(draft.source_review_head.financial_source_event, draft.facts.deep_symbolize_keys, draft.projection.deep_symbolize_keys) }
         when "project"
           version = versions.find(input[:version_id])
@@ -115,17 +180,17 @@ module FinancialDocuments
 
       def execute(action, input)
         ApplicationRecord.transaction do
-          household.lock!
-          authorize!
-          affected_revision_ids = revision_ids(action, input)
-          lock_revisions!(affected_revision_ids)
+          household.lock! unless line_batch
+          authorize! unless line_batch
+          affected_revision_ids = line_batch ? [] : revision_ids(action, input)
+          lock_revisions!(affected_revision_ids) unless line_batch
           result = case action.to_s
           when "account_link" then link_account!(input)
           when "stage" then stage!(input)
           when "approve" then approve!(input)
           when "cancel" then cancel!(input)
           when "project" then project!(input)
-          when "revision_approve" then RevisionApprover.new(self, revision(input[:revision_id]), input).call
+          when "revision_approve" then RevisionApprover.new(self, revision(input[:revision_id]), input, state: line_batch&.dig(:approval_state)).call
           when "economic_link" then EconomicLinker.new(self, input).call
           end
           affected_revision_ids.each { |id| mark_review_pending!(revision(id)) } if action.to_s.in?(%w[account_link approve economic_link])
@@ -134,14 +199,20 @@ module FinancialDocuments
       end
 
       def source_event(id)
+        return line_batch[:events].fetch(id.to_i) { raise ActiveRecord::RecordNotFound } if line_batch
         FinancialSourceEvent.where(household_id: household.id).find(id).tap { |event| HouseholdFinance::FinancialGenerationGuard.source!(event.financial_extraction_revision.financial_document_import) }
       end
 
       def source_account(id)
+        return line_batch[:source_accounts].fetch(id.to_i) { raise ActiveRecord::RecordNotFound } if line_batch
         FinancialSourceAccount.where(household_id: household.id).find(id).tap { |account| HouseholdFinance::FinancialGenerationGuard.source!(account.financial_extraction_revision.financial_document_import) }
       end
 
       def revision(id)
+        if line_batch
+          record = line_batch[:events].values.first&.financial_extraction_revision
+          return record if record&.id == id.to_i
+        end
         FinancialExtractionRevision.where(household_id: household.id).find(id).tap { |revision| HouseholdFinance::FinancialGenerationGuard.source!(revision.financial_document_import) }
       end
 
@@ -158,8 +229,9 @@ module FinancialDocuments
       def digest(value) = HouseholdFinance::Operations::PreparedOperation.fingerprint(value)
 
       def current_identity!(event, id)
-        identity = identities.find(id)
-        head = identity.source_account_review_head.reload
+        identity = line_batch ? line_batch[:identities].fetch(id.to_i) { raise ActiveRecord::RecordNotFound } : identities.find(id)
+        head = line_batch ? overlap_context.accounts[identity.source_account_review_head.financial_source_account_id] : identity.source_account_review_head
+        head.reload unless line_batch
         unless head.financial_source_account_id == event.financial_source_account_id && head.approved_version_id == identity.id
           raise StaleReview, "Review this source account’s current identity before approving its rows."
         end
@@ -169,9 +241,12 @@ module FinancialDocuments
       def lock_revisions!(ids)
         records = FinancialExtractionRevision.where(household_id: household.id, id: ids.uniq).order(:id).to_a
         raise ActiveRecord::RecordNotFound unless records.length == ids.uniq.length
-        FinancialDocumentImport.where(household_id: household.id, id: records.filter_map(&:financial_document_import_id)).order(:id).lock.load
-        records.each { |revision| HouseholdFinance::FinancialGenerationGuard.source!(revision.financial_document_import) }
-        records.each(&:lock!)
+        imports = FinancialDocumentImport.where(household_id: household.id, id: records.filter_map(&:financial_document_import_id)).order(:id).lock.index_by(&:id)
+        records = FinancialExtractionRevision.where(household_id: household.id, id: ids.uniq).order(:id).lock.to_a
+        records.each do |revision|
+          revision.financial_document_import = imports[revision.financial_document_import_id]
+          HouseholdFinance::FinancialGenerationGuard.source!(revision.financial_document_import, locked_household: household)
+        end
       end
 
       private
@@ -180,7 +255,7 @@ module FinancialDocuments
         case action.to_s
         when "account_link" then related_revision_ids(source_account(input[:source_account_id]).financial_source_events.pluck(:id))
         when "stage" then [ source_event(input[:event_id]).financial_extraction_revision_id ]
-        when "approve", "cancel" then related_revision_ids([ drafts.find(input[:draft_id]).source_review_head.financial_source_event_id ])
+        when "approve", "cancel" then related_revision_ids([ review_draft(input[:draft_id]).source_review_head.financial_source_event_id ])
         when "project" then [ versions.find(input[:version_id]).financial_source_event.financial_extraction_revision_id ]
         when "revision_approve" then [ input[:revision_id] ]
         when "economic_link"
@@ -213,27 +288,33 @@ module FinancialDocuments
 
       def stage!(input)
         event = source_event(input[:event_id])
-        head = heads.find_or_create_by!(financial_source_event: event)
-        head.lock!
+        head = line_head(event)
+        unless head
+          head = heads.create!(financial_source_event: event, household: household)
+          head.association(:source_review_drafts).loaded! if line_batch
+        end
+        line_batch[:heads][event.id] = head if line_batch
+        head.lock! unless line_batch
         check_base!(head, input)
         current_identity!(event, input[:facts][:source_account_identity_version_id])
-        pending = head.source_review_drafts.pending.first
+        pending = pending_draft(head)
         actual_pending = pending && { id: pending.id, lock_version: pending.lock_version, digest: pending.digest }
         unless actual_pending == input[:expected_pending_draft]
           raise StaleReview, "The pending proposal changed. Refresh before replacing it; nothing changed."
         end
         draft = pending || head.source_review_drafts.new(household: household)
-        draft.lock! if draft.persisted?
+        draft.lock! if draft.persisted? && !line_batch
         draft.update!(staged_by_user: user, base_version_id: head.approved_version_id, base_head_lock_version: head.lock_version,
           facts: input[:facts], projection: input[:projection], reason: input[:reason], digest: digest(input))
+        line_batch[:drafts][draft.id] = draft if line_batch
         draft
       end
 
       def approve!(input)
-        draft = drafts.find(input[:draft_id])
+        draft = review_draft(input[:draft_id])
         head = draft.source_review_head
-        head.lock!
-        draft.lock!
+        head.lock! unless line_batch
+        draft.lock! unless line_batch
         check_draft!(draft, input)
         check_base!(head, base_version_id: draft.base_version_id, base_lock_version: draft.base_head_lock_version)
         event = head.financial_source_event
@@ -242,31 +323,35 @@ module FinancialDocuments
         overlaps = OverlapDetector.new(household, event, facts, context: overlap_context || OverlapDetector::Context.new(household)).call
         validate_overlaps!(facts, overlaps)
         validate_confirmed_purchase!(head, facts)
-        category = household.budget_categories.find(facts[:budget_category_id]) if facts[:budget_category_id]
+        category = category(facts[:budget_category_id]) if facts[:budget_category_id]
         raise ArgumentError, "Choose an active category" if category && !category.active?
         attributes = facts.except(:source_account_identity_version_id).merge(source_account_identity_version: identity,
-          category_snapshot: category ? { id: category.id, name: category.name, stack_key: category.stack_key } : { explicitly_uncategorized: true },
+          budget_category: category, supersedes: head.approved_version, category_snapshot: category ? { id: category.id, name: category.name, stack_key: category.stack_key } : { explicitly_uncategorized: true },
           source_artifact_digest: event.financial_extraction_revision.financial_document_import&.checksum_sha256,
-          version_number: head.source_review_versions.maximum(:version_number).to_i + 1, supersedes_id: head.approved_version_id,
+          version_number: (line_batch ? line_batch[:version_numbers].fetch(head.id, 0) : head.source_review_versions.maximum(:version_number).to_i) + 1, supersedes_id: head.approved_version_id,
           approved_by_user: user, reason: draft.reason, digest: digest(facts: facts, projection: draft.projection, reason: draft.reason), projection: draft.projection)
         version = head.source_review_versions.create!(attributes.merge(household: household))
+        version.association(:source_projection_revision).loaded! if line_batch
         ProjectionCorrector.new(self, version, draft.projection.deep_symbolize_keys).call
         head.update!(approved_version: version)
+        line_batch[:version_numbers][head.id] = version.version_number if line_batch
         draft.update!(status: "approved")
         # A card line she says is a purchase she logged as cash is proof it went on her card.
         if version.disposition == "match" && version.matched_transaction_id
           HouseholdFinance::CashPayment.paid_by_card!(household, household.household_transactions.find(version.matched_transaction_id), version: version, user: user)
         end
         if version.disposition != "include" || version.event_type.in?(%w[transfer debt_payment])
-          household.transaction_drafts.pending.where(financial_source_event: event).order(:id).lock.each do |legacy|
+          legacy_drafts(event).each do |legacy|
             legacy.update!(status: "ignored", draft_payload: legacy.draft_payload.merge("source_review_version_id" => version.id, "source_review_disposition" => version.disposition))
           end
         end
+        line_batch[:revisions][event.financial_extraction_revision_id] = event.financial_extraction_revision if line_batch
+        overlap_context.record_approval!(event, head) if line_batch
         version
       end
 
       def cancel!(input)
-        draft = drafts.find(input[:draft_id])
+        draft = review_draft(input[:draft_id])
         draft.source_review_head.lock!
         draft.lock!
         check_draft!(draft, input)
@@ -352,7 +437,7 @@ module FinancialDocuments
         posted = input[:posted_on].nil? ? nil : date!(input[:posted_on])
         authorized = input[:authorized_on].nil? ? nil : date!(input[:authorized_on])
         merchant = text(input[:merchant], 120)
-        category = input[:budget_category_id] && household.budget_categories.find(input[:budget_category_id])
+        category = input[:budget_category_id] && category(input[:budget_category_id])
         purchase = input[:purchase_amount_cents].nil? ? nil : cents!(input[:purchase_amount_cents], positive: true)
         if disposition.in?(%w[include match])
           raise ArgumentError, "Resolve the amount, posted date and classification before approval" unless amount && !amount.zero? && posted && type != "unknown"

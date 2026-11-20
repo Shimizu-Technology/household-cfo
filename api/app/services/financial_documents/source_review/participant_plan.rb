@@ -51,13 +51,20 @@ module FinancialDocuments
       }.freeze
 
       # unlinked_account_ids: accounts linked by the save in progress. Their copies are read as she saw them before the link.
-      def initialize(household, revision, unlinked_account_ids: [])
+      def initialize(household, revision, unlinked_account_ids: [], overlap_context: nil, accounts: nil)
         @household, @revision, @unlinked_account_ids = household, revision, unlinked_account_ids
+        @overlap_context, @source_accounts = overlap_context, accounts
+        @shared_overlap = overlap_context.present?
       end
 
       def lines
         @lines ||= build
       end
+
+      attr_reader :review_heads
+
+      def categories_for_save = @all_review_categories ||= household.budget_categories.ordered.to_a
+      def accounts_for_save = @source_accounts
 
       def ready_ids = lines.select { |line| line.ready? && !line.done }.map { |line| line.event.id }
       # A saved purchase with no category counts nowhere, so it stays on her list as "What was this for?" until she picks one or leaves it out.
@@ -112,16 +119,17 @@ module FinancialDocuments
       end
 
       def review_categories
-        @review_categories ||= household.budget_categories.active.ordered.to_a
+        @review_categories ||= categories_for_save.select(&:active?)
       end
 
       def build
-        events = revision.financial_source_events.includes(:financial_source_evidence).order(:position, :id).to_a
+        events = revision.financial_source_events.includes(:financial_source_evidence, financial_extraction_revision: :financial_document_import).order(:position, :id).to_a
         heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(approved_version: { source_account_identity_version: :source_account_review_head }).index_by(&:financial_source_event_id)
-        categories = household.budget_categories.active.pluck(:id).to_set
+        @review_heads = heads
+        categories = review_categories.map(&:id).to_set
         suggestions, earlier = suggested_categories(events)
-        accounts = revision.financial_source_accounts.index_by(&:id)
-        candidates = overlap_candidates(events)
+        accounts = @source_accounts ||= revision.financial_source_accounts.index_by(&:id)
+        candidates = @shared_overlap ? events.map(&:id).to_set : overlap_candidates(events)
         overlap_context.preload!(events.select { |event| candidates.include?(event.id) }, revision.financial_document_import&.checksum_sha256) if candidates.any?
         events.map do |event|
           merchant = self.class.merchant_for(event)
@@ -306,7 +314,7 @@ module FinancialDocuments
         others = FinancialSourceEvent.where(household: household).where(financial_extraction_revision_id: FinancialExtractionRevision.where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)").select(:id)).where.not(financial_extraction_revision_id: revision.id)
         heads = SourceReviewHead.where(household: household, financial_source_event_id: others.select(:id))
         keys = others.where(signed_amount_cents: amounts).pluck(:signed_amount_cents, :posted_on).to_set { |amount, day| [ amount, day.to_s ] }
-        SourceReviewVersion.where(id: heads.select(:approved_version_id), signed_amount_cents: amounts).pluck(:signed_amount_cents, :posted_on).each { |amount, day| keys << [ amount, day.to_s ] }
+        SourceReviewVersion.where(id: heads.pluck(:approved_version_id).compact, signed_amount_cents: amounts).pluck(:signed_amount_cents, :posted_on).each { |amount, day| keys << [ amount, day.to_s ] }
         SourceReviewDraft.where(household: household, source_review_head_id: heads.select(:id)).pending.pluck(:facts).each do |facts|
           keys << [ facts["signed_amount_cents"], facts["posted_on"].to_s ] if amounts.include?(facts["signed_amount_cents"])
         end

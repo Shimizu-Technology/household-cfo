@@ -1,21 +1,22 @@
 module FinancialDocuments
   module SourceReview
     class RevisionApprover
-      def initialize(domain, revision, input)
-        @domain, @revision, @input = domain, revision, input
+      def initialize(domain, revision, input, state: nil)
+        @domain, @revision, @input, @state = domain, revision, input, state
       end
 
       def call
-        SourceAccountReviewHead.where(household: domain.household, financial_source_account_id: revision.financial_source_accounts.select(:id)).order(:id).lock.load
-        SourceReviewHead.where(household: domain.household, financial_source_event_id: revision.financial_source_events.select(:id)).order(:id).lock.load
-        state = ApprovalState.new(domain.household, revision).call
+        SourceAccountReviewHead.where(household: domain.household, financial_source_account_id: revision.financial_source_accounts.select(:id)).order(:id).lock.load unless domain.line_batch
+        SourceReviewHead.where(household: domain.household, financial_source_event_id: revision.financial_source_events.select(:id)).order(:id).lock.load unless domain.line_batch
+        state = @state || ApprovalState.new(domain.household, revision).call
         raise Domain::StaleReview, "Source versions changed before coverage approval; nothing changed." unless state[:content_digest] == input[:expected_digest]
         deficiencies = state[:deficiencies].dup
         coverage = input[:coverage_attestation]
         attested = coverage[:accounts].index_by { |row| row[:source_account_id] }
         deficiencies << "document_rows_not_attested" unless coverage[:all_document_rows_accounted]
-        revision.financial_source_accounts.each do |account|
-          head = domain.account_heads.find_by(financial_source_account: account)
+        accounts = domain.line_batch ? domain.line_batch[:source_accounts].values : revision.financial_source_accounts.to_a
+        accounts.each do |account|
+          head = domain.line_batch ? domain.overlap_context.accounts[account.id] : domain.account_heads.find_by(financial_source_account: account)
           identity = head&.approved_version
           declaration = attested[account.id]
           if !identity || !declaration || declaration[:identity_version_id] != identity.id || !declaration[:all_rows_accounted] ||
@@ -23,7 +24,7 @@ module FinancialDocuments
             deficiencies << "account_period_or_row_coverage_not_attested"
           end
         end
-        unless attested.keys.sort == revision.financial_source_accounts.pluck(:id).sort
+        unless attested.keys.sort == accounts.map(&:id).sort
           deficiencies << "account_attestation_scope_mismatch"
         end
         status = input[:requested_status]

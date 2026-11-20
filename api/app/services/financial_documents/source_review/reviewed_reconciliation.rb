@@ -8,13 +8,13 @@ module FinancialDocuments
       REQUIRED_HEADERS = %w[period_start_on period_end_on opening_balance_cents closing_balance_cents printed_debit_cents printed_credit_cents].freeze
       HEADERS = (REQUIRED_HEADERS + %w[printed_row_count printed_row_count_basis]).freeze
 
-      def initialize(revision, events, heads, account_heads)
-        @revision, @events, @heads, @account_heads = revision, events, heads, account_heads
+      def initialize(revision, events, heads, account_heads, accounts: nil)
+        @revision, @events, @heads, @account_heads, @accounts = revision, events, heads, account_heads, accounts
       end
 
       def call
         source_keys = {}
-        groups = revision.financial_source_accounts.order(:id).group_by { |account| confirmed_scope(account) || [ "source", account.id ] }
+        groups = (@accounts || revision.financial_source_accounts.order(:id)).group_by { |account| confirmed_scope(account) || [ "source", account.id ] }
         accounts = groups.values.map do |fragments|
           account = reviewed_account(fragments)
           fragments.each { |fragment| source_keys[fragment.id] = account[:source_key] }
