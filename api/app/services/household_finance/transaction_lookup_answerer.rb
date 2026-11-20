@@ -92,9 +92,9 @@ module HouseholdFinance
     def merchant_comparison_target
       return unless message.match?(/\b(more|less|compare|versus|vs\.?|or)\b/i)
 
-      # Named the way she reads them, never with the bank's wording ("Purchase authorized on …").
+      # Matched on the stored name; display_merchant only words the reply.
       matches = known_merchants.select { |merchant| normalized_message.include?(normalize(merchant)) }.first(4)
-        .map { |merchant| display_merchant(merchant) }.uniq { |label| label.downcase }
+        .uniq { |merchant| display_merchant(merchant).downcase }
       return if matches.length < 2
 
       { type: :merchant_comparison, labels: matches }
@@ -105,7 +105,8 @@ module HouseholdFinance
         normalized_merchant = normalize(merchant)
         normalized_merchant.present? && normalized_message.include?(normalized_merchant)
       end
-      return { type: :merchant, label: display_merchant(known_merchant) } if known_merchant.present?
+      # Matched on the stored name: the shorter "Ross" would also match "Crossroads Cafe".
+      return { type: :merchant, label: known_merchant, display: display_merchant(known_merchant) } if known_merchant.present?
 
       extracted = message.match(/\b(?:at|from)\s+([a-z0-9'&.\-\s]+?)(?:\s+(?:this|last|in|for|during|between|from|and how|how much|how many)|[?.!]|$)/i)&.[](1)&.squish
       extracted = extracted&.gsub(/\b(today|yesterday)\b/i, "")&.squish
@@ -156,9 +157,10 @@ module HouseholdFinance
     end
 
     def build_merchant_answer(target, transactions)
-      label = target.fetch(:label)
-      observed = matching_bank_transactions(label, pending: false)
-      bank_pending = matching_bank_transactions(label, pending: true)
+      observed = matching_bank_transactions(target.fetch(:label), pending: false)
+      bank_pending = matching_bank_transactions(target.fetch(:label), pending: true)
+      # Named the way she reads it, never with the bank's wording ("Purchase authorized on …").
+      label = target.fetch(:display, target.fetch(:label))
       needs_review = observed.select { |transaction| needs_household_review?(transaction) }
       if observed.empty? && bank_pending.empty? && transactions.empty?
         return "I don’t see reviewed purchases or synced activity for #{label} in #{period_label}. That does not establish whether you spent anything. Which purchase or store do you mean?"
@@ -181,7 +183,7 @@ module HouseholdFinance
       summaries = labels.map do |label|
         transactions = base_transactions.select { |transaction| merchant_matches?(transaction.merchant, label) }
         observed = matching_bank_transactions(label, pending: false)
-        { label: label, count: transactions.length, cents: transactions.sum(&:total_amount_cents), observed_count: observed.length, observed_cents: observed.sum(&:amount_cents) }
+        { label: display_merchant(label), count: transactions.length, cents: transactions.sum(&:total_amount_cents), observed_count: observed.length, observed_cents: observed.sum(&:amount_cents) }
       end
       winner = if summaries.any? { |summary| summary.fetch(:observed_cents).positive? }
         summaries.max_by { |summary| summary.fetch(:observed_cents) }

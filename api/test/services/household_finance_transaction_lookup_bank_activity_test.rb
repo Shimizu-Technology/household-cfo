@@ -45,6 +45,18 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     refute_match(/Purchase authorized|S····|Card 5237/i, comparison.to_s)
   end
 
+  test "a store named in full is matched on its own name, never the shorter name it reads as" do
+    period = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 8, 1))
+    { "ROSS DRESS FOR LESS" => 6_000, "Crossroads Cafe" => 5_000, "Kmart Snack Bar Grossmans" => 7_000 }.each do |merchant, cents|
+      row = @household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 8, 5), merchant: merchant, total_amount_cents: cents, source_type: "statement", status: "confirmed")
+      row.transaction_splits.create!(budget_category: @category, amount_cents: cents)
+    end
+
+    answer = HouseholdFinance::TransactionLookupAnswerer.new(@household, "How much did I spend at Ross Dress for Less this month?", today: Date.new(2026, 8, 16)).call
+    assert_includes answer, "1 confirmed Ross transaction totaling $60"
+    refute_includes answer, "$180"
+  end
+
   test "bank summary leaves transfers and card payments out of outflows and review counts" do
     plaid_transaction("purchase-shop", 1_000, merchant: "Island Market")
     plaid_transaction("card-payment", 207_850, merchant: "Card Payment", primary: "LOAN_PAYMENTS", detailed: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
