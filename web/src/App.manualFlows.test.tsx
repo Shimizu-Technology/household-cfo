@@ -743,3 +743,75 @@ it('focuses the inert purchase result even when an animation frame runs before i
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
   } finally { frame.mockRestore() }
 })
+
+describe('cash purchases', () => {
+  const candidate = (id: number, label: string, withdrawnOn: string, amount: number) => ({
+    financial_source_event_id: id, withdrawn_on: withdrawnOn, amount, amount_cents: amount * 100, available: amount, available_cents: amount * 100, covers_cents: 4000, label,
+  })
+
+  it('asks "Paid with the $100 you took out on Aug 3?" instead of a Confirm that would count the cash twice', async () => {
+    const lunch = draft({ id: 240, merchant: 'Tasi Demo Cafe', amount: 40, amount_cents: 4000, occurred_on: '2026-08-05',
+      cash_payment: { source: 'participant', cash: 40, cash_cents: 4000, question: 'Paid with the $100 you took out on Aug 3?', candidates: [candidate(901, 'the $100 you took out on Aug 3', '2026-08-03', 100)] } })
+    const props = stackProps([lunch])
+    render(<TransactionDraftReviewStack {...props} />)
+
+    expect(screen.getByText('Paid with the $100 you took out on Aug 3?')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Confirm / })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes: Tasi Demo Cafe $40 on Aug 5 was paid with the $100 you took out on Aug 3' }))
+    await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(lunch, { cashWithdrawalEventId: 901 }))
+    fireEvent.click(screen.getByRole('button', { name: 'No, other cash: count Tasi Demo Cafe $40 on Aug 5 as its own purchase' }))
+    await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(lunch, { cashFromElsewhere: true }))
+  })
+
+  it('lets her choose between several withdrawals, and says plainly when no cash she took out is left', async () => {
+    const lunch = draft({ id: 241, merchant: 'Tasi Demo Cafe', amount: 40, amount_cents: 4000, occurred_on: '2026-08-05',
+      cash_payment: { source: 'receipt', cash: 40, cash_cents: 4000, question: 'Which cash paid for this $40?',
+        candidates: [candidate(902, 'the $100 you took out on Aug 3', '2026-08-03', 100), candidate(903, 'the $60 you took out on Jul 20', '2026-07-20', 60)] } })
+    const props = stackProps([lunch])
+    const { rerender } = render(<TransactionDraftReviewStack {...props} />)
+    expect(screen.getByText('Which cash paid for this $40?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes: Tasi Demo Cafe $40 on Aug 5 was paid with the $60 you took out on Jul 20' }))
+    await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(lunch, { cashWithdrawalEventId: 903 }))
+    expect(screen.getByText('The $100 you took out on Aug 3').tagName).toBe('BUTTON')
+
+    const none = { ...lunch, cash_payment: { source: 'participant' as const, cash: 40, cash_cents: 4000, candidates: [],
+      message: 'Paid with cash. No cash you took out by Aug 5 has any left in your approved statements, so this counts as its own purchase.' } }
+    rerender(<TransactionDraftReviewStack {...props} drafts={[none]} />)
+    expect(screen.getByText(/so this counts as its own purchase/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Confirm / })).toBeTruthy()
+  })
+
+  it('says on a confirmed purchase which cash paid for it', () => {
+    const confirmed = draft({ status: 'confirmed', cash_payment: { source: 'participant', cash: 40, cash_cents: 4000, linked: true, linked_cents: 4000, withdrawn_on: '2026-08-03',
+      message: "Paid with $40 of the $100 you took out on Aug 3. It doesn't add to your spending: that cash already counted when you took it out." } })
+    render(<TransactionDraftReviewStack drafts={[]} completedDrafts={[confirmed]} isRealWorkspace action={null} onConfirm={vi.fn()} onIgnore={vi.fn()} onReopen={vi.fn()} />)
+    expect(screen.getByText(/Paid with \$40 of the \$100 you took out on Aug 3/)).toBeTruthy()
+  })
+
+  it('sends Paid with cash from the purchase form only when she ticks it', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined)
+    render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={onCreate} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+    fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Tasi Demo Cafe' } })
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '40' } })
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: '7' } })
+    fireEvent.click(screen.getByLabelText('Paid with cash'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ merchant: 'Tasi Demo Cafe', paid_with_cash: true }), true))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+    fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add to review' }))
+    await waitFor(() => expect(onCreate).toHaveBeenLastCalledWith(expect.not.objectContaining({ paid_with_cash: true }), false))
+  })
+
+  it('saves Paid with cash from the purchase editor', async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    render(<TransactionDraftReviewStack {...stackProps([draft({ id: 242 })], { onUpdate })} />)
+    fireEvent.click(screen.getByRole('button', { name: /^Change / }))
+    fireEvent.click(screen.getByLabelText('Paid with cash'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: 242 }), expect.objectContaining({ paid_with_cash: true })))
+  })
+})

@@ -92,4 +92,5 @@ export function transactionDraftFromIgnored(row: IgnoredTransactionDraft): Trans
 }
 
 // A new purchase that looks like one she already has waits in Review, which asks "Same purchase as …?".
+export const CASH_WITHDRAWAL_NOTICE = 'You paid with cash. It’s waiting in Review so you can say if it came from cash you took out. Nothing was added to your spending.'
 export const POSSIBLE_DUPLICATE_NOTICE = 'This may be a purchase you already have. It’s waiting in Review so you can say if it’s the same one. Nothing was added to your spending.'

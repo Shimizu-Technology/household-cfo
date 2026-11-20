@@ -567,6 +567,34 @@ export type TransactionDraft = {
   draft_payload?: Record<string, unknown>
   /** Part of the receipt was paid with a gift card, voucher, store credit or rewards, which is not new money. */
   receipt_payment?: ReceiptPayment | null
+  /** She paid in cash. Cash counts when it is taken out, so the purchase asks which withdrawal paid for it. */
+  cash_payment?: CashPayment | null
+}
+
+export type CashWithdrawalCandidate = {
+  financial_source_event_id: number
+  withdrawn_on: string
+  amount: number
+  amount_cents: number
+  available: number
+  available_cents: number
+  covers_cents: number
+  label: string
+}
+
+export type CashPayment = {
+  source: 'receipt' | 'participant'
+  cash: number
+  cash_cents: number
+  answer?: 'elsewhere' | null
+  /** Pending: withdrawals she can choose from, most recent first. Empty when none has cash left. */
+  candidates?: CashWithdrawalCandidate[]
+  question?: string
+  message?: string
+  /** Confirmed: it was paid from cash she took out and adds nothing. */
+  linked?: boolean
+  withdrawn_on?: string
+  linked_cents?: number
 }
 
 export type ReceiptPayment = {
@@ -4750,12 +4778,12 @@ export async function cancelMiaActionDraft(id: number, idempotencyKey: string): 
   return payload.workspace
 }
 
-export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
+export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null; paid_with_cash: boolean }> & {
   removed_split_ids?: number[]
   splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null }>>
 }
 
-export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null; splits?: TransactionDraftUpdateInput['splits'] }
+export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null; splits?: TransactionDraftUpdateInput['splits']; paid_with_cash?: boolean }
 
 export async function createTransactionDraft(values: TransactionDraftCreateInput, idempotencyKey: string): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
   return fetchJson<{ transaction_draft: TransactionDraft; workspace: AppData }>('/api/v1/transaction_drafts', {
@@ -4775,11 +4803,19 @@ export async function updateTransactionDraft(id: number, values: TransactionDraf
 
 // differentPurchase: she answered "Different purchase" to the app's "Same purchase as …?" question.
 // Without it the server refuses to confirm a purchase that looks like one she already has.
-export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string, options: { differentPurchase?: boolean } = {}): Promise<AppData> {
+// cashWithdrawalEventId / cashFromElsewhere: her Yes or No to "Paid with the $100 you took out on Aug 3?".
+export type ConfirmTransactionOptions = { differentPurchase?: boolean; cashWithdrawalEventId?: number; cashFromElsewhere?: boolean }
+
+export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string, options: ConfirmTransactionOptions = {}): Promise<AppData> {
+  const answers = {
+    ...(options.differentPurchase ? { different_purchase: true } : {}),
+    ...(options.cashWithdrawalEventId ? { cash_withdrawal_event_id: options.cashWithdrawalEventId } : {}),
+    ...(options.cashFromElsewhere ? { cash_from_elsewhere: true } : {}),
+  }
   const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ transaction_draft: options.differentPurchase ? { ...values, different_purchase: true } : values }),
+    body: JSON.stringify({ transaction_draft: { ...values, ...answers } }),
   })
   return payload.workspace
 }

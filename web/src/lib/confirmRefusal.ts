@@ -5,9 +5,19 @@ export function isPossibleDuplicateRefusal(caught: unknown) {
   return caught instanceof ApiRequestError && caught.code === 'possible_duplicate'
 }
 
+/** The server refused because she paid in cash she may already have taken out. Nothing counted; its card asks "Paid with the $100 you took out …?". */
+export function isCashWithdrawalRefusal(caught: unknown) {
+  return caught instanceof ApiRequestError && caught.code === 'cash_withdrawal_question'
+}
+
+/** Either question the card asks before a purchase can count. */
+export function isConfirmQuestionRefusal(caught: unknown) {
+  return isPossibleDuplicateRefusal(caught) || isCashWithdrawalRefusal(caught)
+}
+
 export type ConfirmAfterCreateOutcome =
   | { kind: 'confirmed'; workspace: AppData }
-  // Waiting in Review, where its card asks "Same purchase as …?".
+  // Waiting in Review, where its card asks "Same purchase as …?" or which cash paid for it.
   | { kind: 'asking' }
   // Not known to have finished: it stays in Review, where Confirm uses the same key again.
   | { kind: 'unfinished' }
@@ -16,19 +26,19 @@ export type ConfirmAfterCreateOutcome =
  * Confirms a purchase that was just added. `confirm` must reuse one idempotency key on every call.
  * A lost response can hide a confirmation that went through, so a transport or server failure is
  * asked once more with that key: the server replays a finished confirmation and never counts the
- * purchase twice. A "Same purchase?" refusal on either attempt is answered on the card.
+ * purchase twice. A "Same purchase?" or "Paid with the cash you took out?" refusal on either attempt is answered on the card.
  */
 export async function confirmAfterCreate(confirm: () => Promise<AppData>): Promise<ConfirmAfterCreateOutcome> {
   try {
     return { kind: 'confirmed', workspace: await confirm() }
   } catch (caught) {
-    if (isPossibleDuplicateRefusal(caught)) return { kind: 'asking' }
+    if (isConfirmQuestionRefusal(caught)) return { kind: 'asking' }
     if (caught instanceof ApiRequestError && caught.status < 500) return { kind: 'unfinished' }
   }
   try {
     return { kind: 'confirmed', workspace: await confirm() }
   } catch (retryCaught) {
-    return isPossibleDuplicateRefusal(retryCaught) ? { kind: 'asking' } : { kind: 'unfinished' }
+    return isConfirmQuestionRefusal(retryCaught) ? { kind: 'asking' } : { kind: 'unfinished' }
   }
 }
 

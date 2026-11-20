@@ -618,3 +618,13 @@ body #root .mia-chat-shell .ask-row textarea:focus-visible { outline: none; }
   .transaction-duplicate-question__actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .transaction-duplicate-question__actions > .ui-btn { width: 100%; min-width: 0; }
 }
+
+/* "Paid with cash": a plain checkbox row, 44px tall to tap, on the purchase form and the purchase editor. */
+.manual-transaction-form label.manual-transaction-cash,
+.transaction-draft-editor > label.transaction-draft-cash-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--ink); font-size: var(--text-sm); font-weight: var(--weight-bold); cursor: pointer; }
+.manual-transaction-form label.manual-transaction-cash { grid-column: 1 / -1; }
+.manual-transaction-form label.manual-transaction-cash input,
+.transaction-draft-editor > label.transaction-draft-cash-choice input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; padding: 0; accent-color: var(--emerald); }
+.transaction-cash-question .transaction-duplicate-question__row > small { color: var(--muted); font: 400 var(--text-xs)/1.45 var(--font-body); }
+.transaction-cash-question__note { margin: 0; color: var(--muted); font: 400 var(--text-sm)/1.45 var(--font-body); font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
+.transaction-draft-actions.terminal .transaction-cash-question__note { flex: 1 1 100%; font-size: var(--text-xs); }

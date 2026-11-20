@@ -85,8 +85,8 @@ import { Metric } from './components/Metric'
 import { PurchaseReviewSummary } from './components/PurchaseReviewSummary'
 import { PlaidConnections } from './components/PlaidConnections'
 import { IgnoredTransactionList, ReviewedTransactionsPanel, TransactionReopenButton } from './components/ReviewedTransactions'
-import { confirmAfterCreate, isPossibleDuplicateRefusal, reloadReviewData } from './lib/confirmRefusal'
-import { bulkConfirmPhraseMismatchMessage, POSSIBLE_DUPLICATE_NOTICE, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
+import { confirmAfterCreate, isConfirmQuestionRefusal, reloadReviewData } from './lib/confirmRefusal'
+import { bulkConfirmPhraseMismatchMessage, CASH_WITHDRAWAL_NOTICE, POSSIBLE_DUPLICATE_NOTICE, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
 import { PilotFeedbackDialog } from './components/PilotFeedbackDialog'
@@ -207,6 +207,7 @@ import type {
   SpendingReportRefund,
   TransactionDraft,
   TransactionDraftCreateInput,
+  ConfirmTransactionOptions,
   TransactionDraftSplit,
   TransactionDraftUpdateInput,
   WealthData,
@@ -3181,7 +3182,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       transactionOperationKeysRef.current.complete(signature)
       let confirmationFailed = false
       let possibleDuplicate = response.transaction_draft.matches?.some(match => match.status === 'proposed') ?? false
-      if (confirm && !possibleDuplicate) {
+      // Paid with cash she may have taken out: the card asks which withdrawal before it can count.
+      let asksCash = !possibleDuplicate && (response.transaction_draft.cash_payment?.candidates?.length ?? 0) > 0
+      if (confirm && !possibleDuplicate && !asksCash) {
         const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
         const draftId = response.transaction_draft.id
         // Both attempts use the same key, so a retried confirmation is never counted twice.
@@ -3191,7 +3194,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           response = { ...response, workspace: outcome.workspace }
           rememberPurchase(response.transaction_draft, 'confirmed')
         } else if (outcome.kind === 'asking') {
-          // It looks like a purchase she already has. It stays in Review, which asks "Same purchase as …?".
+          // It looks like a purchase she already has, or cash she took out paid for it. It stays in Review, which asks.
           possibleDuplicate = true
           try {
             response = { ...response, workspace: await fetchAppData(true) }
@@ -3203,12 +3206,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       }
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
       // A new category changes every plan year, so cached years must be read again.
-      setData({ type: confirm && !possibleDuplicate && !confirmationFailed && values.splits?.some(split => split.category_name) ? 'shared_financial_mutation' : 'financial_mutation', update: response.workspace })
+      if (asksCash && !confirm) asksCash = false
+      setData({ type: confirm && !possibleDuplicate && !asksCash && !confirmationFailed && values.splits?.some(split => split.category_name) ? 'shared_financial_mutation' : 'financial_mutation', update: response.workspace })
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       replaceMiaHistory(response.workspace.mia)
       captureAnalyticsEvent('transaction_draft_created', { source_type: 'manual_ui' })
-      return confirm && possibleDuplicate ? POSSIBLE_DUPLICATE_NOTICE : confirmationFailed ? 'Your purchase is in Review. Confirmation did not finish. Check it there before trying again.' : undefined
+      return confirm && possibleDuplicate ? POSSIBLE_DUPLICATE_NOTICE : asksCash ? CASH_WITHDRAWAL_NOTICE : confirmationFailed ? 'Your purchase is in Review. Confirmation did not finish. Check it there before trying again.' : undefined
     } catch (caught) {
       const message = participantErrorMessage(caught, 'Transaction review could not be created.')
       throw new Error(message, { cause: caught })
@@ -3293,7 +3297,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   // drafts: the purchases whose cards showed the refused action. A card from a receipt or statement
   // reads its file's details, which a summary reload keeps as they were, so those are fetched again.
   async function refreshStaleTransactionReview(caught: unknown, drafts: TransactionDraft[] = []) {
-    if (!(caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere', 'possible_duplicate'].includes(caught.code ?? ''))) return false
+    if (!(caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere', 'possible_duplicate', 'cash_withdrawal_question'].includes(caught.code ?? ''))) return false
     // The action was refused, so nothing was saved. False keeps its message visible: offline, overtaken,
     // a selected budget year that didn't reload, or a file whose purchases didn't reload.
     const isCurrent = captureWorkspaceReloadGuard()
@@ -3320,7 +3324,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     })
   }
 
-  async function handleConfirmTransactionDraft(draft: TransactionDraft, options: { differentPurchase?: boolean } = {}) {
+  async function handleConfirmTransactionDraft(draft: TransactionDraft, options: ConfirmTransactionOptions = {}) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
@@ -3330,7 +3334,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     setDocumentsError(null)
     let actionFailed = false
     try {
-      const signature = `transaction:confirm:${draft.id}${options.differentPurchase ? ':different-purchase' : ''}`
+      const signature = `transaction:confirm:${draft.id}${options.differentPurchase ? ':different-purchase' : ''}${options.cashWithdrawalEventId ? `:cash-${options.cashWithdrawalEventId}` : ''}${options.cashFromElsewhere ? ':cash-elsewhere' : ''}`
       const workspace = await confirmTransactionDraft(draft.id, {}, transactionOperationKeysRef.current.keyFor(signature), options)
       transactionOperationKeysRef.current.complete(signature)
       rememberPurchase(draft, 'confirmed')
@@ -3349,10 +3353,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
       actionFailed = true
-      // It looks like a purchase she already has. Nothing changed; the refreshed card now asks
-      // "Same purchase as …?" so she can answer instead of reading an error.
+      // It looks like a purchase she already has, or she paid with cash she may have taken out. Nothing
+      // changed; the refreshed card now asks "Same purchase as …?" or "Paid with the $100 you took out …?".
       const current = await refreshStaleTransactionReview(caught, [draft])
-      if (current && isPossibleDuplicateRefusal(caught)) return
+      if (current && isConfirmQuestionRefusal(caught)) return
       trackPilotWorkflowFailure('transaction_review', 'confirm')
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
@@ -5603,7 +5607,7 @@ function DocumentImportWorkspace({
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
-  onConfirmDraft: (draft: TransactionDraft, options?: { differentPurchase?: boolean }) => void
+  onConfirmDraft: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
   onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
@@ -5943,7 +5947,7 @@ export function DocumentReviewPanel({
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
-  onConfirmDraft: (draft: TransactionDraft, options?: { differentPurchase?: boolean }) => void
+  onConfirmDraft: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
   onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
@@ -7910,6 +7914,7 @@ export function ManualTransactionCapture({
   const [amount, setAmount] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [categoryName, setCategoryName] = useState('')
+  const [paidWithCash, setPaidWithCash] = useState(false)
   const [categoryError, setCategoryError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const submittingRef = useRef(false)
@@ -7947,6 +7952,7 @@ export function ManualTransactionCapture({
     setAmount('')
     setCategoryId('')
     setCategoryName('')
+    setPaidWithCash(false)
     setCategoryError(null)
     setFormError(null)
   }
@@ -7969,6 +7975,7 @@ export function ManualTransactionCapture({
         occurred_on: occurredOn, merchant: addedMerchant, amount,
         budget_category_id: categoryId && categoryId !== 'new' ? Number(categoryId) : null,
         ...(categoryId === 'new' && categoryName.trim() ? { splits: [{ amount, category_name: categoryName.trim(), stack_key: 'discretionary' as const }] } : {}),
+        ...(paidWithCash ? { paid_with_cash: true } : {}),
       }, confirm)
       focusCreatedResultRef.current = true
       reset()
@@ -7986,7 +7993,7 @@ export function ManualTransactionCapture({
     }
   }
   const latestNotice = onNotice ? resolutionNotice : resolutionNotice || added
-  const latestWarning = onNotice ? resolutionWarning : !resolutionNotice && Boolean(added && (added.includes('Confirmation did not finish') || added === POSSIBLE_DUPLICATE_NOTICE))
+  const latestWarning = onNotice ? resolutionWarning : !resolutionNotice && Boolean(added && (added.includes('Confirmation did not finish') || added === POSSIBLE_DUPLICATE_NOTICE || added === CASH_WITHDRAWAL_NOTICE))
   useLayoutEffect(() => {
     if (open || !latestNotice || !focusCreatedResultRef.current || !resultRef.current) return
     focusCreatedResultRef.current = false
@@ -8005,6 +8012,7 @@ export function ManualTransactionCapture({
         <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={event => setAmount(event.currentTarget.value)} /></label>
         <label><span>Category</span><select ref={categoryRef} aria-invalid={Boolean(categoryError) && categoryId !== 'new'} aria-describedby={categoryError && categoryId !== 'new' ? 'manual-category-error' : undefined} value={categoryId} onChange={event => { setCategoryId(event.currentTarget.value); setCategoryError(null) }}><option value="">Choose a category</option><option value="new">New category</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{categoryDisplayName(category.name, category.stack_key, categories)}</option>)}</select></label>
         {categoryId === 'new' && <label><span>New category name</span><input ref={newCategoryRef} aria-label="New category name" aria-invalid={Boolean(categoryError)} aria-describedby={categoryError ? 'manual-category-error' : undefined} className="ui-field" maxLength={80} value={categoryName} onChange={event => { setCategoryName(event.currentTarget.value); if (event.currentTarget.value.trim()) setCategoryError(null) }} /><small>Added to flexible spending when you confirm.</small></label>}
+        <label className="manual-transaction-cash"><input type="checkbox" checked={paidWithCash} onChange={event => setPaidWithCash(event.currentTarget.checked)} /><span>Paid with cash</span></label>
         {categoryError && <p id="manual-category-error" className="manual-transaction-error" role="alert">{categoryError}</p>}
         {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
         <div className="manual-transaction-actions">
@@ -8062,7 +8070,7 @@ export function TransactionDraftReviewStack({
   queueMeta?: AnnualBudgetPlan['pending_transaction_drafts_meta']
   onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
-  onConfirm: (draft: TransactionDraft, options?: { differentPurchase?: boolean }) => void
+  onConfirm: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
   onBulkConfirm?: (drafts: TransactionDraft[]) => void
@@ -8352,7 +8360,7 @@ function TransactionDraftReviewCard({
   plan?: AnnualBudgetPlan
   onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
-  onConfirm: (draft: TransactionDraft, options?: { differentPurchase?: boolean }) => void
+  onConfirm: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
   selectionEnabled: boolean
@@ -8376,6 +8384,7 @@ function TransactionDraftReviewCard({
   const [amount, setAmount] = useState(editableAmountForDraft(draft))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [removedSplitIds, setRemovedSplitIds] = useState<number[]>([])
+  const [paidWithCash, setPaidWithCash] = useState(Boolean(draft.cash_payment))
   const [actionError, setActionError] = useState<string | null>(null)
   async function runAction(perform: () => void, trigger?: HTMLButtonElement) {
     // Safari pointer activation does not always focus its button.
@@ -8414,6 +8423,25 @@ function TransactionDraftReviewCard({
     </button>
   )
   const receiptPayment = isPending ? draft.receipt_payment : null
+  // Paid with cash. Cash counts when she takes it out, so ask which withdrawal paid for it before it can count.
+  const cashPayment = isPending ? draft.cash_payment : null
+  const cashCandidates = cashPayment?.candidates ?? []
+  const askCash = !askSamePurchase && cashCandidates.length > 0
+  const cashAnswerButtons = askCash && (
+    <div className="transaction-duplicate-question__actions">
+      {cashCandidates.map((candidate) => {
+        const text = cashCandidates.length === 1 ? 'Yes' : `${candidate.label.charAt(0).toUpperCase()}${candidate.label.slice(1)}`
+        return (
+          <button key={candidate.financial_source_event_id} type="button" className="ui-btn ui-btn--primary" aria-label={`${confirming ? 'Saving' : 'Yes'}: ${itemName} was paid with ${candidate.label}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || confirming} onClick={event => void runAction(() => onConfirm(draft, { cashWithdrawalEventId: candidate.financial_source_event_id }), event.currentTarget)}>
+            {confirming ? 'Saving' : text}
+          </button>
+        )
+      })}
+      <button type="button" className="ui-btn ui-btn--tonal" aria-label={`${confirming ? 'Saving' : 'No, other cash'}: count ${itemName} as its own purchase`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || confirming} onClick={event => void runAction(() => onConfirm(draft, { cashFromElsewhere: true }), event.currentTarget)}>
+        {confirming ? 'Saving' : 'No, other cash'}
+      </button>
+    </div>
+  )
   // Count all of the receipt, or only its new money. Splits go back to what
   // the receipt said; without that split detail only a draft with no splits can change its amount.
   const receiptChoices = receiptPayment && onUpdate ? [
@@ -8457,6 +8485,7 @@ function TransactionDraftReviewCard({
     setAmount(editableAmountForDraft(draft))
     setSplits(editableSplitsForDraft(draft))
     setRemovedSplitIds([])
+    setPaidWithCash(Boolean(draft.cash_payment))
     setEditError(null)
   }
 
@@ -8511,6 +8540,7 @@ function TransactionDraftReviewCard({
         occurred_on: occurredOn,
         merchant,
         amount,
+        ...(paidWithCash !== Boolean(draft.cash_payment) ? { paid_with_cash: paidWithCash } : {}),
         removed_split_ids: removedSplitIds,
         splits: cleanedSplits.map((split) => ({
           id: split.id,
@@ -8596,6 +8626,19 @@ function TransactionDraftReviewCard({
             {proposedMatches.length > 1 && <div className="transaction-duplicate-question__actions">{differentPurchaseButton}</div>}
           </section>
         )}
+        {cashPayment && !askSamePurchase && (
+          // Yes: the cash already counted when she took it out, so this moves part of it into this purchase's
+          // category and adds nothing. No: the cash came from somewhere else and this counts on its own.
+          <section className="transaction-duplicate-question transaction-cash-question" aria-label={`Which cash paid for ${itemName}`}>
+            {askCash ? (
+              <div className="transaction-duplicate-question__row">
+                <p>{cashPayment.question}</p>
+                <small>Your cash already counted when you took it out, so Yes doesn’t add to your spending.</small>
+                {cashAnswerButtons}
+              </div>
+            ) : cashPayment.message && <p className="transaction-cash-question__note">{cashPayment.message}</p>}
+          </section>
+        )}
       </div>}
 
       {editing && isPending && (
@@ -8611,6 +8654,10 @@ function TransactionDraftReviewCard({
           <label>
             <span>Total</span>
             <input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} />
+          </label>
+          <label className="transaction-draft-cash-choice">
+            <input type="checkbox" checked={paidWithCash} onChange={(event) => setPaidWithCash(event.currentTarget.checked)} />
+            <span>Paid with cash</span>
           </label>
           <div className="transaction-split-editor-list">
             {splits.map((split, index) => (
@@ -8672,7 +8719,7 @@ function TransactionDraftReviewCard({
           <MiaReviewError message={error || actionError} />
           {editing && <p className="transaction-draft-disabled-reason">Save or cancel your edit before confirming this purchase.</p>}
           {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this purchase.</span>}
-          {!askSamePurchase && <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={event => void runAction(() => onConfirm(draft), event.currentTarget)}>
+          {!askSamePurchase && !askCash && <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={event => void runAction(() => onConfirm(draft), event.currentTarget)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>}
           {onUpdate && <button type="button" className="secondary-button ui-btn ui-btn--tonal" aria-label={`${editing ? 'Close edit' : 'Change'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Change'}</button>}
@@ -8684,6 +8731,7 @@ function TransactionDraftReviewCard({
         <div className="transaction-draft-actions terminal" style={!compactFinished && resultTop ? { paddingTop: resultTop } : undefined}>
           <MiaReviewError message={error || actionError} />
           <span data-review-result tabIndex={-1}><strong title={draft.merchant}>{draft.merchant}</strong>{formatReviewMoney(moneyCents(exactMoneyNumber(draft.amount, draft.amount_cents)))} · {formatShortDate(draft.occurred_on)} · {transactionDraftTerminalCopy(draft.status)}</span>
+          {draft.cash_payment?.linked && draft.cash_payment.message && <p className="transaction-cash-question__note">{draft.cash_payment.message}</p>}
           <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={event => void runAction(() => onReopen(draft), event.currentTarget)}>
             {reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)}
           </button>
