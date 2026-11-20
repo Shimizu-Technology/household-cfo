@@ -20,7 +20,13 @@ module FinancialDocuments
         manager = HouseholdFinance::AnnualBudgetManager.new(household, year: date.year)
         return manager.current_period_for(date) unless projection_periods
 
-        periods = projection_periods[date.year] ||= manager.ensure_plan_inside_household_lock!.budget_periods.index_by(&:starts_on)
+        periods = projection_periods[date.year] ||= begin
+          plan = manager.ensure_plan_inside_household_lock!
+          # Provisioning can refresh an expense category's name/stack. Later
+          # lines must see those same changes as the ordinary approval path.
+          line_batch[:categories].merge!(manager.provisioned_categories) if line_batch
+          plan.budget_periods.index_by(&:starts_on)
+        end
         periods.fetch(date.beginning_of_month)
       end
 

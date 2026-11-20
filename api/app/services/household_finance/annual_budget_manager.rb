@@ -12,6 +12,8 @@ module HouseholdFinance
 
     attr_reader :year
 
+    def provisioned_categories = @provisioned_categories ||= {}
+
     def initialize(household, year: Date.current.year)
       @household = household
       @year = year.to_i
@@ -402,6 +404,7 @@ module HouseholdFinance
           sort_order: category.sort_order.to_i.positive? ? category.sort_order : index + 1
         )
         category.save!
+        provisioned_categories[category.id] = category
       end
     end
 

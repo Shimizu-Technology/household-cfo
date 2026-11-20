@@ -792,6 +792,21 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     end
   end
 
+  test "bulk category snapshots follow category changes made while provisioning the first projection" do
+    @household.expense_items.create!(label: @category.name, stack_key: "discretionary", amount_cents: 5000, cadence: "monthly")
+    fresh = source([ movement(-1700), movement(-1800, row: 2) ])
+    link(fresh)
+    entries = fresh[:events].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: @category.id } } }
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      result = FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], { lines: entries }).call
+      assert_equal 2, result[:approved]
+    end
+    versions = SourceReviewVersion.joins(:source_review_head).where(source_review_heads: { financial_source_event_id: fresh[:events].map(&:id) }).order(:id)
+    assert_equal %w[non_discretionary discretionary], versions.map { |version| version.category_snapshot.fetch("stack_key") }
+    assert_equal [ 1700, 1800 ], @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).order(:id).pluck(:total_amount_cents)
+  end
+
   private
 
   def run_operation(klass, input)
