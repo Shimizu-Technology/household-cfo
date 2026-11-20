@@ -42,7 +42,9 @@ module SpendingPatterns
       counted = selected_source.select { |row| eligible_ids.include?(row.id) && row.budget_category_id.present? }
       rows = counted.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
       # The same refund credits Budget uses: money back to the refunded purchase's categories, in the month the refund posted.
-      rows += HouseholdFinance::RefundCredits.new(@household, from: start, to: finish).counted.map { |credit| refund_row(credit) }
+      credits = HouseholdFinance::RefundCredits.new(@household, from: start, to: finish).counted
+      refund_categories = @household.budget_categories.where(id: credits.flat_map { |credit| credit.allocations.pluck(:category_id) }.uniq).index_by(&:id)
+      rows += credits.map { |credit| refund_row(credit, refund_categories) }
       rows.each do |row|
         # Check the bank's own wording and the cleaned label, so "Purchase: Venmo to …" is still money sent to a person.
         row[:transfer_to_person] = [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) }
@@ -92,8 +94,7 @@ module SpendingPatterns
     end
 
     # Money back, never a purchase: it nets the store and categories it came back to.
-    def refund_row(credit)
-      categories = @household.budget_categories.where(id: credit.allocations.pluck(:category_id)).index_by(&:id)
+    def refund_row(credit, categories)
       { refund: true, date: credit.posted_on, merchant: FinancialDocuments::MerchantNormalizer.call(credit.original&.dig(:merchant).presence || credit.merchant.presence || "Unnamed purchase"),
         amount_cents: -credit.amount_cents, splits: credit.allocations.map { |part| split(categories[part[:category_id]], -part[:amount_cents]) } }
     end

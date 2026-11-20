@@ -154,7 +154,8 @@ module Scorecard
       unless answer
         # An unmapped proposal must remain visible in the question-only output
         # when the app accepts it; the answer key cannot silently remove it.
-        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate])
+        # A refund with no category to go back to can't be answered "Yes", like a line with no category.
+        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate]) && !(line.kind == :refund_category && line.category_id.nil?)
           return base.merge(decision: "as_read")
         end
         quality[month]["manual_exclusion"] += 1 if @correct_proposals

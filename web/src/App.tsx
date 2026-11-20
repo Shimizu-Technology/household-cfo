@@ -8872,7 +8872,7 @@ function SpendingReportLedger({ report, reopen, planKnown = true, categories = [
     <div className="spending-report-ledger">
       <div className="spending-report-summary">
         <span>{report.period_label}</span>
-        <strong>{planKnown || report.totals.actual !== 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
+        <strong>{planKnown || report.actual_known || report.totals.actual !== 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
         {planKnown && <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>}
         <span>{formatReviewMoney(Math.round((report.totals.pending) * 100))} pending</span>
       </div>

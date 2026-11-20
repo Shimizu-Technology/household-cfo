@@ -622,6 +622,8 @@ export type SpendingReport = {
     pending: number
     remaining: number
   }
+  /** Whether any approved purchase or counted refund falls in the period; refunds can bring a known month to $0. */
+  actual_known?: boolean
   categories: SpendingReportCategory[]
   transactions: RecentTransaction[]
   /** Refunds she approved in this period. A counted one lowers the categories it went back to; one not counted still needs a category. */

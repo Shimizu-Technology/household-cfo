@@ -157,6 +157,50 @@ class ApiV1StatementRefundsTest < ActionDispatch::IntegrationTest
     assert_equal [ -2000, 4000 ], [ budget_actual(@clothing, month: 3), budget_actual(@household_goods, month: 3) ]
   end
 
+  test "a line she corrected to a refund with no category can take the category it is shown" do
+    march = build_source([ [ "Island Demo Shoes", -6000, "purchase", "2026-03-02" ], [ "Island Demo Shoes", 3000, "income", "2026-03-12" ] ])
+    purchase, credit = march[:revision].financial_source_events.order(:position).to_a
+    suggest(march, purchase, @clothing)
+    approve(march, [ { event_id: credit.id, decision: "edited", edit: { kind: "refund", amount_cents: 3000, merchant: "Island Demo Shoes", posted_on: "2026-03-12", category_id: nil } } ])
+    assert_response :success, response.body
+    row = plan(march).fetch("attention").find { |item| item["event_id"] == credit.id }
+    assert_equal [ "refund_category", "refund", @clothing.id ], row.values_at("kind", "event_type", "category_id")
+    approve(march, [ { event_id: credit.id, expected_head: row.fetch("expected_head"), decision: "as_read", shown: row.slice("event_type", "category_id") } ])
+    assert_response :success, response.body
+    assert_equal [ "refund", @clothing.id ], SourceReviewHead.find_by!(financial_source_event: credit).approved_version.attributes.values_at("event_type", "budget_category_id")
+  end
+
+  test "the rest of a partly linked refund is never guessed from the same store" do
+    approve_all(build_source([ [ "Tasi Demo Outfitters", -5000, "purchase", "2026-02-09" ] ]), category: @clothing)
+    march = build_source([ [ "Tasi Demo Outfitters", 3000, "refund", "2026-03-06" ] ])
+    refund = march[:revision].financial_source_events.sole
+    approve(march, [ { event_id: refund.id, decision: "as_read", shown: plan(march).fetch("attention").sole.slice("event_type", "category_id") } ])
+    assert_response :success, response.body
+    assert_equal(-3000, budget_actual(@clothing, month: 3), "With nothing linked, the same-store purchase decides")
+
+    original = SourceReviewVersion.where(household: @household, event_type: "purchase", merchant: "Tasi Demo Outfitters").sole
+    credit = SourceReviewHead.find_by!(financial_source_event: refund).approved_version
+    @savings_household, @savings_user = @household, @user
+    source_operation(HouseholdFinance::Operations::SourceReview::EconomicLink, kind: "refund", base_version_id: nil, base_lock_version: 0,
+      reason: "Reviewed part of a refund against the original order", members: [
+        { source_review_version_id: original.id, role: "original_purchase", allocation_cents: 2000 },
+        { source_review_version_id: credit.id, role: "refund", allocation_cents: 2000 }
+      ])
+    assert_equal 0, budget_actual(@clothing, month: 3), "The unlinked $10 is unknown, so the refund waits for her answer"
+    assert_equal "refund_category", plan(march).fetch("attention").sole.fetch("kind")
+  end
+
+  test "a month whose refunds cancel its purchases is a known $0, not unknown" do
+    march = build_source([ [ "Tasi Demo Outfitters", -3000, "purchase", "2026-03-02" ], [ "Tasi Demo Outfitters", 3000, "refund", "2026-03-20" ] ])
+    purchase, refund = march[:revision].financial_source_events.order(:position).to_a
+    approve_all(march, category: @clothing, only: [ purchase ])
+    approve(march, [ { event_id: refund.id, decision: "as_read", shown: plan(march).fetch("attention").sole.slice("event_type", "category_id") } ])
+    assert_response :success, response.body
+    get "/api/v1/spending_report", params: { start_on: "2026-03-01", end_on: "2026-03-31" }, headers: headers
+    report = response.parsed_body.fetch("spending_report")
+    assert_equal [ true, 0.0 ], [ report.fetch("actual_known"), report.dig("totals", "actual").to_f ]
+  end
+
   test "a refund she leaves out or calls money in never reduces spending" do
     approve_all(build_source([ [ "Tasi Demo Outfitters", -5000, "purchase", "2026-02-09" ] ]), category: @clothing)
     march = build_source([ [ "Tasi Demo Outfitters", 1000, "refund", "2026-03-06" ], [ "Tasi Demo Outfitters", 700, "refund", "2026-03-07" ] ])

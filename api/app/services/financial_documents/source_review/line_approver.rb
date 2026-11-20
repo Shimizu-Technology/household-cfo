@@ -71,7 +71,8 @@ module FinancialDocuments
       def check_shown!(line, entry)
         shown = entry[:shown]
         looked = shown.is_a?(Hash) && shown.key?(:category_id) && shown.key?(:event_type) &&
-          shown[:event_type].to_s == line.event.event_type && shown[:category_id]&.to_i == line.category_id
+          # A saved line is shown as she saved it (ParticipantPresenter), so compare with what she saved.
+          shown[:event_type].to_s == (line.saved&.event_type || line.event.event_type) && shown[:category_id]&.to_i == line.category_id
         raise Domain::StaleReview, "This line changed while you were looking at it. Nothing was saved. Please look again." unless looked
       end
 

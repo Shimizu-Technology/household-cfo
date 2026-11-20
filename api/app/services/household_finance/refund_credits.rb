@@ -120,7 +120,8 @@ module HouseholdFinance
           allocations << { category_id: chosen.id, amount_cents: remaining }
           basis ||= :chosen
           remaining = 0
-        elsif (purchase = same_store_original(version.merchant, version.posted_on))
+        # The same-store fallback is for a refund with nothing linked: the rest of a partly linked refund is never guessed.
+        elsif basis.nil? && (purchase = same_store_original(version.merchant, version.posted_on))
           allocations.concat(self.class.proportional(counted_parts(purchase), remaining))
           basis ||= :same_store
           original ||= { merchant: purchase.merchant, occurred_on: purchase.occurred_on }

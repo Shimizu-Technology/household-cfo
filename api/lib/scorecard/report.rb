@@ -71,7 +71,9 @@ module Scorecard
         capacity = key.start_with?("group:") ? @key.data.fetch("events").count { |event| economic_key(event) == key } : 1
         [ group.length - capacity, 0 ].max
       end
-      leaked_spending = transactions.select { |row| transfer?(transaction_answer(row)) }.sum(&:total_amount_cents)
+      # A transfer approved as a counted refund changes spending too, so it leaks as much as one counted as a purchase.
+      leaked_spending = transactions.select { |row| transfer?(transaction_answer(row)) }.sum(&:total_amount_cents) +
+        refunds.select { |credit| transfer?(@simulator.row_answers[credit.event_id]) }.sum(&:amount_cents)
       leaked_income = income.select { |row| transfer?(@simulator.row_answers[row[:event_id]]) }.sum { |row| row[:signed_amount_cents].abs }
       analysis = SpendingPatterns::Analyzer.new(@household, today: Date.current, from: Date.new(year, number, 1), to: Date.new(year, number, 1).end_of_month).call
       receipts = receipt_report(month)
