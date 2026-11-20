@@ -5,7 +5,10 @@ module SpendingPatterns
     BANK_PREFIX = %r{\A(?:(?:recurring\s+payment|purchase(?:\s+with\s+cash\s+back\s+\$[\d.,]+)?|money\s+transfer|non-wf\s+atm\s+withdrawal)\s+authorized\s+on\s+\d{1,2}/\d{1,2}\s+|(?:purchase|recurring\s+payment|pos|purchase\s+return)\s*:\s*)}i
     # Card and reference tails: " S*····4410 Card 7302", " on 09/10 Ref # Demo1A2B3C4D". Without the star the
     # bank's card reference is a letter and a long number, which display text masks: " S····5237 Card 5237".
-    CARD_TAIL = /\s+[A-Z](?:\*\s*[·•*xX]*\d{2,}.*|[·•]{2,}\d{4}(?:\s.*)?|\d{8,}(?:\s.*)?)\z/
+    # Only "Card …" may follow a starless reference, so "Debit S····5237 Coral Market" keeps its store.
+    CARD_TAIL = /\s+[A-Z](?:\*\s*[·•*xX]*\d{2,}.*|(?:[·•]{2,}\d{4}|\d{8,})(?:\s+(?i:card)\b.*)?)\z/
+    # The same reference before the store: "Debit S····5237 Coral Market".
+    CARD_LEAD = /\A(?i:(?:debit|credit|pos)\s+)?(?i:card\s+)?[A-Z](?:[·•]{2,}\d{4}|\d{8,})\s+(?=\S)/
     CARD_WORD_TAIL = /\s+card\s+[·•*xX]*\d{4}\z/i
     REFERENCE_TAIL = %r{\s+on\s+\d{1,2}/\d{1,2}\s+ref\s*#.*\z}i
     # Trailing place and phone words: "Tamuning Gum", "Hagatna GU", "650-····1111 CA", ", NY".
@@ -42,7 +45,7 @@ module SpendingPatterns
     def self.call(value)
       full = FinancialDocuments::MerchantNormalizer.call(value)
       return full if full.blank?
-      short = full.sub(BANK_PREFIX, "").sub(CARD_TAIL, "").sub(CARD_WORD_TAIL, "").sub(REFERENCE_TAIL, "").squish
+      short = full.sub(BANK_PREFIX, "").sub(CARD_LEAD, "").sub(CARD_TAIL, "").sub(CARD_WORD_TAIL, "").sub(REFERENCE_TAIL, "").squish
       short = short.gsub(/\([^)]*\)/, " ").split(" - ", 2).first.to_s.squish.sub(STORE_NUMBER, "").squish
       4.times do
         trimmed = short.sub(PLACE_TAIL, "").sub(STORE_NUMBER, "").squish

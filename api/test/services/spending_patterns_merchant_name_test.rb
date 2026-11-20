@@ -35,7 +35,10 @@ class SpendingPatternsMerchantNameTest < ActiveSupport::TestCase
       "Purchase authorized on 10/14 Coral Market Tamuning GU S586287765237 Card 5237" => "Coral Market",
       "PURCHASE AUTHORIZED ON 10/14 CORAL MARKET DEDEDO GU P000000586287765 CARD 5237" => "CORAL MARKET",
       "Purchase Authorized On 10/14 Coral Market Tamuning GU S····5237 Card" => "Coral Market",
-      "Coral Market Tamuning GU Card 5237" => "Coral Market"
+      "Coral Market Tamuning GU Card 5237" => "Coral Market",
+      # The reference before the store never takes the store's name with it.
+      "Debit S····5237 Coral Market" => "Coral Market",
+      "DEBIT S586287765237 CORAL MARKET TAMUNING GU" => "CORAL MARKET"
     }.each do |raw, label|
       assert_equal label, SpendingPatterns::MerchantName.call(raw), raw
     end
