@@ -1,3 +1,4 @@
+import { localTestAuth } from './localTestAuth'
 import { useSyncExternalStore } from 'react'
 import type { CurrentUser } from '../api'
 import { pushHistoryEntry } from './browserHistory'
@@ -30,7 +31,7 @@ export function parseAdminRoute(pathname: string): AdminRoute | null {
 // Local browser QA signs in through the address (`pilot_e2e_*`); keep those
 // parameters when moving between the app and the Admin side.
 function withLocalQaParams(path: string) {
-  if (!import.meta.env.DEV || import.meta.env.VITE_E2E_AUTH !== 'true') return path
+  if (!localTestAuth()) return path
   const carried = [...new URLSearchParams(window.location.search)].filter(([name]) => name.startsWith('pilot_e2e_'))
   if (carried.length === 0) return path
   const url = new URL(path, window.location.origin)

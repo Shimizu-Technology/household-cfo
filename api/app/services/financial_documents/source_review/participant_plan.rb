@@ -69,6 +69,44 @@ module FinancialDocuments
       def ready_ids = lines.select { |line| line.ready? && !line.done }.map { |line| line.event.id }
       # A saved purchase with no category counts nowhere, so it stays on her list as "What was this for?" until she picks one or leaves it out.
       def attention = lines.select { |line| line.without_category || !(line.ready? || line.done) }
+      def category_lines
+        attention.select { |line| !line.done && !review_heads[line.event.id]&.source_review_drafts&.any? { |draft| draft.status == "pending" } && line.kind.in?(%i[no_category suggested_category still_category]) && line.merchant.present? }
+      end
+
+      def category_groups
+        category_lines.group_by { |line| merchant_key(line.merchant) }.values.flat_map { |group| group.each_slice(100).to_a }.select { |group| group.length > 1 }
+      end
+
+      # Only an unambiguous approved statement copy can share this answer.
+      # Other guards take precedence even when overlap classification hid them.
+      def repeated_lines
+        return [] unless revision.financial_document_import&.document_kind == "statement"
+        lines
+        versions = (overlap_context.heads || {}).values.filter_map(&:approved_version)
+        ActiveRecord::Associations::Preloader.new(records: versions, associations: [ { source_account_identity_version: :source_account_review_head }, { source_review_head: { financial_source_event: { financial_extraction_revision: :financial_document_import } } } ]).call
+        claims = lines.flat_map { |line| line.overlaps.filter_map { |row| row[:approved_version_id] } }.tally
+        lines.select do |line|
+          next false if line.done || line.kind != :duplicate || line.purchase_match
+          next false if TransferPairs.person_payment?(line.event, line.merchant)
+          next false if line.event.event_type.in?(%w[transfer debt_payment]) && transfer_pairs.candidate(line.event)
+          approved = line.overlaps.select { |row| row[:approved_version_id] }
+          next false unless line.overlaps.one? && approved.one? && approved.first[:pending_draft_id].nil?
+          next false unless claims[approved.first[:approved_version_id]] == 1
+          match = overlap_context.heads[approved.first[:event_id]]&.approved_version
+          own = overlap_context.accounts[line.event.financial_source_account_id]&.approved_version
+          next false unless match && own && match.disposition == "include"
+          next false unless match.financial_source_event.financial_extraction_revision.financial_document_import&.document_kind == "statement"
+          next false unless match.source_account_identity_version.source_account_review_head.approved_version_id == match.source_account_identity_version_id
+          start_on, end_on = match.source_account_identity_version.statement_facts.values_at("period_start_on", "period_end_on")
+          next false unless start_on && end_on && line.event.posted_on&.between?(start_on.to_date, end_on.to_date)
+          next false unless match.posted_on == line.event.posted_on || approved.first[:strength] == "strong"
+          match.source_account_identity_version.source_tracked_account_id == own.source_tracked_account_id &&
+            match.signed_amount_cents == line.event.signed_amount_cents &&
+            match.posted_on && line.event.posted_on && (match.posted_on - line.event.posted_on).abs <= OverlapDetector::CROSS_FILE_DAYS &&
+            merchant_key(line.merchant).present? && merchant_key(line.merchant) == merchant_key(match.merchant)
+        end
+      end
+
       def line_for(event_id) = lines.find { |line| line.event.id == event_id }
 
       # Facts exactly as read from the statement. Participant answers change these
@@ -124,7 +162,7 @@ module FinancialDocuments
 
       def build
         events = revision.financial_source_events.includes(:financial_source_evidence, financial_extraction_revision: :financial_document_import).order(:position, :id).to_a
-        heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(approved_version: { source_account_identity_version: :source_account_review_head }).index_by(&:financial_source_event_id)
+        heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(:source_review_drafts, approved_version: { source_account_identity_version: :source_account_review_head }).index_by(&:financial_source_event_id)
         @review_heads = heads
         categories = review_categories.map(&:id).to_set
         suggestions, earlier = suggested_categories(events)
@@ -166,7 +204,13 @@ module FinancialDocuments
           without_category = without_category?(heads[event.id]&.approved_version)
           # Saved with no category: show and ask exactly that, not the reader's earlier guess.
           kind, category_id = :no_category, nil if without_category
-          Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
+          # A retry compares the facts she actually saved, even if a later answer
+          # in this same batch taught the store a different category.
+          if done?(heads[event.id]&.approved_version) && !without_category
+            kind = nil
+            category_id = heads[event.id].approved_version.budget_category_id
+          end
+          Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && chosen.present?,
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
             done: done?(heads[event.id]&.approved_version), without_category: without_category, saved: (heads[event.id].approved_version if without_category), purchase_match: purchase_match)
         end.tap { |lines| refund_lines!(lines, heads, earlier, categories) }
@@ -280,15 +324,15 @@ module FinancialDocuments
         FinancialDocuments::MerchantNormalizer.call(merchant)&.downcase&.squish
       end
 
-      # What she chose for a merchant on any OTHER statement. This statement's own approvals are left out: they must not
-      # change what an earlier line of the same statement looks like, or a retry of a save that already went through would
-      # find its lines no longer matching what she was shown.
+      # Current approved heads only, including this file. Superseded corrections and
+      # excluded lines must never teach the next question an obsolete category.
+      # A batch freezes its plan before any writes, so its own answers cannot
+      # change the categories being validated halfway through that batch.
       def previous_choices(merchants)
         wanted = merchants.filter_map { |merchant| merchant_key(merchant) }.to_set
         return {} if wanted.empty?
-        own = SourceReviewHead.where(household: household, financial_source_event_id: revision.financial_source_events.select(:id)).select(:id)
-        history = SourceReviewVersion.where(household: household, disposition: "include").where.not(budget_category_id: nil).where.not(merchant: nil)
-          .where.not(source_review_head_id: own)
+        history = SourceReviewVersion.where(id: SourceReviewHead.where(household: household).select(:approved_version_id), disposition: "include")
+          .where.not(budget_category_id: nil).where.not(merchant: nil)
         patterns = search_patterns(wanted)
         history = history.where("merchant ILIKE ANY (ARRAY[?])", patterns) if patterns
         latest = history.group(:merchant, :budget_category_id).maximum(:id)

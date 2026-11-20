@@ -181,7 +181,12 @@ up() {
   say "Starting the API on ${API_URL}…"
   start_background "$ROOT/api" "$STATE/api.pid" "$STATE/api.log" bin/rails server -b 127.0.0.1 -p "$API_PORT" -P "$STATE/puma.pid"
   say "Starting the web app on ${WEB_URL}…"
-  start_background "$ROOT/web" "$STATE/web.pid" "$STATE/web.log" node_modules/.bin/vite --host 127.0.0.1 --port "$WEB_PORT" --strictPort
+  if [[ "${LOCAL_STACK_WEB_BUILD:-0}" == 1 ]]; then
+    (cd "$ROOT/web" && VITE_LOCAL_STACK=true npm run build >"$STATE/build.log" 2>&1) || { down; fail "web build failed; see $STATE/build.log"; }
+    start_background "$ROOT/web" "$STATE/web.pid" "$STATE/web.log" node_modules/.bin/vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort
+  else
+    start_background "$ROOT/web" "$STATE/web.pid" "$STATE/web.log" node_modules/.bin/vite --host 127.0.0.1 --port "$WEB_PORT" --strictPort
+  fi
   wait_for "$API_URL/up" 120 "$STATE/api.log" || { down; fail "the API didn't start"; }
   wait_for "$WEB_URL/" 60 "$STATE/web.log" || { down; fail "the web app didn't start"; }
   # Claimed once they answer: Puma renames its process after it boots.

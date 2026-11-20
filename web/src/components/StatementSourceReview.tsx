@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
-  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, accountMatchNote, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
+  answerInput, APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, accountMatchNote, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
   type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementProgress,
 } from '../lib/statementReview'
 import { useStatementReview } from '../lib/useStatementReview'
@@ -32,6 +32,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 }) {
   const [page, setPage] = useState(1)
   const [sheet, setSheet] = useState<Sheet>(null)
+  const [reviewRepeats, setReviewRepeats] = useState(false)
   const [listOpen, setListOpen] = useState(false)
   const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -68,12 +69,30 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   const suggested = review?.accounts.some(account => account.suggested) ?? false
   const matchNote = review ? accountMatchNote(review.accounts) : ''
+  const storeGroups = plan?.store_groups ?? []
+  const crossGroupedIds = new Set(storeGroups.flatMap(group => group.slice(1).map(line => line.event_id)))
+  const groupedIds = new Set((plan?.category_groups ?? []).flatMap(group => group.slice(1)))
+  const repeats = plan?.repeated_line_ids ?? []
+  const repeatQuestion = !reviewRepeats && repeats.length > 1
+  const questions = plan?.attention.filter(item => !groupedIds.has(item.event_id) && !crossGroupedIds.has(item.event_id) && !(repeatQuestion && repeats.includes(item.event_id))) ?? []
+  const attentionById = new Map((plan?.attention ?? []).map(line => [line.event_id, line]))
+  const groupsByLeader = new Map((plan?.category_groups ?? []).map(ids => [ids[0], ids.flatMap(id => attentionById.get(id) ?? [])]))
+  for (const group of storeGroups) if (group[0]) groupsByLeader.set(group[0].event_id, group)
+  const groupFor = (item: PlanAttention) => groupsByLeader.get(item.event_id) ?? [item]
   const readyById = new Map((plan?.ready ?? []).map((line) => [line.event_id, line]))
 
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
     if (id === 'money_out' || id === 'money_in') return setSheet({ kind: 'line', line: lineSheetWithDirection(item, id === 'money_out' ? 'out' : 'in') })
     if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: lineSheetForAnswer(item) })
-    state.answer(item, index, id, categoryId)
+    const group = groupFor(item)
+    if (group.length > 1 && (id === 'keep' || (id === 'edit' && categoryId != null))) {
+      const store = storeGroups.find(rows => rows.some(line => line.event_id === item.event_id))
+      if (store && categoryId != null) {
+        void save({ lines: [], store_lines: store.map(line => ({ event_id: line.event_id, revision_id: line.revision_id, expected_head: line.expected_head, decision: 'edited', edit: { category_id: categoryId } as LineEdit })) }, index)
+        return
+      }
+      void save({ lines: group.flatMap(line => answerInput(line, id, categoryId).lines) }, index)
+    } else state.answer(item, index, id, categoryId)
   }
   async function saveSheet(entry: LineDecision) {
     if (sheet?.kind === 'line') entry.expected_head = sheet.line.expectedHead
@@ -92,11 +111,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (planned) return lineSheetFromAttention(planned)
     const ready = !facts ? readyById.get(event.id) : undefined
     if (ready) {
-      return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
+      return { rawDescription: event.evidence?.raw_description, directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: ready.editable_merchant ?? ready.merchant ?? sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
         kind: lineKindFor(ready.event_type, event.signed_amount_cents), categoryId: ready.category_id, leftOut: false }
     }
     const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
-    return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
+    return { rawDescription: event.evidence?.raw_description, directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
       amountCents: signed == null ? null : Math.abs(signed), kind: lineKindFor(facts?.event_type ?? event.event_type, signed),
       categoryId: facts ? facts.budget_category_id : event.transaction_draft?.category_id ?? null, leftOut: facts?.disposition === 'exclude' }
   }
@@ -146,6 +165,14 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             </div>
           </div>}
           <StatementSignQuestion state={state} />
+          {!needsAccount && !plan.signed_amount_question && repeatQuestion && <div className="statement-question-row">
+            <p className="statement-question">{repeats.length} lines in this file repeat statements you already approved. Leave them all out?</p>
+            <div className="statement-answers">
+              <Button disabled={busy} onClick={() => { void save({ leave_repeats_out: true, lines: plan.attention.filter(line => repeats.includes(line.event_id)).flatMap(line => answerInput(line, 'leave_out').lines) }) }}>Leave them out</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => setReviewRepeats(true)}>Review them one by one</Button>
+            </div>
+            <p className="statement-muted">They won’t count again. You can reopen any line below to change your answer.</p>
+          </div>}
           {!needsAccountChoice && needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
           {!needsAccount && !plan.signed_amount_question && counts.action && <>
             <ul className="statement-ready" aria-label="Lines to approve together">
@@ -160,14 +187,20 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
         </header>
 
         {!plan.signed_amount_question && plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
-          {plan.attention.map((item, index) => <li key={item.event_id} className="statement-exception">
+          {questions.map((item, index) => <li key={item.event_id} className="statement-exception">
             <button type="button" className="statement-line" disabled={busy || needsAccount} aria-label={`Edit ${item.merchant ?? 'this line'}`} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(item) })}>
               <span className="statement-line-name">{item.merchant ?? 'Unreadable line'}</span>
-              <span className="statement-line-amount">{money(item.signed_amount_cents ?? item.amount_cents ?? null)}</span>
+              <span className="statement-line-amount">{groupFor(item).length > 1 ? `${groupFor(item).length} lines` : money(item.signed_amount_cents ?? item.amount_cents ?? null)}</span>
               <span className="statement-line-meta">{[formatMonthDay(item.posted_on, { year: spansYears(plan) }) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
             </button>
-            <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
-            <StatementAnswers item={item} categories={categories} disabled={busy || needsAccount} unsaved={unsavedAnswer} onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
+            <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{groupFor(item).length > 1 ? `${groupFor(item).length} lines${storeGroups.find(group => group.some(line => line.event_id === item.event_id))?.some(line => line.revision_id !== revisionId) ? " across your statements" : ""}. What are these for?` : item.question}</p>
+            {groupFor(item).length > 1 && <details><summary>Review these lines separately</summary>
+              {groupFor(item).map(line => <div key={line.event_id}>
+                <p>{"statement_name" in line ? String(line.statement_name) + " · " : ""}{formatMonthDay(line.posted_on)} · <span className="statement-num">{money(line.signed_amount_cents)}</span></p>
+                {plan.attention.some(local => local.event_id === line.event_id) ? <Button variant="secondary" disabled={busy || needsAccount} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(line) })}>Change this line</Button> : <p>Open this statement to change this line separately.</p>}
+              </div>)}
+            </details>}
+            <StatementAnswers item={groupFor(item).length > 1 ? { ...item, kind: 'no_category', category_id: null, answers: [{ id: 'edit', label: 'Choose one' }] } : item} categories={categories} disabled={busy || needsAccount} unsaved={unsavedAnswer} onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
           </li>)}
         </ul>}
 
@@ -191,7 +224,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
                 const category = facts ? categories.find((entry) => entry.id === facts.budget_category_id)?.name : ready ? readyCategoryLabel(ready) ?? undefined : event.transaction_draft?.category_name
                 const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : facts?.matched_transaction_id ? matchedPurchaseLabel(row?.approved?.matched_purchase) : (kind === 'spending' || kind === 'cash') ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
                 return <tr key={event.id} data-needs-look={attention || undefined}>
-                  <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</span></td>
+                  <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? plan.attention.find(item => item.event_id === event.id)?.merchant ?? ready?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</span></td>
                   <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</td>
                   <td className="statement-num">{signed == null ? 'Unknown' : sourceMoney(signed, true)}</td>
                   <td>{label}</td>

@@ -20,6 +20,49 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it('answers a cleaned store group in one request and can open individual lines', async () => {
+    const data = participantReviewFixture()
+    const plan = data.participant_review!.plan
+    const first = { ...plan.attention[0], kind: 'no_category' as const, merchant: 'Island Demo Mart', category_id: null, category_name: null,
+      question: 'What was this for?', answers: [{ id: 'edit' as const, label: 'Choose one' }] }
+    const second = { ...first, event_id: first.event_id + 1, signed_amount_cents: -1800 }
+    plan.attention = [first, second]
+    plan.category_groups = [[first.event_id, second.event_id]]
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('2 lines. What are these for?')).toBeTruthy()
+    fireEvent.click(screen.getByText('Review these lines separately'))
+    expect(screen.getAllByRole('button', { name: 'Change this line' })).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries: Island Demo Mart' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [
+      { event_id: first.event_id, decision: 'edited', edit: { category_id: 70 } },
+      { event_id: second.event_id, decision: 'edited', edit: { category_id: 70 } },
+    ] })
+  })
+
+  it.each([true, false])('asks once before leaving repeated lines out (%s)', async (leaveOut) => {
+    const data = participantReviewFixture()
+    const plan = data.participant_review!.plan
+    const first = { ...plan.attention[0], kind: 'duplicate' as const, question: 'Is this the same charge as one you already have?', answers: [{ id: 'leave_out' as const, label: 'Same charge' }] }
+    const second = { ...first, event_id: first.event_id + 1 }
+    plan.attention = [first, second]
+    plan.repeated_line_ids = [first.event_id, second.event_id]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByText('2 lines in this file repeat statements you already approved. Leave them all out?')
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: leaveOut ? 'Leave them out' : 'Review them one by one' }))
+    if (leaveOut) {
+      await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+      expect(mutate.mock.calls[0][3]).toMatchObject({ leave_repeats_out: true, lines: [{ event_id: first.event_id, decision: 'leave_out' }, { event_id: second.event_id, decision: 'leave_out' }] })
+    } else {
+      expect(screen.getAllByText('Is this the same charge as one you already have?')).toHaveLength(2)
+      expect(mutate).not.toHaveBeenCalled()
+    }
+  })
+
   it.each([null, 70])('shows the category or No category on approved cash lines (%s)', async (categoryId) => {
     const data = participantReviewFixture()
     const event = data.events[1]

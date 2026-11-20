@@ -13,6 +13,73 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     @identity = link(@source)
   end
 
+  test "store selector leaves pending corrections individual" do
+    fresh = source([ movement(-1700), movement(-1800, row: 2), movement(-1900, row: 3) ])
+    identity = link(fresh)
+    stage(fresh[:events].first, identity: identity, amount: -999, merchant: "Corrected merchant")
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    assert_equal fresh[:events].drop(1).map(&:id), plan.category_lines.map { |line| line.event.id }
+    assert_equal [ fresh[:events].drop(1).map(&:id) ], plan.category_groups.map { |group| group.map { |line| line.event.id } }
+    other = source([ movement(-2100), movement(-2200, row: 2) ])
+    other_identity = link(other)
+    stage(other[:events].first, identity: other_identity, amount: -888, merchant: "Other correction")
+    presenter = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, fresh[:revision], user: @user)
+    groups = presenter.send(:store_groups, plan, { @category.id => @category.name })
+    assert_equal (@source[:events] + fresh[:events].drop(1) + [ other[:events].last ]).map(&:id).sort, groups.flatten.map { |row| row[:event_id] }.sort
+  end
+
+  test "locked store save preserves a pending correction" do
+    fresh = source([ movement(-1700), movement(-1800, row: 2), movement(-1900, row: 3) ])
+    identity = link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    entries = plan.lines.map { |line| { revision_id: fresh[:revision].id, event_id: line.event.id, expected_head: line.expected_head, decision: "edited", edit: { category_id: @category.id } } }
+    draft = stage(fresh[:events].first, identity: identity, amount: -999, posted_on: "2026-07-09", merchant: "Corrected merchant")
+    before = draft.reload.attributes
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    assert_raises(FinancialDocuments::SourceReview::Domain::StaleReview) do
+      @household.with_lock { FinancialDocuments::SourceReview::StoreCategoryApprover.call(domain, fresh[:revision], { store_lines: entries }) }
+    end
+    assert_equal before, draft.reload.attributes
+    assert_nil draft.source_review_head.reload.approved_version_id
+  end
+
+  test "approved plus pending-only overlap cannot share a repeated-file answer" do
+    approved = approve(stage(@source[:events].sole))
+    pending_source = source([ movement(-1000) ])
+    pending_identity = link(pending_source, tracked: @identity.source_tracked_account)
+    stage(pending_source[:events].sole, identity: pending_identity)
+    fresh = source([ movement(-1000) ])
+    link(fresh, tracked: @identity.source_tracked_account)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    line = plan.lines.sole
+    assert_equal :duplicate, line.kind
+    assert_equal 2, line.overlaps.length
+    assert_equal [ approved.id ], line.overlaps.filter_map { |row| row[:approved_version_id] }
+    assert line.overlaps.any? { |row| row[:pending_draft_id] && !row[:approved_version_id] }
+    assert_empty plan.repeated_lines
+  end
+
+  test "store groups share cleaned names but never include guarded questions and remember this file" do
+    fresh = source([ movement(-1700).merge(merchant: "POS DEBIT Island Demo Mart"),
+      movement(-1800, row: 2).merge(merchant: "Island Demo Mart"),
+      movement(-1900, row: 3).merge(merchant: "Island Demo Mart", event_type: "transfer") ])
+    link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    assert_equal [ fresh[:events].first(2).map(&:id) ], plan.category_groups.map { |group| group.map { |line| line.event.id } }
+    first = fresh[:events].first
+    input = { lines: [ { event_id: first.id, decision: "edited", edit: { kind: "spending", category_id: @category.id } } ] }
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], input).call }
+    after = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    remembered = after.line_for(fresh[:events].second.id)
+    assert remembered.ready?
+    assert remembered.as_before
+    assert_equal @category.id, remembered.category_id
+    refute remembered.done
+    assert_equal "Island Demo Mart", remembered.merchant
+    assert_equal :transfer, after.line_for(fresh[:events].last.id).kind
+  end
+
   test "previous default category is ready as before on the next statement" do
     @category.update!(name: "Everyday spending", stack_key: "discretionary")
     approve(stage(@source[:events].sole, merchant: "Ross"))
@@ -766,7 +833,7 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     end
     assert_operator SourceReviewHead.where(household: @household).count, :>=, 1500
     HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).ensure_plan!
-    [ 1, 22, 100 ].each do |size|
+    [ 1, 22, 50, 100 ].each do |size|
       fresh = source((1..size).map { |i| movement(-50_000 - i, row: i) })
       link(fresh)
       entries = fresh[:events].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: @category.id } } }
@@ -785,7 +852,7 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
       puts "STATEMENT_SAVE size=#{size} seconds=#{elapsed.round(3)} queries=#{queries.length} queries_per_line=#{(queries.length.to_f / size).round(2)} estimated_production_seconds=#{(queries.length * 0.01).round(2)}"
       assert_equal size, @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).count
       unless ENV["STATEMENT_SAVE_BASELINE"]
-        assert_operator queries.length, :<=, { 1 => 100, 22 => 300, 100 => 1125 }.fetch(size)
+        assert_operator queries.length, :<=, { 1 => 100, 22 => 300, 50 => 600, 100 => 1125 }.fetch(size)
         refute queries.any? { |sql| sql.include?('SELECT "financial_source_events".*') && sql.include?("DISTINCT ON") && !sql.include?('"signed_amount_cents"') }, "Overlap checks must narrow the household history"
         assert_operator queries.count { |sql| sql.include?('FROM "budget_allocations"') }, :<=, 12
       end

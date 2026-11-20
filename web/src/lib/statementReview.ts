@@ -10,6 +10,7 @@ export type ExpectedLineHead = { approved_version_id: number | null; lock_versio
 /** A purchase she already confirmed (a receipt, chat, form or linked-account purchase) that this bank line may be. */
 export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
+  raw_description?: string | null
   recipient_question?: boolean
   transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; description?: string; posted_on: string; signed_amount_cents: number }
   event_id: number
@@ -19,6 +20,7 @@ export type PlanAttention = {
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
   merchant: string | null
+  editable_merchant?: string | null
   posted_on: string | null
   signed_amount_cents: number | null
   category_id: number | null
@@ -28,7 +30,7 @@ export type PlanAttention = {
   purchase_match?: PurchaseMatch
 }
 /** A line that looks right: the kind and category the server will save for it, exactly as she is shown them. */
-export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
+export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; editable_merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
 export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 /** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
 export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number; refund_count?: number; refund_cents?: number }
@@ -52,6 +54,9 @@ export type StatementPlan = {
   totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
+  store_groups?: Array<Array<PlanAttention & { revision_id: number; statement_name?: string }>>
+  repeated_line_ids?: number[]
+  category_groups?: number[][]
   attention: PlanAttention[]
 }
 
@@ -61,7 +66,7 @@ export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchan
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edited' | 'own_account' | 'someone_else' | 'pair_transfer' | 'unpair_transfer'; transfer_pair?: PlanAttention['transfer_pair']; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead; match_transaction_id?: number }
 export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; expected_tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
-export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
+export type ApproveLinesInput = { store_lines?: Array<LineDecision & { revision_id: number }>; leave_repeats_out?: boolean; expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
 
@@ -99,12 +104,13 @@ export function answerInput(item: PlanAttention, id: PlanAnswerId, categoryId?: 
 
 /** The line as the statement reads it, with the category she picked: the same facts the line sheet would open on. */
 export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdit {
-  return { kind: lineKindFor(item.event_type, item.signed_amount_cents), merchant: item.merchant ?? '', posted_on: item.posted_on ?? '',
+  return { kind: lineKindFor(item.event_type, item.signed_amount_cents), merchant: item.editable_merchant ?? item.merchant ?? '', posted_on: item.posted_on ?? '',
     amount_cents: item.signed_amount_cents == null ? 0 : Math.abs(item.signed_amount_cents), category_id: categoryId ?? item.category_id }
 }
 
 /** What the line sheet opens on. */
 export type SheetLine = {
+  rawDescription?: string | null
   recipientQuestion?: boolean
   directionRequired?: boolean
   moneyDirection?: 'in' | 'out'
@@ -126,7 +132,7 @@ export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'o
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
-  return { recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
+  return { rawDescription: item.raw_description, recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.editable_merchant ?? item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
     kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
 }
 
@@ -222,7 +228,7 @@ export function statementProgressStatus(progress: StatementProgress): string {
 }
 
 export function statementCounts(plan: StatementPlan): { open: number; page: number; attention: number; sentence: string; action: string | null } {
-  const attention = plan.attention.length
+  const attention = plan.attention.length - (plan.category_groups ?? []).reduce((count, group) => count + group.length - 1, 0)
   const open = plan.ready.length
   const page = Math.min(open, APPROVE_PAGE)
   const look = `${attention} ${attention === 1 ? 'needs' : 'need'} a quick look.`

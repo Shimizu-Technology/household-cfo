@@ -21,6 +21,12 @@ class LocalStackTest < ActiveSupport::TestCase
     LocalStack.problems(env: env, rails_env: rails_env, repo_root: REPO, database_configs: database_configs, shared_env_files: shared_env_files)
   end
 
+  test "production build instructions stop the running stack before enabling build mode" do
+    instructions = Rails.root.parent.join("docs/testing/local-stack.md").read
+    assert_match(/bin\/local-stack down
+LOCAL_STACK_WEB_BUILD=1 bin\/local-stack up/, instructions)
+  end
+
   test "a clean local environment passes" do
     assert_empty problems(safe_env)
   end

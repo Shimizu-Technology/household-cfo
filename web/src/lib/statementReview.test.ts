@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
-import { APPROVE_PAGE, answerInput, accountMatchNote, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, coverageQuestionText, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, spansYears, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
+import { APPROVE_PAGE, attentionEdit, answerInput, accountMatchNote, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, coverageQuestionText, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, spansYears, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
 
 const ready = (count: number): StatementPlan['ready'] => Array.from({ length: count }, (_, index) => ({ event_id: index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), ready: ready(24), coverage: { question: null, answer: null }, totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
@@ -158,4 +158,11 @@ it('sends the person-payment answer and the exact matching transfer she saw', ()
   expect(lineSheetWithDirection(unresolved, 'in').recipientQuestion).toBe(true)
   const pair = { event_id: 92, approved_version_id: null, account_version_id: 12, account: 'Talun Savings ending 4412', posted_on: '2026-07-08', signed_amount_cents: 2500 }
   expect(answerInput({ ...item, answers: [], kind: 'transfer_pair', transfer_pair: pair }, 'pair_transfer').lines[0]).toMatchObject({ decision: 'pair_transfer', transfer_pair: pair })
+})
+
+it('uses saved bank wording in category answers and line sheets while keeping the cleaned label', () => {
+  const item = { ...plan().attention[0], merchant: '1776 COFFEE', editable_merchant: 'CARD PURCHASE 1776 COFFEE' }
+  expect(attentionEdit(item, 10).merchant).toBe('CARD PURCHASE 1776 COFFEE')
+  expect(lineSheetFromAttention(item).merchant).toBe('CARD PURCHASE 1776 COFFEE')
+  expect(item.merchant).toBe('1776 COFFEE')
 })
