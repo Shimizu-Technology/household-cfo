@@ -43,6 +43,7 @@ module HouseholdFinance
       [ "cash", /\bcash\b/i ],
       [ "card", /\b(?:debit|credit|visa|master\s*card|mastercard|amex|american\s+express|discover|jcb|apple\s*pay|google\s*pay|samsung\s*pay|paypal|tap\s+to\s+pay|contactless|chip|card)\b|\bending\s+(?:in\s+)?\d{4}\b|[x*]{2,}\s*\d{4}\b/i ]
     ].freeze
+    WALLET_NAMED_CASH = /\bapple\s*cash\b|\bcash\s*app\b|\bcash\s*card\b/i
 
     PHRASES = {
       "voucher" => "a voucher",
@@ -54,6 +55,14 @@ module HouseholdFinance
 
     def self.read(total_cents:, texts:)
       new(total_cents: total_cents, texts: texts).call
+    end
+
+    # How much of the receipt was paid in cash (after any change), when its
+    # payment lines add up to the total and at least one of them is cash. A
+    # cash purchase names cash she already took out (decision 3), so the app
+    # asks which withdrawal it came from. nil when the receipt doesn't say.
+    def self.cash_cents(total_cents:, texts:)
+      new(total_cents: total_cents, texts: texts).cash_cents
     end
 
     # Plain words for the card: what was paid how, and what she can choose.
@@ -168,13 +177,25 @@ module HouseholdFinance
       readings.first
     end
 
+    def cash_cents
+      return nil unless @total_cents.positive?
+      return nil if @full_texts.any? { |text| refund_to_tender?(text) || text.match?(CASH_BACK) }
+
+      cash = @texts.filter_map { |text| reading_for(text, require_not_new_money: false) }
+        .map { |reading| reading.paid_with.select { |tender| tender["kind"] == "cash" }.sum { |tender| tender["amount_cents"] } }.uniq
+      # Two places on the receipt that disagree about the cash: don't guess.
+      return nil unless cash.one? && cash.first.positive?
+
+      [ cash.first, @total_cents ].min
+    end
+
     private
 
     def refund_to_tender?(text)
       segments(text).any? { |segment| segment.match?(REFUND) && (tender_kind(segment) || segment.match?(/\bcard\b/i)) }
     end
 
-    def reading_for(text)
+    def reading_for(text, require_not_new_money: true)
       tenders = []
       change_cents = 0
       segments(text).each do |segment|
@@ -195,7 +216,7 @@ module HouseholdFinance
           tenders << { "kind" => kind, "label" => tender_label(label), "amount_cents" => cents, "new_money" => new_money }
         end
       end
-      return nil if tenders.empty? || tenders.none? { |tender| tender["new_money"] == false }
+      return nil if tenders.empty? || (require_not_new_money && tenders.none? { |tender| tender["new_money"] == false })
 
       if change_cents.positive?
         cash = tenders.select { |tender| tender["kind"] == "cash" }
@@ -245,6 +266,8 @@ module HouseholdFinance
         return [ not_new.first, false ]
       end
       return nil if label.match?(BALANCE_INFO)
+      # A wallet named "cash" is a card payment, not cash in hand.
+      return [ "card", true ] if label.match?(WALLET_NAMED_CASH)
 
       NEW_MONEY.each { |kind, pattern| return [ kind, true ] if label.match?(pattern) }
       nil

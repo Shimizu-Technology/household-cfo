@@ -71,6 +71,8 @@ module HouseholdFinance
               )
             end
           end
+          # "Paid with cash" on the purchase card. Only what she says; never guessed.
+          normalized[:paid_with_cash] = ActiveModel::Type::Boolean.new.cast(input[:paid_with_cash]) == true if input.key?(:paid_with_cash) && !input[:paid_with_cash].nil?
           raise ArgumentError, "Tell me what to change on that pending transaction review" if normalized.keys == %i[draft_id source_type year]
 
           normalized
@@ -126,6 +128,9 @@ module HouseholdFinance
           attributes[:splits] = input.fetch(:splits).map { |split| split.merge(amount: Money.dollars(split.fetch(:amount_cents))).except(:amount_cents) } if input.key?(:splits)
           result = TransactionDraftUpdater.new(draft, attributes).call
           raise ArgumentError, result.errors.to_sentence unless result.success?
+          if input.key?(:paid_with_cash) && CashPayment.paid_in_cash?(result.draft) != input[:paid_with_cash]
+            result.draft.update!(draft_payload: CashPayment.with_paid_in_cash(result.draft.draft_payload, input[:paid_with_cash]))
+          end
 
           result.draft
         end

@@ -12,6 +12,17 @@ module HouseholdFinance
         @matches = matches
       end
     end
+    # She paid in cash and there is cash she took out that it could have come from. Confirming without her answer
+    # would count the cash twice, so nothing changes until she says which withdrawal it came from (or that it didn't).
+    class CashWithdrawalQuestion < ArgumentError
+      attr_reader :question
+
+      def initialize(message, question)
+        super(message)
+        @question = question
+      end
+    end
+    ELSEWHERE = "elsewhere".freeze
     MERCHANT_RULE_INITIAL_CONFIDENCE = BigDecimal("0.83")
     MERCHANT_RULE_UPSERT_SQL = Arel.sql(<<~SQL.squish)
       confidence = LEAST(0.95, merchant_category_rules.confidence + 0.03),
@@ -21,7 +32,7 @@ module HouseholdFinance
       active = EXCLUDED.active,
       updated_at = EXCLUDED.updated_at
     SQL
-    Result = Struct.new(:success?, :draft, :transaction, :errors, :possible_matches, keyword_init: true)
+    Result = Struct.new(:success?, :draft, :transaction, :errors, :possible_matches, :cash_question, keyword_init: true)
 
     def self.possible_duplicate_message(matches, today: Date.current)
       first = matches.first.household_transaction
@@ -37,12 +48,20 @@ module HouseholdFinance
       SpendingPatterns::MerchantName.call(merchant).presence || merchant
     end
 
+    def self.cash_question_message(question)
+      "#{question.fetch(:question)} Choose on the purchase. Nothing was added to your spending."
+    end
+
     # different_purchase: she answered "Different purchase" to "Same purchase as …?".
-    def initialize(draft, attributes = {}, reconcile_import: true, different_purchase: false)
+    # cash_withdrawal: her answer to "Paid with the $100 you took out on Aug 3?": that withdrawal's event id (Yes), or
+    # ELSEWHERE (No: the cash came from somewhere else, so it counts as its own purchase).
+    def initialize(draft, attributes = {}, reconcile_import: true, different_purchase: false, cash_withdrawal: nil, user: nil)
       @draft = draft
       @attributes = attributes.to_h.symbolize_keys
       @reconcile_import = reconcile_import
       @different_purchase = different_purchase == true
+      @cash_withdrawal = cash_withdrawal == ELSEWHERE ? ELSEWHERE : cash_withdrawal.presence&.to_i
+      @user = user
     end
 
     def call
@@ -56,7 +75,9 @@ module HouseholdFinance
           if draft.pending?
             corrected = apply_corrections!
             settle_possible_duplicates!
+            cash_event_id = settle_cash_question!
             transaction = create_transaction!
+            CashDrawdowns.link!(draft.household, transaction, event_id: cash_event_id, cents: CashPayment.cash_cents(draft), user: user) if cash_event_id
             draft.update!(status: corrected ? "corrected" : "confirmed", confirmed_transaction: transaction)
             if reconcile_import && draft.financial_document_import
               HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call
@@ -71,6 +92,9 @@ module HouseholdFinance
     rescue PossibleDuplicate => e
       keep_for_review!
       Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ e.message ], possible_matches: e.matches)
+    rescue CashWithdrawalQuestion => e
+      keep_for_review!
+      Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ e.message ], cash_question: e.question)
     rescue InvalidDraftCorrection, ArgumentError => e
       Result.new(success?: false, draft: draft.reload, transaction: transaction, errors: [ e.message ])
     rescue ActiveRecord::RecordInvalid => e
@@ -79,7 +103,29 @@ module HouseholdFinance
 
     private
 
-    attr_reader :draft, :attributes, :reconcile_import, :different_purchase
+    attr_reader :draft, :attributes, :reconcile_import, :different_purchase, :cash_withdrawal, :user
+
+    # A cash purchase names cash she already took out, so it adds nothing (decision 3). Ask which withdrawal it came
+    # from before it counts; never link one for her. With no withdrawal that has cash left, it counts on its own.
+    # Returns the withdrawal she chose, or nil.
+    def settle_cash_question!
+      cents = CashPayment.cash_cents(draft)
+      return unless cents.positive?
+
+      if cash_withdrawal == ELSEWHERE
+        draft.update!(draft_payload: CashPayment.with_answer(draft.draft_payload, ELSEWHERE))
+        return
+      end
+      return cash_withdrawal if cash_withdrawal
+      return if CashPayment.payload(draft)["answer"] == ELSEWHERE
+
+      candidates = CashDrawdowns.new(draft.household).candidates(on: draft.occurred_on)
+      return if candidates.empty?
+
+      question = { question: CashPayment.question(candidates, cents), cash_cents: cents,
+        candidates: candidates.map { |candidate| CashPayment.candidate_payload(candidate, cents) } }
+      raise CashWithdrawalQuestion.new(self.class.cash_question_message(question), question)
+    end
 
     # Look again just before it counts: a bank line approved since she logged
     # this, or a corrected amount, date or merchant, can make it match a

@@ -10,6 +10,8 @@ module Scorecard
       @income = @reviewed[:canonical_rows].select { |row| row[:account_identity_current] && row[:event_type] == "income" }
       # Budget nets approved refunds into the refunded purchase's category, in the month the refund posts.
       @refunds = HouseholdFinance::RefundCredits.new(@household).counted
+      # Budget counts a purchase paid from cash she took out in the withdrawal's month, out of its category.
+      @cash = HouseholdFinance::CashDrawdowns.new(@household)
       @category_names = @household.budget_categories.pluck(:id, :name).to_h
       months = @key.expected_months(@documents).to_h do |month, expected|
         [ month, month_report(month, expected) ]
@@ -56,6 +58,8 @@ module Scorecard
       actual_categories = transactions.flat_map(&:transaction_splits).group_by { |split| split.budget_category.name }.transform_values { |splits| splits.sum(&:amount_cents) }
       refunds.flat_map(&:allocations).each { |part| name = @category_names.fetch(part[:category_id]); actual_categories[name] = actual_categories.fetch(name, 0) - part[:amount_cents] }
       year, number = month.split("-").map(&:to_i)
+      cash = @cash.category_cents(from: Date.new(year, number, 1), to: Date.new(year, number, 1).end_of_month)
+      cash.each { |id, cents| name = @category_names.fetch(id); actual_categories[name] = actual_categories.fetch(name, 0) + cents }
       # Exercise the Budget presenter, not a scorecard-owned spending formula.
       budget = HouseholdFinance::AnnualBudgetManager.new(@household, year: year).plan_data
       budget_categories = budget[:rows].to_h { |row| [ row[:name], HouseholdFinance::Money.cents(row[:months][number - 1][:actual]) ] }
@@ -78,7 +82,7 @@ module Scorecard
       analysis = SpendingPatterns::Analyzer.new(@household, today: Date.current, from: Date.new(year, number, 1), to: Date.new(year, number, 1).end_of_month).call
       receipts = receipt_report(month)
       decisions = @simulator.decisions.fetch(month, {})
-      { "total_spending" => metric(transactions.sum(&:total_amount_cents) - refunds.sum(&:amount_cents), expected.fetch("total_spending_cents")),
+      { "total_spending" => metric(transactions.sum(&:total_amount_cents) - refunds.sum(&:amount_cents) + cash.values.sum, expected.fetch("total_spending_cents")),
         "spending_by_category" => categories, "income" => metric(income.sum { |row| row[:signed_amount_cents] }, expected.fetch("income_cents")),
         "analyzer_spending" => metric(analysis[:observed_spending_cents].to_i, expected.fetch("total_spending_cents")),
         "double_counts" => double_counts, "transfer_leakage_cents" => leaked_spending + leaked_income,

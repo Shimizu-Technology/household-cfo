@@ -447,7 +447,7 @@ module HouseholdFinance
         .where(household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .distinct
         .pluck(:budget_category_id)
-      (spent + refund_credits(periods).keys.map(&:first)).uniq
+      (spent + refund_credits(periods).keys.map(&:first) + cash_drawdowns.by_category_and_period(periods).keys.map(&:first)).uniq
     end
 
     # Approved refunds give money back to the category of the purchase they refund, in the month they post.
@@ -462,7 +462,16 @@ module HouseholdFinance
       refund_credits(periods).each do |key, cents|
         sums[key] = sums.fetch(key, 0) - cents if category_ids.include?(key.first)
       end
+      # Cash counts when it is withdrawn: a purchase paid from that cash moves its amount out of the withdrawal's
+      # category into its own, in the month the cash was taken out, and adds nothing.
+      cash_drawdowns.by_category_and_period(periods).each do |key, cents|
+        sums[key] = sums.fetch(key, 0) + cents if category_ids.include?(key.first)
+      end
       sums
+    end
+
+    def cash_drawdowns
+      @cash_drawdowns ||= CashDrawdowns.new(household)
     end
 
     def refund_credits(periods)
@@ -686,7 +695,8 @@ module HouseholdFinance
         summary: draft_summary(draft),
         splits: ordered_draft_splits_for(draft).map { |split| draft_split_payload(split) },
         matches: ordered_draft_matches_for(draft).map { |match| draft_match_payload(match) },
-        receipt_payment: ReceiptTenders.presentation(draft)
+        receipt_payment: ReceiptTenders.presentation(draft),
+        cash_payment: CashPayment.presentation(draft, drawdowns: cash_drawdowns)
       }
     end
 

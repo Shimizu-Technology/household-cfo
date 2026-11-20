@@ -89,6 +89,14 @@ module HouseholdFinance
         raise Stale, "That purchase changed since I prepared this. Ask me again and I'll look at it fresh. Nothing changed."
       end
 
+      # Her answer to "Paid with the $100 you took out …?" stays as she gave it when Mia changes the amount or category.
+      cash_answer = if (drawdown = CashDrawdowns.new(household).for_purchase(draft.confirmed_transaction))
+        { cash_withdrawal_event_id: drawdown.event_id }
+      elsif CashPayment.payload(draft)&.dig("answer") == TransactionDraftConfirmer::ELSEWHERE
+        { cash_from_elsewhere: true }
+      else
+        {}
+      end
       runner = Operations::Runner.new(household, user: user, cohort_membership: cohort_membership)
       runner.run(operation_key: "transaction.draft.reopen", input: { draft_id: draft.id, source_type: "manual_chat" },
         idempotency_key: "#{key}:reopen", source: "mia")
@@ -102,8 +110,8 @@ module HouseholdFinance
         begin
           runner.run(operation_key: "transaction.draft.confirm", idempotency_key: "#{key}:confirm", source: "mia",
             input: { draft_id: draft.id, source_type: "manual_chat", amount: dollars,
-                     splits: [ { id: split.id, budget_category_id: payload["new_category_id"] || split.budget_category_id, amount: dollars } ] })
-        rescue TransactionDraftConfirmer::PossibleDuplicate
+                     splits: [ { id: split.id, budget_category_id: payload["new_category_id"] || split.budget_category_id, amount: dollars } ] }.merge(cash_answer))
+        rescue TransactionDraftConfirmer::PossibleDuplicate, TransactionDraftConfirmer::CashWithdrawalQuestion
           # With the change it would look like another purchase she already
           # has. The change card can't ask "Same purchase?", so leave it alone.
           raise Stale, reopen_to_change_message(draft)

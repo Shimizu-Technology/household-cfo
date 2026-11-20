@@ -61,6 +61,10 @@ module Api
       rescue HouseholdFinance::TransactionDraftConfirmer::PossibleDuplicate => e
         keep_correction_for_review!
         render_possible_duplicate(e)
+      rescue HouseholdFinance::TransactionDraftConfirmer::CashWithdrawalQuestion => e
+        keep_correction_for_review!
+        render json: { errors: [ e.message ], code: "cash_withdrawal_question", cash_question: e.question,
+          transaction_draft: serialize_draft(@draft.reload) }, status: :conflict
       rescue ArgumentError, ActiveRecord::RecordInvalid => e
         render_operation_error(e)
       end
@@ -213,7 +217,7 @@ module Api
       # The update also refreshes the suggestions for the corrected purchase,
       # so its card can ask "Same purchase as …?" and accept that match.
       def keep_correction_for_review!
-        corrections = confirm_params.to_h.except("different_purchase")
+        corrections = confirm_params.to_h.except("different_purchase", "cash_withdrawal_event_id", "cash_from_elsewhere")
         return if corrections.empty?
 
         operation_runner.run(
@@ -251,11 +255,11 @@ module Api
       end
 
       def confirm_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, :different_purchase, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, :different_purchase, :cash_withdrawal_event_id, :cash_from_elsewhere, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def update_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, :paid_with_cash, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def permitted_draft_params
@@ -303,7 +307,17 @@ module Api
         categories = draft.confirmed_transaction.transaction_splits.includes(:budget_category)
           .filter_map { |split| split.budget_category&.name }.uniq
         category = categories.presence&.to_sentence || "Needs a category"
+        drawdown = HouseholdFinance::CashDrawdowns.new(current_household).for_purchase(draft.confirmed_transaction)
+        if drawdown
+          rest = draft.total_amount_cents - drawdown.amount_cents
+          also = rest.positive? ? " The other #{money(rest)} counts as new spending." : ""
+          return "Saved #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}, paid with cash you took out on #{HouseholdFinance::CashPayment.short_date(drawdown.withdrawn_on)}. That cash already counted, so #{money(drawdown.amount_cents)} moved from #{cash_category_names(drawdown)} to #{category}.#{also}"
+        end
         "Saved #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. It now counts in your spending total."
+      end
+
+      def cash_category_names(drawdown)
+        current_household.budget_categories.where(id: drawdown.cash_parts.pluck(:category_id)).pluck(:name).to_sentence.presence || "Cash"
       end
 
       def ignored_message(draft)
@@ -341,7 +355,8 @@ module Api
           splits: ordered_draft_splits_for(draft).map { |split| serialize_split(split) },
           matches: ordered_draft_matches_for(draft).map { |match| serialize_match(match) },
           matched_transaction_id: draft.matched_transaction_id,
-          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft)
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft),
+          cash_payment: HouseholdFinance::CashPayment.presentation(draft)
         }
       end
 

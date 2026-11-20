@@ -371,6 +371,7 @@ module Scorecard
               { id: split.id, budget_category_id: category&.id, amount: HouseholdFinance::Money.dollars(split.amount_cents) }
             end
           end
+          different = false
           result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes).call
           if result.possible_matches.present?
             # The app asks "Same purchase as …?" before it can count twice. Both
@@ -380,7 +381,17 @@ module Scorecard
               accept_asked_receipt_match!(draft, same.fetch(:transaction_id), doc)
               next
             end
+            different = true
             result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes, different_purchase: true).call
+          end
+          if result.cash_question.present?
+            # A receipt paid in cash asks "Paid with the $100 you took out …?". Both views answer from the answer key:
+            # the withdrawal it was paid from (paid_from_withdrawal_event_id), otherwise No.
+            count(doc, :cash_withdrawal)
+            source = @key.event(answer)["paid_from_withdrawal_event_id"]
+            chosen = result.cash_question.fetch(:candidates).find { |candidate| source && row_answers[candidate.fetch(:financial_source_event_id)]&.fetch("event_id") == source }
+            result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes, different_purchase: different,
+              cash_withdrawal: chosen ? chosen.fetch(:financial_source_event_id) : HouseholdFinance::TransactionDraftConfirmer::ELSEWHERE).call
           end
           count(doc, :receipt_confirmation)
           raise "Receipt confirmation failed: #{result.errors.join(', ')}" unless result.success?

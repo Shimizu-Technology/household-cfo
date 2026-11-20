@@ -26,6 +26,10 @@ module HouseholdFinance
             result = TransactionDraftConfirmer.new(draft, reconcile_import: false).call
             # Never answer "Same purchase as …?" for her in a group: she answers it on that purchase.
             raise BulkResolutionError, possible_duplicate_message(draft, result.possible_matches, resolved_drafts) if result.possible_matches.present?
+            # Nor "Paid with the $100 you took out …?": which cash paid for it is hers to say on that purchase.
+            if result.cash_question.present?
+              raise BulkResolutionError, "#{draft.merchant} was paid in cash. #{result.cash_question.fetch(:question)} Answer that on its card first. Nothing was confirmed."
+            end
             raise BulkResolutionError, result.errors.to_sentence unless result.success?
 
             resolved_drafts << result.draft

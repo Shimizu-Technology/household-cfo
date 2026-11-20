@@ -889,7 +889,8 @@ module Api
           matches: include_details ? ordered_draft_matches_for(draft).map { |match| serialize_transaction_draft_match(match) } : [],
           matched_transaction_id: draft.matched_transaction_id,
           draft_payload: safe_draft_payload(draft.draft_payload),
-          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft)
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft),
+          cash_payment: HouseholdFinance::CashPayment.presentation(draft)
         }
       end
 

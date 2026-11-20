@@ -123,7 +123,7 @@ module HouseholdFinance
         .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
         .distinct
         .pluck(:budget_category_id)
-      (spent + refund_cents.keys).uniq
+      (spent + refund_cents.keys + cash_cents.keys).uniq
     end
 
     def allocation_sums
@@ -163,8 +163,18 @@ module HouseholdFinance
           .group(:budget_category_id)
           .sum(:amount_cents)
         refund_cents.each { |id, cents| sums[id] = sums.fetch(id, 0) - cents }
+        # Budget's cash rule: a purchase paid from cash she took out counts in the withdrawal's month, out of its category.
+        cash_cents.each { |id, cents| sums[id] = sums.fetch(id, 0) + cents }
         sums
       end
+    end
+
+    def cash_drawdowns
+      @cash_drawdowns ||= CashDrawdowns.new(household)
+    end
+
+    def cash_cents
+      @cash_cents ||= cash_drawdowns.category_cents(from: start_on, to: end_on)
     end
 
     def refund_credits
@@ -268,6 +278,7 @@ module HouseholdFinance
         .limit(MAX_TRANSACTIONS)
         .to_a
       reopenable_draft_ids = reopenable_draft_ids_for(transactions)
+      drawdowns = cash_drawdowns.call.index_by { |drawdown| drawdown.purchase.id }
 
       transactions.map do |transaction|
         {
@@ -278,8 +289,15 @@ module HouseholdFinance
           source_type: transaction.source_type,
           categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name },
           transaction_draft_id: reopenable_draft_ids[transaction.id]
-        }
+        }.merge(cash_withdrawal_payload(drawdowns[transaction.id]))
       end
+    end
+
+    # Paid from cash she took out: it counts in that withdrawal's month, not as new spending here.
+    def cash_withdrawal_payload(drawdown)
+      return {} unless drawdown
+
+      { cash_withdrawal: { withdrawn_on: drawdown.withdrawn_on.iso8601, amount: Money.dollars(drawdown.amount_cents) } }
     end
 
     # The review that confirmed a row is what the participant reopens to take it back out of actuals.

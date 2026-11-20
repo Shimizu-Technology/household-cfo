@@ -68,7 +68,9 @@ module HouseholdFinance
           amount_cents: amount_cents,
           source_type: "manual_chat",
           raw_input: raw_input,
-          category_context: category_match_text
+          category_context: category_match_text,
+          # She told Mia she paid in cash. Only her own words for this one purchase.
+          paid_with_cash: CashPayment.said?(@draft_text)
         },
         idempotency_key: @idempotency_key,
         source: "mia"
