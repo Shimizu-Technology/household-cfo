@@ -79,6 +79,10 @@ class HouseholdFinanceReceiptTendersTest < ActiveSupport::TestCase
     assert_nil read(5_000, "Gift card $20.00; Debit $30.00", "Gift card $20.00; Debit $40.00; Cash back $10.00")
     assert_nil read(5_000, "Gift card $20.00; Debit $30.00", "Customer asked for cashback.")
     assert_equal 3_000, read(5_000, "Gift card $20.00; Debit $30.00", "Paid with a gift card and a debit card.").new_money_cents
+    long = "Gift card $20.00; Debit $30.00; #{'Item 1.00; ' * 120}Cash back $10.00"
+    assert_operator long.length, :>, HouseholdFinance::ReceiptTenders::MAX_TEXT
+    assert_nil read(5_000, long), "Cash back past the part the payment lines are read from still counts"
+    assert_nil read(5_000, "Gift card $20.00; Debit $30.00", "#{'x' * 1_200} refunded to gift card")
   end
 
   test "a minus or bracketed tender amount leaves the receipt alone" do

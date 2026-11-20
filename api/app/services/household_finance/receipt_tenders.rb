@@ -18,6 +18,8 @@ module HouseholdFinance
     PAYLOAD_KEY = "receipt_payment".freeze
     TOLERANCE_CENTS = 1
     MAX_TEXT = 1_000
+    # The refund and cash-back guards read much further than the payment lines do.
+    MAX_GUARD_TEXT = 20_000
 
     AMOUNT = /(?<![\d.])[-(]?\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})(?![\d])\)?/
     # "a $150.00 voucher", "Paid with", "plus"... are joining words, not labels.
@@ -136,14 +138,16 @@ module HouseholdFinance
 
     def initialize(total_cents:, texts:)
       @total_cents = total_cents.to_i
-      @texts = Array(texts).filter_map { |text| text.to_s.unicode_normalize(:nfkc).squish.first(MAX_TEXT).presence }
+      @full_texts = Array(texts).filter_map { |text| text.to_s.unicode_normalize(:nfkc).squish.first(MAX_GUARD_TEXT).presence }
+      @texts = @full_texts.map { |text| text.first(MAX_TEXT) }
     end
 
     def call
       return nil unless @total_cents.positive?
-      return nil if @texts.any? { |text| refund_to_tender?(text) }
+      # Read in full, not just the part the payment lines come from.
+      return nil if @full_texts.any? { |text| refund_to_tender?(text) }
       # Cash back anywhere on the receipt changes what reached the bank; leave it as read.
-      return nil if @texts.any? { |text| text.match?(CASH_BACK) }
+      return nil if @full_texts.any? { |text| text.match?(CASH_BACK) }
 
       readings = @texts.filter_map { |text| reading_for(text) }
       return nil if readings.empty?
