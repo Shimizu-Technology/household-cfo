@@ -282,7 +282,13 @@ module FinancialDocuments
           category = family_support_category!
           base.merge(event_type: "purchase", purchase_amount_cents: base[:signed_amount_cents].abs, budget_category_id: category.id, external_reference: "sent-to-someone:#{line.event.id}", overlap_disposition: line.kind == :person_payment_duplicate ? "distinct" : base[:overlap_disposition])
         when "as_read" then line.kind == :refund_category ? base.merge(budget_category_id: line.category_id) : base
-        when "different" then base.merge(overlap_disposition: "distinct")
+        when "different"
+          if TransferPairs.person_payment?(line.event, line.merchant)
+            # No category or spending projection until the remaining questions are answered.
+            base.merge(overlap_disposition: "distinct", budget_category_id: nil, external_reference: "#{line.kind == :duplicate ? 'overlap-cleared' : 'ownership-needed'}:#{line.event.id}")
+          else
+            base.merge(overlap_disposition: "distinct")
+          end
         # The same purchase as one she confirmed: the line is the bank's record of it and counts nowhere itself.
         # No match any more (the purchase changed) is refused as stale by check_allowed!, never saved.
         when "same_purchase" then base.merge(disposition: "match", matched_transaction_id: line.purchase_match&.transaction&.id, budget_category_id: nil, overlap_disposition: "match")

@@ -67,16 +67,20 @@ class ApiV1StatementConfirmedPurchaseTest < ActionDispatch::IntegrationTest
     assert_equal({ "approved" => 0, "unchanged" => 1 }, response.parsed_body.fetch("result").slice("approved", "unchanged"))
   end
 
-  test "person-worded bank purchases ask Same purchase first including source overlaps" do
+  test "person-worded bank purchases ask duplicate then Same purchase for source overlaps" do
     receipt = purchase("Venmo Ana Cruz", "2026-08-03", { @groceries => 4000 }, source_type: "manual_chat")
     build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
     statement = build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
     line = statement[:revision].financial_source_events.sole
     row = plan(statement).fetch("attention").sole
     assert_not_empty FinancialDocuments::SourceReview::ParticipantPlan.new(@household, statement[:revision]).lines.sole.overlaps
-    assert_equal "same_purchase", row.fetch("kind")
+    assert_equal "duplicate", row.fetch("kind")
     approve(statement, [ { event_id: line.id, decision: "someone_else", expected_head: row.fetch("expected_head"), shown: row.slice("event_type", "category_id") } ])
     assert_response :conflict
+    approve(statement, [ { event_id: line.id, decision: "different", expected_head: row.fetch("expected_head"), shown: row.slice("event_type", "category_id") } ])
+    assert_response :success, response.body
+    row = plan(statement).fetch("attention").sole
+    assert_equal "same_purchase", row.fetch("kind")
     same_purchase(statement, line, row)
     assert_response :success, response.body
     assert_equal [ receipt.id ], @household.household_transactions.where(status: %w[confirmed reconciled]).pluck(:id)

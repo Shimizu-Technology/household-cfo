@@ -124,3 +124,62 @@ test('merchant categories, card payments and logged person purchases keep their 
     if (process.env.HCFO_B7_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.HCFO_B7_EVIDENCE_DIR, `${width}-merchant-card-purchase-saved.png`) })
   }
 })
+
+test('round 3 duplicate, logged purchase and ownership guards plus categorized bill @saves', async ({ page, request }) => {
+  const budget = await api<{ annual_plan: { rows: Array<{ id: number; name: string }> } }>('participant', '/api/v1/budget?year=2026')
+  const category = budget.annual_plan.rows.find(row => row.name === 'Flexible spending')!
+  const headers = { Authorization: 'Bearer test_token:e2e_participant:participant@pilot.test:Test:Participant', 'Idempotency-Key': crypto.randomUUID() }
+  const created = await request.post(`${API}/api/v1/transaction_drafts`, { headers, data: { transaction_draft: { occurred_on: '2026-08-03', merchant: 'Venmo Ana Cruz', amount: 40, budget_category_id: category.id } } })
+  expect(created.ok()).toBe(true)
+  const draft = (await created.json()).transaction_draft
+  expect((await request.post(`${API}/api/v1/transaction_drafts/${draft.id}/confirm`, { headers: { ...headers, 'Idempotency-Key': crypto.randomUUID() }, data: { transaction_draft: {} } })).ok()).toBe(true)
+  await signIn(page, 'participant')
+  await openSection(page, 'Statements')
+  const review = page.getByRole('region', { name: 'Statement review' })
+  async function shot(label: string) {
+    for (const width of [1366, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      if (process.env.HCFO_B7_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.HCFO_B7_EVIDENCE_DIR, `${width}-r3-${label}.png`), fullPage: true })
+    }
+  }
+  async function upload(name: string, date: string) {
+    const csv = `Date,Account,Description,Withdrawal,Deposit,Status\n${date},Talun Round Three ****3327,VENMO *ANA CRUZ,40.00,,Posted\n${name.includes('first') ? `${date},Talun Round Three ****3327,Payment to Docomo Pacific,55.00,,Posted\n` : ''}`
+    await page.locator('input[type=file]').first().setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(csv) })
+    await expect(review.getByRole('button', { name: 'Choose account', exact: true })).toBeVisible({ timeout: 60_000 })
+    await review.getByRole('button', { name: 'Choose account', exact: true }).click()
+    const account = page.getByRole('dialog', { name: 'Your account', exact: true })
+    const choices = account.getByRole('combobox', { name: 'Account', exact: true })
+    if (await choices.count()) await choices.selectOption({ index: 1 })
+    const type = account.getByRole('combobox', { name: 'Type', exact: true })
+    if (await type.count()) await type.selectOption('asset')
+    await account.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(account).toHaveCount(0)
+  }
+  await upload('round-three-first.csv', '2026-08-03')
+  await expect(review.getByRole('button', { name: /^Different purchase: VENMO/ })).toBeVisible()
+  await upload('round-three-second.csv', '2026-08-04')
+  await expect(review.getByText('Is this the same charge as one you already have?', { exact: true })).toBeVisible()
+  await shot('duplicate')
+  await review.getByRole('button', { name: /^Different charge: VENMO/ }).click()
+  await expect(review.getByRole('button', { name: /^Different purchase: VENMO/ })).toBeVisible()
+  await shot('logged-purchase')
+  await review.getByRole('button', { name: /^Different purchase: VENMO/ }).click()
+  await expect(review.getByRole('button', { name: 'Your own account: VENMO *ANA CRUZ', exact: true })).toBeVisible()
+  await shot('ownership')
+  await review.getByRole('button', { name: 'Your own account: VENMO *ANA CRUZ', exact: true }).click()
+  // The bill occurs once, in the first file.
+  await page.getByRole('button', { name: /^round-three-first.csv Statement/ }).click()
+  await review.getByText('See all 2 lines', { exact: true }).click()
+  await review.locator('table').getByRole('button', { name: 'Payment to Docomo Pacific', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Payment to Docomo Pacific', exact: true })
+  await sheet.getByRole('button', { name: 'Spending', exact: true }).click()
+  await sheet.getByRole('combobox', { name: /^Category/ }).selectOption({ label: 'Flexible spending' })
+  await shot('bill-category')
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(sheet).toHaveCount(0)
+  const report = await api<{ spending_report: { categories: Array<{ name: string; actual: number }> } }>('participant', '/api/v1/spending_report?start_on=2026-08-01&end_on=2026-08-31')
+  expect(report.spending_report.categories.find(row => row.name === 'Flexible spending')?.actual).toBe(95)
+  expect(report.spending_report.categories.find(row => row.name === 'Family support')?.actual ?? 0).toBe(0)
+  await shot('saved')
+})

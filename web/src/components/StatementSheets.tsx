@@ -22,19 +22,21 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
   const [postedOn, setPostedOn] = useState(line.postedOn)
   const [amount, setAmount] = useState(amountInputText(line.amountCents))
   const [categoryId, setCategoryId] = useState(line.categoryId ? String(line.categoryId) : '')
+  const [categorySpending, setCategorySpending] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const recipientQuestion = line.recipientQuestion && direction !== 'in'
 
   function save(event: FormEvent) {
     event.preventDefault()
     if (line.directionRequired && !direction) return setProblem('Choose whether this was money out or money in.')
+    if (recipientQuestion && kind === 'spending' && categorySpending && !categoryId) return setProblem('Choose a category for this spending.')
     if (!kind) return setProblem(recipientQuestion ? 'Choose your own account or someone else.' : 'Choose what this line was.')
     const cents = parseLineAmount(amount)
     if (cents == null) return setProblem('Enter the amount, like 12.50.')
     if (!postedOn) return setProblem('Choose the date.')
     if ((kind === 'spending' || kind === 'cash') && !merchant.trim()) return setProblem('Add where the money went.')
     setProblem(null)
-    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: !recipientQuestion && (kind === 'spending' || kind === 'cash' || kind === 'refund') && categoryId ? Number(categoryId) : null })
+    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: (!recipientQuestion || categorySpending) && (kind === 'spending' || kind === 'cash' || kind === 'refund') && categoryId ? Number(categoryId) : null })
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
@@ -47,7 +49,8 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
         {recipientQuestion ? <fieldset><legend>Your own account or someone else?</legend>
           <div className="statement-answers">
             <Button variant={kind === 'moved' || kind === 'card' ? 'primary' : 'secondary'} aria-pressed={kind === 'moved' || kind === 'card'} disabled={busy} onClick={() => setKind(line.kind === 'card' ? 'card' : 'moved')}>Your own account</Button>
-            <Button variant={kind === 'spending' ? 'primary' : 'secondary'} aria-pressed={kind === 'spending'} disabled={busy} onClick={() => setKind('spending')}>Someone else</Button>
+            <Button variant={kind === 'spending' && !categorySpending ? 'primary' : 'secondary'} aria-pressed={kind === 'spending' && !categorySpending} disabled={busy} onClick={() => { setKind('spending'); setCategorySpending(false) }}>Someone else</Button>
+            <Button variant={kind === 'spending' && categorySpending ? 'primary' : 'secondary'} aria-pressed={kind === 'spending' && categorySpending} disabled={busy} onClick={() => { setKind('spending'); setCategorySpending(true) }}>Spending</Button>
           </div>
         </fieldset> : <label>What was this?
           <select value={kind} onChange={(event) => setKind(event.target.value as LineKind)}>
@@ -62,8 +65,8 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
           <label>Date<input type="date" value={postedOn} onChange={(event) => setPostedOn(event.target.value)} /></label>
           <label>Amount<input inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /></label>
         </div>
-        {recipientQuestion && kind === 'spending' && <p>This counts as Family support spending.</p>}
-        {!recipientQuestion && (kind === 'spending' || kind === 'cash') && <label>Category
+        {recipientQuestion && !categorySpending && kind === 'spending' && <p>This counts as Family support spending.</p>}
+        {(!recipientQuestion || categorySpending) && (kind === 'spending' || kind === 'cash') && <label>Category
           <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
             <option value="">No category yet</option>
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}

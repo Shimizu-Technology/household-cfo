@@ -320,7 +320,7 @@ module FinancialDocuments
             raise StaleReview, "That purchase changed or no longer matches this line. Nothing was saved. Refresh and look again."
           end
         elsif facts[:disposition] == "include" && (facts[:overlap_disposition] != "distinct" || facts[:external_reference].to_s.start_with?("sent-to-someone:")) && ConfirmedPurchaseMatch.applies?(facts[:event_type], facts[:signed_amount_cents])
-          counted_before = head.approved_version&.disposition == "include"
+          counted_before = head.approved_version&.disposition == "include" && !head.approved_version.external_reference.to_s.start_with?("overlap-cleared:")
           match = found.call.first unless counted_before
           raise ArgumentError, "#{match.question} Answer Same purchase or Different purchase first. Nothing was saved." if match
         end

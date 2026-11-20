@@ -476,6 +476,7 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     event.financial_source_evidence.update!(payload: event.financial_source_evidence.payload.merge("merchant" => "Transfer from checking"))
     assert pairs.new(@household).candidate(debit[:events].sole)
     blocked = source([ movement(2800, type: "transfer") ], coverage: { signed_amount_question: true })
+    blocked[:import].update!(filename: "unanswered.csv", content_type: "text/csv")
     outgoing = source([ movement(-2800, type: "transfer") ])
     link(outgoing)
     run_operation(OPS::AccountLink, account_input(blocked).merge(label: "Talun blocked savings"))
@@ -569,6 +570,64 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     link(distant_debit, tracked: @identity.source_tracked_account)
     run_operation(OPS::AccountLink, account_input(distant_credit).merge(label: "Talun distant savings"))
     assert_nil pairs.new(@household).candidate(distant_debit[:events].sole)
+  end
+
+  test "logged person purchases retain duplicate and ownership guards" do
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.iso8601("2026-07-07"))
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-07-07", merchant: "Venmo Ana Cruz", total_amount_cents: 4000, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: @category, amount_cents: 4000)
+    first = source([ movement(-4000).merge(merchant: "VENMO *ANA CRUZ") ])
+    link(first, tracked: @identity.source_tracked_account)
+    assert_equal :same_purchase, FinancialDocuments::SourceReview::ParticipantPlan.new(@household, first[:revision]).lines.sole.kind
+    second = source([ movement(-4000, posted_on: "2026-07-08").merge(merchant: "VENMO *ANA CRUZ") ])
+    link(second, tracked: @identity.source_tracked_account)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    plan = ->(src) { FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole }
+    assert_equal :duplicate, plan.call(second).kind
+    [ [ second, :same_purchase ], [ second, :person_payment ] ].each do |src, next_kind|
+      line = plan.call(src)
+      @household.with_lock do
+        FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: [ { event_id: line.event.id, decision: "different", expected_head: line.expected_head, shown: { event_type: line.event.event_type, category_id: line.category_id } } ] }).call
+      end
+      fresh = plan.call(src)
+      assert_equal next_kind, fresh.kind
+      if next_kind == :same_purchase
+        assert_raises(ArgumentError) do
+          @household.with_lock do
+            FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: [ { event_id: fresh.event.id, decision: "edited", expected_head: fresh.expected_head, edit: { kind: "spending", merchant: fresh.merchant, posted_on: "2026-07-08", amount_cents: 4000, category_id: @category.id } } ] }).call
+          end
+        end
+      end
+      refute fresh.done
+      assert_equal [ transaction.id ], @household.household_transactions.pluck(:id)
+    end
+  end
+
+  test "different logged person purchase asks ownership before any category spending" do
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.iso8601("2026-07-07"))
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-07-07", merchant: "Venmo Ana Cruz", total_amount_cents: 4000, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: @category, amount_cents: 4000)
+    payment = source([ movement(-4000).merge(merchant: "VENMO *ANA CRUZ") ])
+    link(payment)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    assert_equal :same_purchase, line.kind
+    @household.with_lock do
+      FinancialDocuments::SourceReview::LineApprover.new(domain, payment[:revision], { lines: [ { event_id: line.event.id, decision: "different", expected_head: line.expected_head, shown: { event_type: "purchase", category_id: line.category_id } } ] }).call
+    end
+    fresh = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, payment[:revision]).lines.sole
+    assert_equal :person_payment, fresh.kind
+    refute fresh.done
+    assert_equal [ transaction.id ], @household.household_transactions.pluck(:id)
+  end
+
+  test "answered spreadsheet capability does not permanently block transfer candidates" do
+    debit = source([ movement(-2500, type: "transfer") ], coverage: { signed_amount_answerable: true, signed_amount_question: false })
+    debit[:import].update!(filename: "answered.csv", content_type: "text/csv")
+    credit = source([ movement(2500, type: "transfer") ])
+    link(debit)
+    run_operation(OPS::AccountLink, account_input(credit).merge(label: "Talun savings"))
+    assert FinancialDocuments::SourceReview::TransferPairs.new(@household).candidate(debit[:events].sole)
   end
 
   test "own account answer removes a proposed purchase from pending Budget without spending" do

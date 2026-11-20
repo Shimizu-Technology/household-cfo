@@ -59,8 +59,11 @@ module FinancialDocuments
           heads = SourceReviewHead.where(household: @household).includes(:approved_version, :source_review_drafts).index_by(&:financial_source_event_id)
           latest = FinancialExtractionRevision.where(id: revisions.group(:financial_document_import_id).select("MAX(id)"))
           blocked = latest.select do |revision|
-            revision.coverage["signed_amount_question"] == true || revision.coverage["signed_amount_answerable"] == true ||
-              SpreadsheetSignAnswer.account_questions(revision).any? { |question| question[:answerable] }
+            document = revision.financial_document_import
+            file_open = document&.spreadsheet? && document.source_available? && !SpreadsheetSignAnswer.saved_decisions?(revision) &&
+              revision.coverage["signed_amount_question"] == true
+            file_open ||
+              SpreadsheetSignAnswer.account_questions(revision).any? { |question| question[:answerable] && question[:answer].nil? }
           end.map(&:id).to_set
           FinancialSourceEvent.where(financial_extraction_revision_id: latest.select(:id), row_kind: "posted").includes(:financial_source_evidence).filter_map do |event|
             next if paired_ids.include?(event.id)

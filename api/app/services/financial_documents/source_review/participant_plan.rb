@@ -148,7 +148,9 @@ module FinancialDocuments
           # Only spending carries a category; nothing else is shown or saved with one.
           category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
-          purchase_match = purchase_matches.best(signed_amount_cents: event.signed_amount_cents, posted_on: event.posted_on, merchant: merchant, event_type: event.event_type, head_id: heads[event.id]&.id) if overlaps.empty? || TransferPairs.person_payment?(event, merchant)
+          # Intermediate answers clear only the guard she answered; ownership remains unfinished.
+          overlaps = [] if heads[event.id]&.approved_version&.external_reference.to_s.start_with?("overlap-cleared:", "ownership-needed:")
+          purchase_match = purchase_matches.best(signed_amount_cents: event.signed_amount_cents, posted_on: event.posted_on, merchant: merchant, event_type: event.event_type, head_id: heads[event.id]&.id) unless heads[event.id]&.approved_version&.external_reference.to_s.start_with?("ownership-needed:")
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], purchase_match: purchase_match, disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && policy&.dig(:reason) != "confirmed_spending_purpose" && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
           pair = transfer_pairs.candidate(event) if kind.in?(%i[transfer card_payment person_payment]) && !heads[event.id]&.approved_version
           kind = :transfer_pair if pair && kind.in?(%i[transfer card_payment person_payment])
@@ -207,7 +209,7 @@ module FinancialDocuments
       # purchase as one she confirmed stays finished only while that purchase still counts; otherwise it is asked about again.
       def done?(version)
         return false unless version
-        return false if version.external_reference.to_s.start_with?("unpaired-transfer:")
+        return false if version.external_reference.to_s.start_with?("unpaired-transfer:", "ownership-needed:", "overlap-cleared:")
         return false if version.matched_transaction_id && !ConfirmedPurchaseMatch.current?(household, version)
         version.source_account_identity_version.source_account_review_head.approved_version_id == version.source_account_identity_version_id
       end
@@ -229,8 +231,8 @@ module FinancialDocuments
         return :unclear if event.row_kind != "posted" || event.event_type.in?(%w[unknown adjustment]) || amount.nil? || amount.zero? || event.posted_on.nil?
         return :unclear if event.posted_on > Date.current || outside_period?(event, account)
         return :unclear if event.event_type.in?(%w[purchase fee]) && !amount.negative? || event.event_type.in?(%w[refund income]) && !amount.positive?
+        return (TransferPairs.person_payment?(event, merchant) && !purchase_match ? :person_payment_duplicate : :duplicate) if overlaps.any?
         return :same_purchase if purchase_match
-        return (TransferPairs.person_payment?(event, merchant) ? :person_payment_duplicate : :duplicate) if overlaps.any?
         return :refund if event.event_type == "refund"
         return :person_payment if TransferPairs.person_payment?(event, merchant)
         return :transfer if event.event_type == "transfer"
