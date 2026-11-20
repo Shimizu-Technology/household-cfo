@@ -274,6 +274,106 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_nil TransactionDraft.find(draft.fetch("id")).confirmed_transaction.metadata["cash_withdrawal"], "That cash is gone, so it counts on its own"
   end
 
+  # Review fix 2. She logs as she goes and uploads statements later: the withdrawal is approved after the cash
+  # purchase it paid for. Until she answers, the purchase counts on its own and Review says so.
+  test "a cash purchase confirmed before its withdrawal was approved is asked about, and Yes makes it $100" do
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft)
+    assert_response :success, response.body
+    assert_empty budget_plan.fetch("cash_purchase_questions")
+
+    withdrawal = withdraw(10_000, "2026-08-03")
+    assert_equal 14_000, month_total(8), "Not linked for her"
+    question = budget_plan.fetch("cash_purchase_questions").sole
+    assert_equal [ draft.fetch("id"), "unanswered", "Tasi Demo Cafe", "2026-08-05", 4000, 4000 ],
+      question.values_at("transaction_draft_id", "state", "merchant", "occurred_on", "cash_cents", "counting_on_its_own_cents")
+    assert_equal "You paid $40 in cash. Right now it counts on its own, on top of the $100 you took out on Aug 3.", question.fetch("message")
+    assert_equal "Paid with the $100 you took out on Aug 3?", question.fetch("question")
+    assert_equal [ withdrawal.id ], question.fetch("candidates").pluck("financial_source_event_id")
+    assert_equal "No, other cash", question.fetch("decline_label")
+    get "/api/v1/workspace", headers: headers
+    assert_response :success
+    assert_equal [ 1, 1 ], response.parsed_body.dig("dashboard", "action_center").values_at("transaction_review_count", "cash_question_count")
+
+    cash_answer(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :success, response.body
+    assert_equal "Saved: Tasi Demo Cafe for $40 was paid with cash you took out on Aug 3. That cash already counted, so $40 moved from Cash into this purchase's category.", response.parsed_body.fetch("message")
+    assert_equal [ 6000, 4000, 10_000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+    assert_empty budget_plan.fetch("cash_purchase_questions")
+    assert_equal "confirmed", TransactionDraft.find(draft.fetch("id")).status
+    assert_equal "cash_purchase.withdrawal_answered", @household.household_audit_events.order(:id).last.event_type
+
+    # Answering again changes nothing.
+    cash_answer(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :success, response.body
+    assert_equal 10_000, month_total(8)
+  end
+
+  test "No, other cash keeps both, on purpose, and isn't asked again" do
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft)
+    withdraw(10_000, "2026-08-03")
+    cash_answer(draft, cash_from_elsewhere: true)
+    assert_response :success, response.body
+    assert_equal "Saved: Tasi Demo Cafe for $40 was paid with other cash, so it counts as its own purchase.", response.parsed_body.fetch("message")
+    assert_equal [ 10_000, 4000, 14_000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+    withdraw(5000, "2026-08-04")
+    assert_empty budget_plan.fetch("cash_purchase_questions")
+  end
+
+  test "a withdrawal that stops counting puts its cash purchase back on her list" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_empty budget_plan.fetch("cash_purchase_questions")
+
+    move_to_transfer(withdrawal)
+    assert_equal 4000, month_total(8)
+    question = budget_plan.fetch("cash_purchase_questions").sole
+    assert_equal [ "dropped", [], "Count it on its own", nil ], question.values_at("state", "candidates", "decline_label", "question")
+    assert_equal "You said this was paid with cash you took out on Aug 3, but that withdrawal is no longer in your approved statements. Right now this $40 counts on its own.", question.fetch("message")
+
+    # Another withdrawal she approves can be chosen instead.
+    again = withdraw(8000, "2026-08-02", merchant: "Tasi Demo Branch withdrawal")
+    question = budget_plan.fetch("cash_purchase_questions").sole
+    assert_equal [ "dropped", [ again.id ], "Paid with the $80 you took out on Aug 2 instead?" ], [ question["state"], question.fetch("candidates").pluck("financial_source_event_id"), question["question"] ]
+    cash_answer(draft, cash_withdrawal_event_id: again.id)
+    assert_response :success, response.body
+    assert_equal [ 4000, 4000, 8000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+    assert_empty budget_plan.fetch("cash_purchase_questions")
+  end
+
+  test "a withdrawal made smaller puts the part it no longer covers back on her list" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+
+    version = SourceReviewHead.find_by!(financial_source_event: withdrawal).approved_version
+    head = version.source_review_head
+    approve(@sources.fetch(withdrawal.id), [ { event_id: withdrawal.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version, account_version_id: version.source_account_identity_version_id },
+      decision: "edited", edit: { kind: "cash", amount_cents: 3000, category_id: @cash.id } } ])
+    assert_response :success, response.body
+    assert_equal [ 0, 4000, 4000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8), month_total(8) ]
+    question = budget_plan.fetch("cash_purchase_questions").sole
+    assert_equal [ "short", 3000, 1000, "Count the rest on its own" ], question.values_at("state", "covered_cents", "counting_on_its_own_cents", "decline_label")
+    assert_equal "The cash you took out on Aug 3 now covers $30 of this $40. Right now the other $10 counts on its own.", question.fetch("message")
+
+    cash_answer(draft, cash_from_elsewhere: true)
+    assert_response :success, response.body
+    assert_empty budget_plan.fetch("cash_purchase_questions")
+    assert_equal 4000, month_total(8), "The $30 stays named; the other $10 counts on its own, as she said"
+  end
+
+  test "a cash answer on a purchase that isn't asked about is refused" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining)
+    confirm(draft)
+    cash_answer(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body.fetch("code")
+    assert_equal 14_000, month_total(8)
+  end
+
   private
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
@@ -287,6 +387,10 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
 
   def confirm(draft, **answer)
     post "/api/v1/transaction_drafts/#{draft.fetch('id')}/confirm", params: { transaction_draft: answer }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+  end
+
+  def cash_answer(draft, **answer)
+    post "/api/v1/transaction_drafts/#{draft.fetch('id')}/cash_answer", params: { transaction_draft: answer }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
   end
 
   def move_to_transfer(withdrawal)

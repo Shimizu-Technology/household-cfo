@@ -490,7 +490,9 @@ export type DashboardData = {
     readiness_label: string
   }
   action_center: {
+    /** Purchases waiting in Review, including confirmed cash purchases that need her answer about the cash she took out. */
     transaction_review_count: number
+    cash_question_count?: number
     mia_action_review_count: number
     total_review_count: number
     /** Statement files waiting for review; Home links to them without loading every import. */
@@ -597,6 +599,32 @@ export type CashPayment = {
   linked?: boolean
   withdrawn_on?: string
   linked_cents?: number
+  /** Confirmed, but it needs her answer again (see CashPurchaseQuestion). */
+  open_question?: CashPurchaseQuestion
+}
+
+/**
+ * A cash purchase she already confirmed that needs her answer about the cash she took out. Until she answers, the part
+ * no withdrawal covers counts on its own. unanswered: confirmed before the withdrawal was approved. dropped: the
+ * withdrawal it named is gone. short: the withdrawal now covers less of it.
+ */
+export type CashPurchaseQuestion = {
+  transaction_draft_id: number
+  transaction_id: number
+  state: 'unanswered' | 'dropped' | 'short'
+  merchant: string
+  occurred_on: string
+  amount: number
+  amount_cents: number
+  cash_cents: number
+  covered_cents: number
+  counting_on_its_own_cents: number
+  /** What counts right now, in plain words. */
+  message: string
+  question: string | null
+  candidates: CashWithdrawalCandidate[]
+  /** "No, other cash", "Count it on its own" or "Count the rest on its own". */
+  decline_label: string
 }
 
 export type ReceiptPayment = {
@@ -839,6 +867,7 @@ export type AnnualBudgetPlan = {
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
   pending_transaction_drafts_meta?: { total_count: number; returned_count: number; limit: number; truncated: boolean }
+  cash_purchase_questions?: CashPurchaseQuestion[]
   pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]
@@ -4807,6 +4836,17 @@ export async function updateTransactionDraft(id: number, values: TransactionDraf
 // Without it the server refuses to confirm a purchase that looks like one she already has.
 // cashWithdrawalEventId / cashFromElsewhere: her Yes or No to "Paid with the $100 you took out on Aug 3?".
 export type ConfirmTransactionOptions = { differentPurchase?: boolean; cashWithdrawalEventId?: number; cashFromElsewhere?: boolean }
+
+// Her answer to "Paid with the $100 you took out on Aug 3?" on a cash purchase she already confirmed.
+export type CashPurchaseAnswer = { cashWithdrawalEventId: number } | { cashFromElsewhere: true }
+
+export async function answerCashPurchaseQuestion(id: number, answer: CashPurchaseAnswer, idempotencyKey: string): Promise<{ message: string; workspace: AppData }> {
+  return fetchJson<{ message: string; workspace: AppData }>(`/api/v1/transaction_drafts/${id}/cash_answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ transaction_draft: 'cashWithdrawalEventId' in answer ? { cash_withdrawal_event_id: answer.cashWithdrawalEventId } : { cash_from_elsewhere: true } }),
+  })
+}
 
 export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string, options: ConfirmTransactionOptions = {}): Promise<AppData> {
   const answers = {

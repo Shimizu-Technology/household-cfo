@@ -683,13 +683,16 @@ module HouseholdFinance
       current_year = Date.current.year
       current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
       transaction_reviews = household.transaction_drafts.pending.excluding_non_spending_plaid.where(occurred_on: current_year_range).count
+      # Cash purchases she confirmed that need her answer about the cash she took out (CashDrawdowns#open_questions).
+      cash_questions = CashDrawdowns.new(household).open_questions(limit: nil).count { |question| current_year_range.cover?(question.purchase.occurred_on) }
       action_reviews = ::Mia::ActionDraftScope.records(household.mia_action_drafts.reviewable.for_budget_year(current_year),
         user: user, membership: cohort_membership, runtime: @runtime).count
 
       {
-        transaction_review_count: transaction_reviews,
+        transaction_review_count: transaction_reviews + cash_questions,
+        cash_question_count: cash_questions,
         mia_action_review_count: action_reviews,
-        total_review_count: transaction_reviews + action_reviews,
+        total_review_count: transaction_reviews + cash_questions + action_reviews,
         # Statements are reviewed separately; Home links to them without loading every import.
         document_review_count: document_review_count,
         current_month_label: Date.current.strftime("%B"),

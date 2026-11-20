@@ -21,6 +21,7 @@ module HouseholdFinance
     # How far back a withdrawal is offered: cash carries into later months, but not forever.
     LOOKBACK_DAYS = 92
     MAX_CANDIDATES = 3
+    MAX_OPEN_QUESTIONS = 20
 
     Drawdown = Struct.new(:purchase, :withdrawal, :amount_cents, :cash_parts, :purchase_parts, keyword_init: true) do
       def withdrawn_on = withdrawal.occurred_on
@@ -28,6 +29,10 @@ module HouseholdFinance
       def event_id = withdrawal.financial_source_event_id
     end
     Candidate = Struct.new(:withdrawal, :available_cents, keyword_init: true)
+    OpenQuestion = Struct.new(:draft, :purchase, :state, :cash_cents, :covered_cents, :link_withdrawn_on, :candidates, keyword_init: true) do
+      # What counts on its own until she answers: the part of her cash no withdrawal covers.
+      def own_cents = cash_cents - covered_cents
+    end
 
     def initialize(household)
       @household = household
@@ -99,25 +104,24 @@ module HouseholdFinance
 
     # Withdrawals she could have paid a purchase on `on` from: approved, on or before that day (within LOOKBACK_DAYS),
     # with cash not yet named by another purchase. Most recent first.
-    def candidates(on:)
+    # excluding: the purchase being asked about, whose own link doesn't use up the cash it is choosing from.
+    def candidates(on:, excluding: nil)
       on = on.to_date
       withdrawals = withdrawals_for(nil, from: on - LOOKBACK_DAYS, to: on).values
-      used = call.group_by(&:event_id).transform_values { |rows| rows.sum(&:amount_cents) }
-      withdrawals.filter_map do |withdrawal|
-        available = withdrawal.total_amount_cents - used.fetch(withdrawal.financial_source_event_id, 0)
-        Candidate.new(withdrawal: withdrawal, available_cents: available) if available.positive? && counted_parts(withdrawal).any?
-      end.sort_by { |candidate| [ -candidate.withdrawal.occurred_on.jd, -candidate.withdrawal.id ] }.first(MAX_CANDIDATES)
+      withdrawals.filter_map { |withdrawal| candidate_for(withdrawal, excluding: excluding) }
+        .sort_by { |candidate| [ -candidate.withdrawal.occurred_on.jd, -candidate.withdrawal.id ] }.first(MAX_CANDIDATES)
     end
 
-    def candidate(event_id, on:) = candidates(on: on).find { |row| row.withdrawal.financial_source_event_id == event_id.to_i }
+    def candidate(event_id, on:, excluding: nil) = candidates(on: on, excluding: excluding).find { |row| row.withdrawal.financial_source_event_id == event_id.to_i }
 
-    # Saves her "Yes" on the purchase she is confirming: it names up to `cents` of that withdrawal's cash. Locks the
-    # withdrawal so two purchases can't name the same cash at once. Raises when the withdrawal no longer has cash left.
+    # Saves her "Yes" on a purchase: it names up to `cents` of that withdrawal's cash. Locks the withdrawal so two
+    # purchases can't name the same cash at once. Raises when the withdrawal no longer has cash left. A purchase that
+    # named cash before (a link the withdrawal no longer covers in full) chooses again without counting its own link.
     def self.link!(household, purchase, event_id:, cents:, user: nil)
       withdrawal = household.household_transactions.where(financial_source_event_id: event_id.to_i, status: COUNTED, source_type: "statement").order(:id).lock.first
       raise ArgumentError, "That cash withdrawal is no longer in your approved statements. Choose again." unless withdrawal
 
-      candidate = new(household).candidate(event_id, on: purchase.occurred_on)
+      candidate = new(household).candidate(event_id, on: purchase.occurred_on, excluding: purchase)
       raise ArgumentError, "That cash withdrawal has no cash left for this purchase. Choose again." unless candidate
 
       amount = [ cents.to_i, candidate.available_cents, purchase.total_amount_cents ].min
@@ -130,6 +134,45 @@ module HouseholdFinance
       amount
     end
 
+    # Her confirmed cash purchases that need her answer again, newest first. Each counts on its own (in full or in
+    # part) until she answers:
+    # - unanswered: confirmed when no withdrawal had cash left, and one dated on or before it has been approved since
+    #   (she logs as she goes and uploads statements later);
+    # - dropped: the withdrawal it named is gone from her approved statements (removed, re-uploaded, re-reviewed);
+    # - short: the withdrawal now covers less of it than she said (it was corrected to a smaller amount).
+    # A purchase she said was paid with other cash is not asked again.
+    def open_questions(limit: MAX_OPEN_QUESTIONS)
+      @open_questions ||= household.transaction_drafts.where(status: %w[confirmed corrected]).where.not(confirmed_transaction_id: nil)
+        .where("transaction_drafts.draft_payload ? :key", key: CashPayment::PAYLOAD_KEY)
+        .includes(confirmed_transaction: :transaction_splits).order(occurred_on: :desc, id: :desc).to_a
+        .filter_map { |draft| open_question_for(draft) }
+      limit ? @open_questions.first(limit) : @open_questions
+    end
+
+    def open_question_for(draft)
+      transaction = draft.confirmed_transaction
+      value = CashPayment.payload(draft)
+      return unless value && value["answer"] != CashPayment::ELSEWHERE && transaction&.status.in?(COUNTED)
+
+      cents = CashPayment.cash_cents(draft, total_cents: transaction.total_amount_cents)
+      return unless cents.positive?
+
+      link = transaction.metadata.to_h[LINK_KEY]
+      covered = for_purchase(transaction)&.amount_cents.to_i
+      state = if !link.is_a?(Hash) then :unanswered
+      elsif covered.zero? then :dropped
+      elsif covered < [ link["amount_cents"].to_i, cents ].min then :short
+      end
+      return unless state
+
+      candidates = candidates(on: transaction.occurred_on, excluding: transaction)
+      return if state == :unanswered && candidates.empty?
+
+      withdrawn_on = link.is_a?(Hash) && link["withdrawn_on"].to_s.match?(/\A\d{4}-\d{2}-\d{2}\z/) ? Date.iso8601(link["withdrawn_on"]) : nil
+      OpenQuestion.new(draft: draft, purchase: transaction, state: state, cash_cents: cents, covered_cents: covered,
+        link_withdrawn_on: withdrawn_on, candidates: candidates)
+    end
+
     # What a purchase counts in Budget, by category.
     def counted_parts(transaction)
       transaction.transaction_splits.sort_by(&:id).select { |split| split.amount_cents.positive? && current_category_ids.include?(split.budget_category_id) }
@@ -139,6 +182,14 @@ module HouseholdFinance
     private
 
     attr_reader :household
+
+    def candidate_for(withdrawal, excluding: nil)
+      return unless counted_parts(withdrawal).any?
+
+      used = call.select { |drawdown| drawdown.event_id == withdrawal.financial_source_event_id && drawdown.purchase.id != excluding&.id }.sum(&:amount_cents)
+      available = withdrawal.total_amount_cents - used
+      Candidate.new(withdrawal: withdrawal, available_cents: available) if available.positive?
+    end
 
     def link_event_id(purchase)
       value = purchase.metadata.to_h.dig(LINK_KEY, "financial_source_event_id")

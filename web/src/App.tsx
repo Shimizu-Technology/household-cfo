@@ -1,6 +1,7 @@
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import { plannedOutForMonth } from './lib/plannedOutForMonth'
 import { ReviewConfirmedCard } from './components/ReviewConfirmedCard'
+import { CashPurchaseQuestions } from './components/CashPurchaseQuestions'
 import { MiaReviewError } from './components/MiaReviewError'
 import { useLiveMiaResult } from './lib/useLiveMiaResult'
 import { miaReviewResult } from './lib/miaReviewResult'
@@ -131,6 +132,7 @@ import {
   chooseMiaPurchase,
   clearMiaMessages,
   confirmTransactionDraft,
+  answerCashPurchaseQuestion,
   createBudgetCategory,
   createDebt,
   createIncomeSource,
@@ -208,6 +210,8 @@ import type {
   TransactionDraft,
   TransactionDraftCreateInput,
   ConfirmTransactionOptions,
+  CashPurchaseAnswer,
+  CashPurchaseQuestion,
   TransactionDraftSplit,
   TransactionDraftUpdateInput,
   WealthData,
@@ -3368,6 +3372,34 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
+  // Her answer about the cash she took out, on a cash purchase she already confirmed. The purchase stays confirmed.
+  async function handleCashPurchaseAnswer(question: CashPurchaseQuestion, answer: CashPurchaseAnswer) {
+    if (budgetYearLoading || !isRealWorkspace) return
+    const errorKey = `cash:${question.transaction_draft_id}`
+    if (!beginBudgetAction(`cash-answer:${question.transaction_draft_id}`)) throw budgetActionBusyError()
+    setReviewErrors(current => ({ ...current, [errorKey]: '' }))
+    setBudgetError(null)
+    try {
+      const signature = `transaction:cash-answer:${question.transaction_draft_id}:${'cashWithdrawalEventId' in answer ? answer.cashWithdrawalEventId : 'elsewhere'}`
+      const { message, workspace } = await answerCashPurchaseQuestion(question.transaction_draft_id, answer, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
+      setData({ type: 'financial_mutation', update: workspace })
+      await restoreSelectedBudgetPlan(workspace.budget)
+      void refreshSpendingReport(selectedBudgetPeriodRef.current)
+      replaceMiaHistory(workspace.mia)
+      setTransactionNotice(message)
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'cash_purchase', resolution: 'cashWithdrawalEventId' in answer ? 'withdrawal' : 'elsewhere' })
+    } catch (caught) {
+      // Answered elsewhere or the cash changed: the refreshed list shows what is still asked.
+      await refreshStaleTransactionReview(caught)
+      const message = participantErrorMessage(caught, 'Your answer could not be saved.')
+      setReviewErrors(current => ({ ...current, [errorKey]: message }))
+      throw new Error(message, { cause: caught })
+    } finally {
+      endBudgetAction()
+    }
+  }
+
   async function handleIgnoreTransactionDraft(draft: TransactionDraft) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
@@ -4610,6 +4642,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           {isRealWorkspace && auth.currentUser ? (
             <>
               <article className="panel activity-review-panel ui-card">
+                <CashPurchaseQuestions questions={activeBudgetPlan?.cash_purchase_questions ?? []} disabled={budgetYearLoading} errors={reviewErrors} onAnswer={handleCashPurchaseAnswer} />
                 {(
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
@@ -4625,7 +4658,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
                     title="Purchases to review"
-                    emptyTitle={pendingMiaActionDrafts.length > 0 || (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
+                    emptyTitle={(activeBudgetPlan?.cash_purchase_questions?.length ?? 0) > 0 || pendingMiaActionDrafts.length > 0 || (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
                     description="Check the date, amount and category before confirming."
                     onPlanCategory={(categoryId, monthNumber, year) => void openBudgetMoneyTool('monthly', categoryId, monthNumber, 'amount', year)}
                     onUpdate={handleUpdateTransactionDraft}

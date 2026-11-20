@@ -3,7 +3,7 @@ module Api
     class TransactionDraftsController < BaseController
       before_action :authenticate_user!
       before_action :require_writable_household!
-      before_action :set_draft, only: %i[update confirm ignore match reopen]
+      before_action :set_draft, only: %i[update confirm ignore match reopen cash_answer]
 
       def create
         result = operation_runner.run(
@@ -65,6 +65,29 @@ module Api
         keep_correction_for_review!
         render json: { errors: [ e.message ], code: "cash_withdrawal_question", cash_question: e.question,
           transaction_draft: serialize_draft(@draft.reload) }, status: :conflict
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
+      end
+
+      # Her answer to "Paid with the $100 you took out on Aug 3?" on a cash purchase she already confirmed: logged
+      # before its statement was approved, or the withdrawal it named was removed or made smaller since.
+      def cash_answer
+        answer = if ActiveModel::Type::Boolean.new.cast(cash_answer_params[:cash_from_elsewhere]) == true
+          HouseholdFinance::CashPayment::ELSEWHERE
+        elsif cash_answer_params[:cash_withdrawal_event_id].to_s.match?(/\A\d{1,18}\z/)
+          cash_answer_params[:cash_withdrawal_event_id].to_i
+        end
+        return render json: { errors: [ "Choose which cash paid for this purchase." ] }, status: :unprocessable_entity unless answer
+
+        result = HouseholdFinance::CashQuestionAnswer.new(current_household, @draft, user: current_user, membership: current_cohort_membership).call(cash_withdrawal: answer)
+        append_chat_status_message(result.message) if result.changed
+        render json: {
+          transaction_draft: serialize_draft(result.draft),
+          message: result.message,
+          workspace: workspace_payload_for(result.draft.occurred_on.year)
+        }
+      rescue HouseholdFinance::CashQuestionAnswer::Stale => e
+        render json: { errors: [ e.message ], code: "stale_review" }, status: :conflict
       rescue ArgumentError, ActiveRecord::RecordInvalid => e
         render_operation_error(e)
       end
@@ -262,6 +285,10 @@ module Api
 
       def confirm_params
         permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, :different_purchase, :cash_withdrawal_event_id, :cash_from_elsewhere, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+      end
+
+      def cash_answer_params
+        permitted_draft_params.permit(:cash_withdrawal_event_id, :cash_from_elsewhere)
       end
 
       def update_params

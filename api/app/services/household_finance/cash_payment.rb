@@ -99,12 +99,51 @@ module HouseholdFinance
         base.merge(candidates: candidates.map { |candidate| candidate_payload(candidate, cents) }, question: question(candidates, cents))
       else
         transaction = draft.confirmed_transaction
-        drawdown = transaction && (drawdowns || CashDrawdowns.new(draft.household)).for_purchase(transaction)
+        drawdowns ||= CashDrawdowns.new(draft.household)
+        if (open = drawdowns.open_question_for(draft))
+          return base.merge(linked: false, open_question: open_question_payload(open))
+        end
+        drawdown = transaction && drawdowns.for_purchase(transaction)
         return base.merge(linked: false) unless drawdown
 
         base.merge(linked: true, withdrawn_on: drawdown.withdrawn_on.iso8601, linked_cents: drawdown.amount_cents,
           message: "Paid with #{money(drawdown.amount_cents)} of the #{money(drawdown.withdrawal.total_amount_cents)} you took out on #{short_date(drawdown.withdrawn_on)}. It doesn't add to your spending: that cash already counted when you took it out.")
       end
+    end
+
+    # A confirmed cash purchase that needs her answer (CashDrawdowns#open_questions): what counts right now, and the
+    # question. Until she answers, the part no withdrawal covers counts on its own, on top of the cash she took out.
+    def open_question_payload(open)
+      draft = open.draft
+      purchase = open.purchase
+      candidates = open.state == :short ? open.candidates.reject { |row| row.withdrawal.financial_source_event_id == link_event_id(purchase) } : open.candidates
+      when_taken = open.link_withdrawn_on ? " on #{short_date(open.link_withdrawn_on)}" : ""
+      message = case open.state
+      when :unanswered
+        "You paid #{money(open.cash_cents)} in cash. Right now it counts on its own, on top of #{candidates.one? ? candidate_label(candidates.first) : 'the cash you took out before it'}."
+      when :dropped
+        "You said this was paid with cash you took out#{when_taken}, but that withdrawal is no longer in your approved statements. Right now this #{money(open.cash_cents)} counts on its own."
+      else
+        "The cash you took out#{when_taken} now covers #{money(open.covered_cents)} of this #{money(open.cash_cents)}. Right now the other #{money(open.own_cents)} counts on its own."
+      end
+      question = if candidates.empty? then nil
+      elsif candidates.one? then "Paid with #{candidate_label(candidates.first)}#{open.state == :unanswered ? '' : ' instead'}?"
+      else "Which cash paid for this #{money(open.cash_cents)}?"
+      end
+      {
+        transaction_draft_id: draft.id, transaction_id: purchase.id, state: open.state.to_s,
+        merchant: purchase.merchant, occurred_on: purchase.occurred_on.iso8601,
+        amount: Money.dollars(purchase.total_amount_cents), amount_cents: purchase.total_amount_cents,
+        cash_cents: open.cash_cents, covered_cents: open.covered_cents, counting_on_its_own_cents: open.own_cents,
+        message: message, question: question,
+        candidates: candidates.map { |candidate| candidate_payload(candidate, open.cash_cents) },
+        decline_label: open.state == :short ? "Count the rest on its own" : candidates.empty? ? "Count it on its own" : "No, other cash"
+      }
+    end
+
+    def link_event_id(purchase)
+      value = purchase.metadata.to_h.dig(CashDrawdowns::LINK_KEY, "financial_source_event_id").to_i
+      value.positive? ? value : nil
     end
 
     def candidate_payload(candidate, cents)

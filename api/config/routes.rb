@@ -183,6 +183,7 @@ Rails.application.routes.draw do
           post :ignore
           post :match
           post :reopen
+          post :cash_answer
         end
       end
       get "source_review_accounts", to: "source_reviews#accounts"

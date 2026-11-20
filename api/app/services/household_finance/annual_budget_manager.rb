@@ -85,6 +85,7 @@ module HouseholdFinance
         annual_outlook: annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
+        cash_purchase_questions: cash_purchase_questions_payload,
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
@@ -355,6 +356,7 @@ module HouseholdFinance
         annual_outlook: annual_outlook_payload(preview_periods, rows, monthly_income, Money.dollars(debt_portfolio.monthly_minimum_cents)),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
+        cash_purchase_questions: cash_purchase_questions_payload,
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(read_only_periods),
         archived_categories: archived_categories_payload,
@@ -627,6 +629,11 @@ module HouseholdFinance
         .order(created_at: :desc, id: :desc)
         .limit(MAX_PENDING_TRANSACTION_DRAFTS)
         .map { |draft| draft_payload(draft) }
+    end
+
+    # Confirmed cash purchases that need her answer about the cash she took out. Review asks them.
+    def cash_purchase_questions_payload
+      cash_drawdowns.open_questions.map { |question| CashPayment.open_question_payload(question) }
     end
 
     def pending_drafts_meta(budget_year)
