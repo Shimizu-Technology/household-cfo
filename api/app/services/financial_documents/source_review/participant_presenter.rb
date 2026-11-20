@@ -15,6 +15,13 @@ module FinancialDocuments
         state = ApprovalState.new(household, revision).call
         {
           schema_version: 1,
+          transfer_pairs: EconomicLinker.valid_current_versions(household).select { |group| group.kind == "transfer" }.filter_map do |group|
+            members = group.source_economic_memberships.map(&:source_review_version)
+            local = members.select { |version| event_ids.include?(version.financial_source_event.id) }
+            next if local.empty?
+            { event_id: local.first.financial_source_event.id, expected_head: head_state(local.first.source_review_head),
+              accounts: members.map { |version| AccountNumberMask.display(version.source_tracked_account.label) } }
+          end,
           actor_scope: { user_id: @user&.id, household_id: household.id },
           rows: event_ids.index_with do |id|
             head = heads[id]
@@ -146,7 +153,7 @@ module FinancialDocuments
       def attention_row(line, names)
         event = line.event
         # A copy of a row she already approved can only be left out; it cannot be counted twice.
-        answers = line.kind == :duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS[:duplicate].first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
+        answers = line.kind.in?(%i[duplicate person_payment_duplicate]) && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS.fetch(line.kind).first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
         question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
         question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
         question = line.purchase_match.question if line.kind == :same_purchase
@@ -162,7 +169,10 @@ module FinancialDocuments
         { event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
           amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
           merchant: saved&.merchant.present? ? AccountNumberMask.display(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
-          category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head }
+          category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head,
+          recipient_question: !line.done && TransferPairs.person_wording?(event, line.merchant) && !event.signed_amount_cents.to_i.positive?,
+          transfer_pair: line.pair && { event_id: line.pair[:event].id, approved_version_id: line.pair[:version]&.id, account_version_id: line.pair[:identity].id,
+            account: AccountNumberMask.display(line.pair[:identity].source_tracked_account.label), posted_on: line.pair[:date].iso8601, signed_amount_cents: line.pair[:amount] } }
           .merge(line.kind == :same_purchase ? { purchase_match: line.purchase_match.summary } : {})
       end
 

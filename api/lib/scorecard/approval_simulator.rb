@@ -67,12 +67,15 @@ module Scorecard
       rows.each_slice(50) do |page|
         plan = REVIEW::ParticipantPlan.new(@household, revision)
         count(doc, :approve_page)
-        entries = page.map do |row|
+        paired_ids = Set.new
+        entries = page.filter_map do |row|
           line = plan.line_for(row.id)
+          next if line.done || paired_ids.include?(row.id)
           answer = mappings[row.id]
           month = answer ? @key.event(answer).fetch("date")[0, 7] : doc.fetch("period").fetch("start_on")[0, 7]
           quality[month]["questions_by_kind"][line.kind.to_s] += 1 if line.kind
           entry = answer_for(line, answer, month)
+          paired_ids << line.pair[:event].id if entry[:decision] == "pair_transfer"
           # One submitted line answer is one action, even when that answer also
           # corrects fields or excludes a row. Quality counters are separate.
           action = line.kind || (entry[:decision] == "leave_out" ? :manual_exclusion : entry[:decision] == "edited" ? :manual_correction : nil)
@@ -213,7 +216,7 @@ module Scorecard
         # A refund with no category to go back to can't be answered "Yes", like a line with no category.
         # "Same purchase as …?" with no answer to go on: she keeps the line, as the app shows it.
         return base.merge(decision: "different") if !@correct_proposals && line.kind == :same_purchase
-        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate]) && !(line.kind == :refund_category && line.category_id.nil?)
+        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate person_payment person_payment_duplicate]) && !(line.kind == :refund_category && line.category_id.nil?)
           return base.merge(decision: "as_read")
         end
         quality[month]["manual_exclusion"] += 1 if @correct_proposals
@@ -231,8 +234,8 @@ module Scorecard
       expected = @key.event(answer)
       excluded = @included_legs.include?(leg_key(answer)) || answer["status"] == "pending"
       @same_charge_ids << row.id if excluded
-      if excluded && (@correct_proposals || line.kind.in?(%i[duplicate unclear]))
-        quality[month]["manual_exclusion"] += 1 unless line.kind == :duplicate || (line.kind == :unclear && answer["status"] == "pending")
+      if excluded && (@correct_proposals || line.kind.in?(%i[duplicate person_payment_duplicate unclear]))
+        quality[month]["manual_exclusion"] += 1 unless line.kind.in?(%i[duplicate person_payment_duplicate]) || (line.kind == :unclear && answer["status"] == "pending")
         return base.merge(decision: "leave_out")
       end
       return base.merge(decision: "leave_out") if !@correct_proposals && line.kind == :unclear
@@ -248,6 +251,15 @@ module Scorecard
       category = @categories[expected["category"]]&.id
       signed = answer.fetch("signed_amount_cents")
       expected_type = { "money_in" => "income", "moved" => "transfer", "card" => "debt_payment", "cash" => "cash_withdrawal", "refund" => "refund" }[kind] || (type.in?(%w[fee interest]) ? type : "purchase")
+      if line.kind == :transfer_pair
+        other_answer = row_answers[line.pair[:event].id]
+        other_expected = other_answer && @key.event(other_answer)
+        if type.in?(%w[transfer_own_accounts card_payment]) && other_expected && other_expected["event_kind"].in?(%w[transfer_own_accounts card_payment])
+          quality[month]["accepted_as_proposed"] += 1
+          pair = line.pair
+          return base.merge(decision: "pair_transfer", transfer_pair: { event_id: pair[:event].id, approved_version_id: pair[:version]&.id, account_version_id: pair[:identity].id })
+        end
+      end
       proposed_amount = row.signed_amount_cents&.abs || HouseholdFinance::Money.document_cents(row.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true)
       fields = []
       fields << "type" if row.event_type != expected_type
@@ -257,9 +269,25 @@ module Scorecard
       # A refund whose purchase the app can't find asks which category it goes back to, like a purchase's category.
       fields << "category" if (kind == "spending" || (kind == "refund" && line.kind == :refund_category)) && line.category_id != category
       quality[month]["accepted_as_proposed"] += 1 if fields.empty? && !excluded
+      if line.kind.in?(%i[person_payment person_payment_duplicate])
+        # These explicit answers change type/category just as the old edit form
+        # did. Keep those diagnostic corrections; they are not extra actions.
+        changes = @correct_proposals ? fields : fields & %w[type category]
+        if changes.any?
+          quality[month]["manual_correction"] += 1
+          changes.each { |field| quality[month]["corrections_by_field"][field] += 1 }
+        end
+        # A careful participant can open the same line form to repair a bad
+        # amount/date while explicitly choosing spending or an own movement.
+        if @correct_proposals && (changes & %w[amount date direction]).any?
+          return base.merge(decision: "edited", edit: { kind: kind, category_id: category, amount_cents: signed.abs,
+            money_direction: signed.positive? ? "in" : "out", posted_on: answer.fetch("date") })
+        end
+        return base.merge(decision: type.in?(%w[transfer_own_accounts card_payment]) ? "own_account" : "someone_else")
+      end
       allowed = case line.kind
       when :direction then %w[type direction category]
-      when :transfer, :card_payment, :refund, :refund_category then %w[type direction category]
+      when :transfer, :transfer_pair, :card_payment, :refund, :refund_category then %w[type direction category]
       when :no_category, :suggested_category, :still_category then %w[category]
       else []
       end
@@ -268,7 +296,7 @@ module Scorecard
         quality[month]["manual_correction"] += 1
         changes.each { |field| quality[month]["corrections_by_field"][field] += 1 }
       end
-      return base.merge(decision: line.kind.in?(%i[duplicate same_purchase]) ? "different" : "as_read") if changes.empty? && !line.kind.in?(%i[direction unclear no_category])
+      return base.merge(decision: line.kind.in?(%i[duplicate same_purchase person_payment_duplicate]) ? "different" : "as_read") if changes.empty? && !line.kind.in?(%i[direction unclear no_category])
       proposed_kind = { "income" => "money_in", "transfer" => "moved", "debt_payment" => "card", "cash_withdrawal" => "cash", "refund" => "refund" }[row.event_type] || "spending"
       edit = { kind: changes.include?("type") || line.kind == :direction ? kind : proposed_kind,
         category_id: changes.include?("category") ? category : line.category_id,

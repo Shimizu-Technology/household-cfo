@@ -18744,3 +18744,49 @@ test('BOG UI a voucher receipt says only the card money counts and lets her coun
   expect(box!.width).toBeGreaterThan(cardBox!.width * 0.7)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+test('BOG UI own-account pair and person payment ask for explicit decisions', async ({ page }) => {
+  const saved: unknown[] = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    saved.push(route.request().postDataJSON().input)
+    return route.fulfill({ json: { result: { approved: 1, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  const review = await openTypedStatementReview(page, false, data => {
+    data.participant_review!.plan.attention = [{ event_id: 4001, event_type: 'transfer', kind: 'person_payment', merchant: 'Zelle to Lina Talun', posted_on: '2026-09-15', signed_amount_cents: -3500,
+      question: 'Your own account or someone else?', category_id: null, category_name: null, answers: [{ id: 'own_account', label: 'Your own account' }, { id: 'someone_else', label: 'Someone else' }] },
+    { event_id: 4002, event_type: 'transfer', kind: 'transfer_pair', merchant: 'Talun savings', posted_on: '2026-09-15', signed_amount_cents: -2500,
+      question: 'Do these two lines show money moved between your accounts?', category_id: null, category_name: null, answers: [{ id: 'pair_transfer', label: 'Yes, pair them — not spending' }],
+      transfer_pair: { event_id: 4901, approved_version_id: null, account_version_id: 100, account: 'Savings ending 4412', posted_on: '2026-09-16', signed_amount_cents: 2500 } },
+    { event_id: 4003, event_type: 'purchase', kind: 'person_payment_duplicate', merchant: 'Zelle to Tasi Talun', posted_on: '2026-09-15', signed_amount_cents: -3500,
+      question: 'Is this the same payment, or a different one?', category_id: null, category_name: null, answers: [{ id: 'leave_out', label: 'Same payment' }, { id: 'someone_else', label: 'Different payment — someone else' }] },
+    { event_id: 4004, event_type: 'unknown', kind: 'direction', recipient_question: true, merchant: 'Venmo to Talun reserve', posted_on: '2026-09-15', signed_amount_cents: null, amount_cents: 3500,
+      question: 'Was this money out or money in?', category_id: null, category_name: null, answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] }]
+    return data
+  })
+  await review.getByRole('button', { name: 'Someone else: Zelle to Lina Talun', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(1)
+  expect(saved[0]).toMatchObject({ lines: [{ decision: 'someone_else' }] })
+  await review.getByRole('button', { name: 'Yes, pair them — not spending: Talun savings', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(2)
+  expect(saved[1]).toMatchObject({ lines: [{ decision: 'pair_transfer', transfer_pair: { event_id: 4901, account_version_id: 100 } }] })
+  await review.getByRole('button', { name: 'Different payment — someone else: Zelle to Tasi Talun', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(3)
+  expect(saved[2]).toMatchObject({ lines: [{ decision: 'someone_else' }] })
+  await review.getByRole('button', { name: 'Money out: Venmo to Talun reserve', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Venmo to Talun reserve', exact: true })
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(sheet.getByRole('alert')).toHaveText('Choose your own account or someone else.')
+  expect(saved).toHaveLength(3)
+  const own = sheet.getByRole('button', { name: 'Your own account', exact: true })
+  const other = sheet.getByRole('button', { name: 'Someone else', exact: true })
+  if (page.viewportSize()!.width <= 390) {
+    const first = await own.boundingBox(), second = await other.boundingBox()
+    expect(first!.height).toBeGreaterThanOrEqual(44)
+    expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height)
+  }
+  await own.click()
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(4)
+  expect(saved[3]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: 'moved', money_direction: 'out', amount_cents: 3500 } }] })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})

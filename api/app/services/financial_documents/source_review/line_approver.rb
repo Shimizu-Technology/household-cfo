@@ -8,8 +8,8 @@ module FinancialDocuments
     # the client never supplies amounts for lines it did not edit.
     class LineApprover
       REASON = "Approved from the statement review.".freeze
-      TOOLS = %w[source_review.account.link source_review.draft.stage source_review.draft.approve source_review.revision.approve].freeze
-      DECISIONS = %w[as_read different same_purchase leave_out edited].freeze
+      TOOLS = %w[source_review.account.link source_review.draft.stage source_review.draft.approve source_review.revision.approve source_review.economic.link].freeze
+      DECISIONS = %w[as_read different same_purchase leave_out edited own_account someone_else pair_transfer unpair_transfer].freeze
       KINDS = { "spending" => "purchase", "money_in" => "income", "moved" => "transfer", "card" => "debt_payment", "cash" => "cash_withdrawal", "refund" => "refund" }.freeze
       MAX_LINES = 100
       NOT_REVIEWED = %w[unreviewed_source_rows unreviewed_source_accounts account_identity_changed].freeze
@@ -177,6 +177,11 @@ module FinancialDocuments
         decision = entry.fetch(:decision).to_s
         raise ArgumentError, "Unknown answer for a statement line" unless decision.in?(DECISIONS)
         event = line.event
+        if decision == "pair_transfer"
+          return approve_pair!(line, entry, counts)
+        elsif decision == "unpair_transfer"
+          return unpair!(line, entry, counts)
+        end
         identity = domain.account_heads.find_by(financial_source_account_id: event.financial_source_account_id)&.approved_version
         head = domain.heads.find_by(financial_source_event_id: event.id)
         facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done))
@@ -192,9 +197,61 @@ module FinancialDocuments
         counts[decision == "leave_out" ? :left_out : :approved] += 1
       end
 
+      # The pair shown on screen is checked again under the household lock. Never
+      # rewrite an approved counterpart; only explicitly reviewed new lines are saved.
+      def approve_pair!(line, entry, counts)
+        pairs = TransferPairs.new(household)
+        existing = pairs.paired(line.event)
+        if existing
+          members = existing.source_economic_memberships.map(&:source_review_version)
+          own = members.find { |version| version.financial_source_event.id == line.event.id }
+          other = members.find { |version| version.financial_source_event.id == entry.dig(:transfer_pair, :event_id) }
+          retry_matches = own && other && own.supersedes_id == entry.dig(:expected_head, :approved_version_id) &&
+            other.source_account_identity_version_id == entry.dig(:transfer_pair, :account_version_id) &&
+            (other.id == entry.dig(:transfer_pair, :approved_version_id) || (entry.dig(:transfer_pair, :approved_version_id).nil? && other.supersedes_id.nil?))
+          raise Domain::StaleReview, "These lines changed. Please look again." unless retry_matches
+          counts[:unchanged] += 2
+          return
+        end
+        pair = pairs.candidate(line.event)
+        expected = entry[:transfer_pair]&.slice(:event_id, :approved_version_id, :account_version_id)
+        actual = pair && { event_id: pair[:event].id, approved_version_id: pair[:version]&.id, account_version_id: pair[:identity].id }
+        raise Domain::StaleReview, "These lines changed. Please look again." unless line.kind == :transfer_pair && actual && expected == actual
+        raise Domain::StaleReview, "This line changed. Please look again." unless entry[:expected_head] == line.expected_head
+        check_shown!(line, entry)
+        identity = domain.account_heads.find_by!(financial_source_account_id: line.event.financial_source_account_id).approved_version
+        facts = ParticipantPlan.facts_as_read(line.event, identity_id: identity.id, merchant: line.merchant, category_id: nil)
+        stage_and_approve!(line.event, domain.heads.find_by(financial_source_event: line.event), facts)
+        unless pair[:version]
+          other = pair[:event]
+          other_facts = ParticipantPlan.facts_as_read(other, identity_id: pair[:identity].id, merchant: ParticipantPlan.merchant_for(other), category_id: nil)
+          stage_and_approve!(other, domain.heads.find_by(financial_source_event: other), other_facts)
+        end
+        versions = [ line.event, pair[:event] ].map { |event| domain.heads.find_by!(financial_source_event: event).approved_version }
+        raw = { kind: "transfer", base_version_id: nil, base_lock_version: 0, reason: REASON,
+          members: versions.map { |version| { source_review_version_id: version.id, role: "movement", allocation_cents: version.signed_amount_cents.abs } } }
+        domain.execute("economic_link", domain.normalize("economic_link", raw))
+        counts[:approved] += pair[:version] ? 1 : 2
+      end
+
+      def unpair!(line, entry, counts)
+        group = TransferPairs.new(household).paired(line.event)
+        raise Domain::StaleReview, "These lines changed. Please look again." unless group && entry[:expected_head] == line.expected_head
+        group.source_economic_memberships.each do |member|
+          version = member.source_review_version
+          facts = version.reviewed_facts.symbolize_keys.except(:matched_version_id).merge(external_reference: "unpaired-transfer:#{version.financial_source_event.id}")
+          stage_and_approve!(version.financial_source_event, version.source_review_head, facts)
+        end
+        counts[:approved] += 2
+      end
+
       def check_allowed!(line, decision, entry)
         stale = Domain::StaleReview.new("This line changed while you were reviewing it. Nothing was saved. Refresh and try again.")
         case decision
+        when "own_account", "someone_else"
+          raise stale unless !line.done && line.kind.in?(%i[person_payment person_payment_duplicate])
+          raise stale if line.kind == :person_payment_duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] }
+          check_shown!(line, entry)
         when "as_read"
           # "Yes" to "Does this refund go back to Clothing?" saves that category, also for a saved refund that counted nowhere.
           refund_answer = line.kind == :refund_category && line.category_id.present? && (!line.done || line.without_category)
@@ -217,17 +274,38 @@ module FinancialDocuments
         # A line she already saved changes from what she saved, never from the statement as first read:
         # choosing a category must not undo a corrected amount, name, date or kind, or her "different charge".
         if saved&.disposition == "include"
-          base = base.merge(saved.reviewed_facts.slice(:event_type, :signed_amount_cents, :purchase_amount_cents, :posted_on, :authorized_on, :merchant, :overlap_disposition))
+          base = base.merge(saved.reviewed_facts.slice(:event_type, :signed_amount_cents, :purchase_amount_cents, :posted_on, :authorized_on, :merchant, :overlap_disposition, :external_reference))
         end
         case decision
+        when "own_account" then base.merge(event_type: base[:event_type] == "debt_payment" ? "debt_payment" : "transfer", purchase_amount_cents: nil, budget_category_id: nil, external_reference: "own-account:#{line.event.id}", overlap_disposition: line.kind == :person_payment_duplicate ? "distinct" : base[:overlap_disposition])
+        when "someone_else"
+          category = family_support_category!
+          base.merge(event_type: "purchase", purchase_amount_cents: base[:signed_amount_cents].abs, budget_category_id: category.id, external_reference: "sent-to-someone:#{line.event.id}", overlap_disposition: line.kind == :person_payment_duplicate ? "distinct" : base[:overlap_disposition])
         when "as_read" then line.kind == :refund_category ? base.merge(budget_category_id: line.category_id) : base
         when "different" then base.merge(overlap_disposition: "distinct")
         # The same purchase as one she confirmed: the line is the bank's record of it and counts nowhere itself.
         # No match any more (the purchase changed) is refused as stale by check_allowed!, never saved.
         when "same_purchase" then base.merge(disposition: "match", matched_transaction_id: line.purchase_match&.transaction&.id, budget_category_id: nil, overlap_disposition: "match")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
-        else edited_facts(base, edit, saved: saved&.disposition == "include")
+        else
+          facts = edited_facts(base, edit, saved: saved&.disposition == "include")
+          if !line.done && TransferPairs.person_wording?(line.event, line.merchant) && facts[:signed_amount_cents].to_i.negative?
+            if facts[:event_type] == "purchase"
+              facts = facts.merge(budget_category_id: family_support_category!.id, external_reference: "sent-to-someone:#{line.event.id}")
+            elsif facts[:event_type].in?(%w[transfer debt_payment])
+              facts = facts.merge(event_type: base[:event_type] == "debt_payment" ? "debt_payment" : facts[:event_type], external_reference: "own-account:#{line.event.id}")
+            end
+          end
+          facts
         end
+      end
+
+      def family_support_category!
+        category = household.budget_categories.find_by("lower(name) = ?", "family support")
+        if category && !category.active?
+          raise ArgumentError, "Restore Family support in Budget, then save this answer."
+        end
+        category || household.budget_categories.create!(name: "Family support", stack_key: "non_discretionary")
       end
 
       # saved: base holds what she saved, not the statement as first read.

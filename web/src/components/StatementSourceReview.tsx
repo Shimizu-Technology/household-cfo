@@ -207,6 +207,10 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
         </details>
       </>}
 
+      {review?.transfer_pairs?.map(pair => <div key={pair.event_id} className="statement-question-row">
+        <p>Moved between {pair.accounts.join(' and ')} — not spending or income.</p>
+        <Button variant="secondary" disabled={busy} onClick={() => { void save({ lines: [{ event_id: pair.event_id, decision: 'unpair_transfer', expected_head: { approved_version_id: pair.expected_head.approved_version_id, lock_version: pair.expected_head.lock_version, account_version_id: review.rows[pair.event_id]?.approved?.facts.source_account_identity_version_id } }] }) }}>Unpair these lines</Button>
+      </div>)}
       {sheet?.kind === 'line' && <StatementLineSheet key={sheet.line.eventId} line={sheet.line} categories={categories} busy={busy} canClose={!mutation.pendingRequest?.working} error={mutation.error}
         onClose={() => setSheet(null)}
         onSave={(edit: LineEdit) => { void saveSheet({ event_id: sheet.line.eventId, decision: 'edited', edit }) }}

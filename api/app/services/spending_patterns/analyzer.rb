@@ -40,14 +40,14 @@ module SpendingPatterns
         .includes(transaction_splits: :budget_category).to_a
       # Budget counts a reviewed statement purchase only once it has a category; Mia counts the same lines.
       counted = selected_source.select { |row| eligible_ids.include?(row.id) && row.budget_category_id.present? }
-      rows = counted.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
+      rows = counted.map { |row| source_row(row).merge(transfer_to_person: row.external_reference.to_s.start_with?("sent-to-someone:")) } + selected_actuals.map { |row| actual_row(row) }
       # The same refund credits Budget uses: money back to the refunded purchase's categories, in the month the refund posted.
       credits = HouseholdFinance::RefundCredits.new(@household, from: start, to: finish).counted
       refund_categories = @household.budget_categories.where(id: credits.flat_map { |credit| credit.allocations.pluck(:category_id) }.uniq).index_by(&:id)
       rows += credits.map { |credit| refund_row(credit, refund_categories) }
       rows.each do |row|
         # Check the bank's own wording and the cleaned label, so "Purchase: Venmo to …" is still money sent to a person.
-        row[:transfer_to_person] = [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) }
+        row[:transfer_to_person] ||= [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) }
         row[:bank_recurring] = row[:merchant].to_s.match?(BANK_RECURRING)
         row[:merchant] = MerchantName.call(row[:merchant])
       end

@@ -17,23 +17,24 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
 }) {
   const { dialogRef: ref, requestClose } = usePilotDialog(() => { if (canClose) onClose() })
   const [direction, setDirection] = useState(line.moneyDirection)
-  const [kind, setKind] = useState<LineKind | ''>(line.directionRequired && line.kind === 'spending' && !line.moneyDirection ? '' : line.kind)
+  const [kind, setKind] = useState<LineKind | ''>(line.recipientQuestion && line.moneyDirection !== 'in' ? '' : line.directionRequired && line.kind === 'spending' && !line.moneyDirection ? '' : line.kind)
   const [merchant, setMerchant] = useState(line.merchant)
   const [postedOn, setPostedOn] = useState(line.postedOn)
   const [amount, setAmount] = useState(amountInputText(line.amountCents))
   const [categoryId, setCategoryId] = useState(line.categoryId ? String(line.categoryId) : '')
   const [problem, setProblem] = useState<string | null>(null)
+  const recipientQuestion = line.recipientQuestion && direction !== 'in'
 
   function save(event: FormEvent) {
     event.preventDefault()
     if (line.directionRequired && !direction) return setProblem('Choose whether this was money out or money in.')
-    if (!kind) return setProblem('Choose what this line was.')
+    if (!kind) return setProblem(recipientQuestion ? 'Choose your own account or someone else.' : 'Choose what this line was.')
     const cents = parseLineAmount(amount)
     if (cents == null) return setProblem('Enter the amount, like 12.50.')
     if (!postedOn) return setProblem('Choose the date.')
     if ((kind === 'spending' || kind === 'cash') && !merchant.trim()) return setProblem('Add where the money went.')
     setProblem(null)
-    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: (kind === 'spending' || kind === 'cash' || kind === 'refund') && categoryId ? Number(categoryId) : null })
+    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: !recipientQuestion && (kind === 'spending' || kind === 'cash' || kind === 'refund') && categoryId ? Number(categoryId) : null })
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
@@ -41,14 +42,19 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
       <header><h2 id="statement-line-title">{line.merchant || 'This line'}</h2><Button variant="secondary" disabled={!canClose} onClick={requestClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
         {line.directionRequired && <fieldset><legend>Was this money out or money in?</legend>
-          <div className="statement-answers">{(['out', 'in'] as const).map(value => <Button key={value} variant="secondary" aria-pressed={direction === value} disabled={busy} onClick={() => { setDirection(value); if (!kind || line.kind === 'spending' || line.kind === 'money_in' || (value === 'out' && kind === 'refund') || (value === 'in' && (kind === 'spending' || kind === 'cash'))) setKind(value === 'in' ? 'money_in' : 'spending') }}>{value === 'out' ? 'Money out' : 'Money in'}</Button>)}</div>
+          <div className="statement-answers">{(['out', 'in'] as const).map(value => <Button key={value} variant={direction === value ? 'primary' : 'secondary'} aria-pressed={direction === value} disabled={busy} onClick={() => { setDirection(value); if (line.recipientQuestion) setKind(value === 'in' ? 'money_in' : direction === 'in' ? '' : kind); else if (!kind || line.kind === 'spending' || line.kind === 'money_in' || (value === 'out' && kind === 'refund') || (value === 'in' && (kind === 'spending' || kind === 'cash'))) setKind(value === 'in' ? 'money_in' : 'spending') }}>{value === 'out' ? 'Money out' : 'Money in'}</Button>)}</div>
         </fieldset>}
-        <label>What was this?
+        {recipientQuestion ? <fieldset><legend>Your own account or someone else?</legend>
+          <div className="statement-answers">
+            <Button variant={kind === 'moved' || kind === 'card' ? 'primary' : 'secondary'} aria-pressed={kind === 'moved' || kind === 'card'} disabled={busy} onClick={() => setKind(line.kind === 'card' ? 'card' : 'moved')}>Your own account</Button>
+            <Button variant={kind === 'spending' ? 'primary' : 'secondary'} aria-pressed={kind === 'spending'} disabled={busy} onClick={() => setKind('spending')}>Someone else</Button>
+          </div>
+        </fieldset> : <label>What was this?
           <select value={kind} onChange={(event) => setKind(event.target.value as LineKind)}>
             {!kind && <option value="">Choose what this was</option>}
             {LINE_KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-        </label>
+        </label>}
         <label>Name
           <input value={merchant} maxLength={120} onChange={(event) => setMerchant(event.target.value)} />
         </label>
@@ -56,7 +62,8 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
           <label>Date<input type="date" value={postedOn} onChange={(event) => setPostedOn(event.target.value)} /></label>
           <label>Amount<input inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /></label>
         </div>
-        {(kind === 'spending' || kind === 'cash') && <label>Category
+        {recipientQuestion && kind === 'spending' && <p>This counts as Family support spending.</p>}
+        {!recipientQuestion && (kind === 'spending' || kind === 'cash') && <label>Category
           <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
             <option value="">No category yet</option>
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}

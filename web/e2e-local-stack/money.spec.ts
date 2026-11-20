@@ -7,7 +7,7 @@ import { api, expect, openSection, showBudgetMonth, signIn, test } from './stack
 // in August, so $2,326.66 is what Budget must show for August once every line is saved.
 const STATEMENT = path.resolve(import.meta.dirname, '../../api/test/fixtures/files/documents/bank-of-guam-2026-08.csv')
 
-type Imports = { document_imports: Array<{ statement_review?: { total: number; done: number; without_category?: number } }> }
+type Imports = { document_imports: Array<{ statement_review?: { total: number; done: number; without_category?: number; coverage?: { answer: string | null } } }> }
 
 test('a fictional statement, reviewed by hand, saves exactly its posted spending @saves', async ({ page }) => {
   const before = await api<Imports>('participant', '/api/v1/document_imports')
@@ -23,6 +23,7 @@ test('a fictional statement, reviewed by hand, saves exactly its posted spending
   const account = page.getByRole('dialog', { name: 'Your account' })
   const saved = account.getByRole('combobox', { name: 'Account', exact: true })
   if (await saved.count()) await saved.selectOption('new')
+  await account.getByLabel('Name', { exact: true }).fill('Talun Checking')
   await account.getByRole('combobox', { name: 'Type', exact: true }).selectOption('asset')
   await account.getByRole('button', { name: 'Save' }).click()
   await expect(account).toBeHidden()
@@ -34,6 +35,7 @@ test('a fictional statement, reviewed by hand, saves exactly its posted spending
   await page.getByRole('button', { name: /^Yes: Amazon refund/ }).click()
   await page.getByRole('button', { name: 'Approve all 23' }).click()
   await expect(page.getByText('All 27 lines are saved.')).toBeVisible({ timeout: 60_000 })
+  await expect.poll(async () => (await api<Imports>('participant', '/api/v1/document_imports')).document_imports[0]?.statement_review?.coverage?.answer).toBe('nothing_missing')
 
   const after = await api<Imports>('participant', '/api/v1/document_imports')
   expect(after.document_imports[0]?.statement_review).toMatchObject({ total: 27, done: 27, without_category: 0 })
@@ -57,6 +59,7 @@ test('Budget shows the same August spending at phone width, with the year arrows
 test('Statements shows the saved statement at phone width @reads', async ({ page }) => {
   await signIn(page, 'participant')
   await openSection(page, 'Statements')
+  await page.getByRole('button', { name: /^bank-of-guam-2026-08.csv Statement/ }).click()
   await expect(page.getByText('All 27 lines are saved.')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

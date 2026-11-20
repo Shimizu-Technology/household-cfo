@@ -9,7 +9,7 @@ module FinancialDocuments
       # saved: the approved version of a line saved with no category, so she is shown (and changes) what she saved.
       # refund_to: for a refund whose purchase was found, the categories it goes back to (shown, never saved on the line).
       # purchase_match: a purchase she already confirmed (a receipt, chat, form or Plaid purchase) this bank line may be.
-      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :saved, :expected_head, :refund_to, :purchase_match, keyword_init: true) do
+      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :saved, :expected_head, :refund_to, :purchase_match, :pair, keyword_init: true) do
         def ready? = kind.nil?
       end
 
@@ -20,6 +20,9 @@ module FinancialDocuments
         duplicate: "Is this the same charge as one you already have?",
         # Asked with the purchase: "Same purchase as your receipt from Payless on Aug 3 ($103.42)?"
         same_purchase: nil,
+        person_payment: "Your own account or someone else?",
+        person_payment_duplicate: "Is this the same payment, or a different one?",
+        transfer_pair: "Do these two lines show money moved between your accounts?",
         transfer: "Did this move between your own accounts?",
         card_payment: "Is this a payment on your own card or loan?",
         refund: "Is this a refund?",
@@ -35,6 +38,9 @@ module FinancialDocuments
         unclear: [ { id: "edit", label: "Fix it" }, { id: "leave_out", label: "Leave it out" } ],
         duplicate: [ { id: "leave_out", label: "Same charge" }, { id: "different", label: "Different charge" } ],
         same_purchase: [ { id: "same_purchase", label: "Same purchase" }, { id: "different", label: "Different purchase" } ],
+        person_payment_duplicate: [ { id: "leave_out", label: "Same payment" }, { id: "own_account", label: "Different payment — your own account" }, { id: "someone_else", label: "Different payment — someone else" } ],
+        person_payment: [ { id: "own_account", label: "Your own account" }, { id: "someone_else", label: "Someone else" } ],
+        transfer_pair: [ { id: "pair_transfer", label: "Yes, pair them — not spending" }, { id: "edit", label: "Review separately" } ],
         transfer: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         card_payment: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         refund: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
@@ -97,6 +103,10 @@ module FinancialDocuments
 
       attr_reader :household, :revision, :unlinked_account_ids
 
+      def transfer_pairs
+        @transfer_pairs ||= TransferPairs.new(household)
+      end
+
       def everyday_policy
         @everyday_policy ||= HouseholdFinance::EverydaySpendingPolicy.new(household)
       end
@@ -140,10 +150,12 @@ module FinancialDocuments
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
           purchase_match = purchase_matches.best(signed_amount_cents: event.signed_amount_cents, posted_on: event.posted_on, merchant: merchant, event_type: event.event_type, head_id: heads[event.id]&.id) if overlaps.empty?
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], purchase_match: purchase_match, disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && policy&.dig(:reason) != "confirmed_spending_purpose" && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
+          pair = transfer_pairs.candidate(event) if kind.in?(%i[transfer card_payment person_payment]) && !heads[event.id]&.approved_version
+          kind = :transfer_pair if pair && kind.in?(%i[transfer card_payment person_payment])
           without_category = without_category?(heads[event.id]&.approved_version)
           # Saved with no category: show and ask exactly that, not the reader's earlier guess.
           kind, category_id = :no_category, nil if without_category
-          Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
+          Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
             done: done?(heads[event.id]&.approved_version), without_category: without_category, saved: (heads[event.id].approved_version if without_category), purchase_match: purchase_match)
         end.tap { |lines| refund_lines!(lines, heads, earlier, categories) }
@@ -216,8 +228,9 @@ module FinancialDocuments
         return :unclear if event.row_kind != "posted" || event.event_type.in?(%w[unknown adjustment]) || amount.nil? || amount.zero? || event.posted_on.nil?
         return :unclear if event.posted_on > Date.current || outside_period?(event, account)
         return :unclear if event.event_type.in?(%w[purchase fee]) && !amount.negative? || event.event_type.in?(%w[refund income]) && !amount.positive?
-        return :duplicate if overlaps.any?
+        return (TransferPairs.person_payment?(event, merchant) ? :person_payment_duplicate : :duplicate) if overlaps.any?
         return :refund if event.event_type == "refund"
+        return :person_payment if TransferPairs.person_payment?(event, merchant)
         return :transfer if event.event_type == "transfer"
         return :card_payment if event.event_type == "debt_payment"
         if self.class.expense?(event)

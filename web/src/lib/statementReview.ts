@@ -5,14 +5,16 @@ import { statementCents } from './participantSourceReview'
 
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
-export type PlanAnswerId = 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in'
+export type PlanAnswerId = 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in' | 'own_account' | 'someone_else' | 'pair_transfer'
 export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null }
 /** A purchase she already confirmed (a receipt, chat, form or linked-account purchase) that this bank line may be. */
 export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
+  recipient_question?: boolean
+  transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; posted_on: string; signed_amount_cents: number }
   event_id: number
   amount_cents?: number | null
-  kind: 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
+  kind: 'person_payment_duplicate' | 'person_payment' | 'transfer_pair' | 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
@@ -57,7 +59,7 @@ export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 're
 export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
-export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead; match_transaction_id?: number }
+export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edited' | 'own_account' | 'someone_else' | 'pair_transfer' | 'unpair_transfer'; transfer_pair?: PlanAttention['transfer_pair']; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead; match_transaction_id?: number }
 export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; expected_tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
 export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
@@ -90,6 +92,7 @@ export function answerInput(item: PlanAttention, id: PlanAnswerId, categoryId?: 
           ? { event_id: item.event_id, decision: id, shown, match_transaction_id: item.purchase_match?.transaction_id }
         // Every answer that saves the line as the statement reads it says what she was shown, so the server can check it.
         : { event_id: item.event_id, decision: id, shown }
+  entry.transfer_pair = item.transfer_pair
   entry.expected_head = item.expected_head
   return { lines: [entry] }
 }
@@ -102,6 +105,7 @@ export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdi
 
 /** What the line sheet opens on. */
 export type SheetLine = {
+  recipientQuestion?: boolean
   directionRequired?: boolean
   moneyDirection?: 'in' | 'out'
   expectedHead?: ExpectedLineHead
@@ -122,7 +126,7 @@ export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'o
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
-  return { directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
+  return { recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
     kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
 }
 

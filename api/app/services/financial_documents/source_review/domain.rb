@@ -242,7 +242,7 @@ module FinancialDocuments
         ProjectionCorrector.new(self, version, draft.projection.deep_symbolize_keys).call
         head.update!(approved_version: version)
         draft.update!(status: "approved")
-        if version.disposition != "include"
+        if version.disposition != "include" || version.event_type.in?(%w[transfer debt_payment])
           household.transaction_drafts.pending.where(financial_source_event: event).order(:id).lock.each do |legacy|
             legacy.update!(status: "ignored", draft_payload: legacy.draft_payload.merge("source_review_version_id" => version.id, "source_review_disposition" => version.disposition))
           end

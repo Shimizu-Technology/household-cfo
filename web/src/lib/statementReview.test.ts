@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
-import { APPROVE_PAGE, accountMatchNote, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, coverageQuestionText, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, spansYears, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
+import { APPROVE_PAGE, answerInput, accountMatchNote, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, coverageQuestionText, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, spansYears, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
 
 const ready = (count: number): StatementPlan['ready'] => Array.from({ length: count }, (_, index) => ({ event_id: index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), ready: ready(24), coverage: { question: null, answer: null }, totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
@@ -146,4 +146,16 @@ it('does not describe multiple saved accounts by just the one with last four', (
     approved: { ...approved, tracked_account: { ...approved.tracked_account, id: approved.tracked_account.id + 1 } } }
   expect(accountMatchNote([numbered])).toBe('Saved with your account ending 6824')
   expect(accountMatchNote([numbered, unnamed])).toBe('')
+})
+
+// Ownership is an explicit answer, distinct from accepting the reader's classification.
+it('sends the person-payment answer and the exact matching transfer she saw', () => {
+  const item = { event_id: 91, kind: 'person_payment', event_type: 'transfer', question: 'Your own account or someone else?', answers: [], merchant: 'Zelle to Lina Talun', posted_on: '2026-07-07', signed_amount_cents: -2500, category_id: null, category_name: null } as const
+  expect(answerInput({ ...item, answers: [] }, 'someone_else').lines[0]).toMatchObject({ decision: 'someone_else', shown: { event_type: 'transfer', category_id: null } })
+  expect(answerInput({ ...item, answers: [] }, 'own_account').lines[0].decision).toBe('own_account')
+  const unresolved = { ...item, answers: [], kind: 'direction' as const, recipient_question: true, signed_amount_cents: null }
+  expect(lineSheetWithDirection(unresolved, 'out').recipientQuestion).toBe(true)
+  expect(lineSheetWithDirection(unresolved, 'in').recipientQuestion).toBe(true)
+  const pair = { event_id: 92, approved_version_id: null, account_version_id: 12, account: 'Talun Savings ending 4412', posted_on: '2026-07-08', signed_amount_cents: 2500 }
+  expect(answerInput({ ...item, answers: [], kind: 'transfer_pair', transfer_pair: pair }, 'pair_transfer').lines[0]).toMatchObject({ decision: 'pair_transfer', transfer_pair: pair })
 })
