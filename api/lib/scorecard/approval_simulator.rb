@@ -64,9 +64,17 @@ module Scorecard
       end
       # A page is reviewed as displayed; answers on that page do not magically
       # teach the earlier questions on the same page a new category.
-      rows.each_slice(50) do |page|
+      initial = REVIEW::ParticipantPlan.new(@household, revision)
+      groups = initial.category_groups.flat_map { |group| group.each_slice(REVIEW::LineApprover::MAX_LINES).to_a }
+      grouped = groups.flatten.map { |line| line.event.id }.to_set
+      pages = groups.map { |group| group.map(&:event) } + rows.reject { |row| grouped.include?(row.id) }.each_slice(50).to_a
+      pages.each do |page|
         plan = REVIEW::ParticipantPlan.new(@household, revision)
-        count(doc, :approve_page)
+        group_ids = plan.category_groups.map { |group| group.map { |line| line.event.id }.to_set }
+        store_group = group_ids.any? { |ids| page.length > 1 && page.all? { |row| ids.include?(row.id) } }
+        count(doc, :approve_page) unless store_group
+        group_category = nil
+        group_answered = false
         paired_ids = Set.new
         entries = page.filter_map do |row|
           line = plan.line_for(row.id)
@@ -79,7 +87,19 @@ module Scorecard
           # One submitted line answer is one action, even when that answer also
           # corrects fields or excludes a row. Quality counters are separate.
           action = line.kind || (entry[:decision] == "leave_out" ? :manual_exclusion : entry[:decision] == "edited" ? :manual_correction : nil)
-          count(doc, action, answer) if action
+          if store_group && action.in?(%i[no_category suggested_category still_category])
+            # One category answer for the store. A line needing a different
+            # category or another correction is opened separately, as in the UI.
+            category = entry.dig(:edit, :category_id) || line.category_id
+            unless group_answered
+              count(doc, :store_category, answer)
+              group_category, group_answered = category, true
+            end
+            other_correction = entry[:edit] && (entry[:edit][:amount_cents] != row.signed_amount_cents&.abs || entry[:edit][:posted_on] != row.posted_on&.iso8601)
+            count(doc, action, answer) if category != group_category || entry[:decision] == "leave_out" || other_correction
+          else
+            count(doc, action, answer) if action
+          end
           @included_legs << leg_key(answer) if answer && entry[:decision] != "leave_out" && row.row_kind != "informational"
           entry
         end
@@ -157,8 +177,19 @@ module Scorecard
       @domain.overlap_context = REVIEW::OverlapDetector::Context.new(@household)
       begin
         input[:lines].each do |entry|
+          active_plan = plan
+          if entry[:decision] == "pair_transfer"
+            # An earlier answer may have approved the offered other leg.
+            # Refresh this question just as the screen does after each save.
+            active_plan = REVIEW::ParticipantPlan.new(@household, revision)
+            line = active_plan.line_for(entry.fetch(:event_id))
+            next if line.done
+            answer = row_answers[entry.fetch(:event_id)]
+            month = answer ? @key.event(answer).fetch("date")[0, 7] : @document.fetch("period").fetch("start_on")[0, 7]
+            entry = answer_for(line, answer, month)
+          end
           begin
-            @household.with_lock { form.send(:apply!, plan, entry, Hash.new(0)) }
+            @household.with_lock { form.send(:apply!, active_plan, entry, Hash.new(0)) }
           rescue ArgumentError => line_error
             raise unless distinct_question?(line_error)
             answer = row_answers.fetch(entry.fetch(:event_id))

@@ -43,6 +43,7 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
     <section ref={ref} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-line-title" tabIndex={-1}>
       <header><h2 id="statement-line-title">{line.merchant || 'This line'}</h2><Button variant="secondary" disabled={!canClose} onClick={requestClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
+        {line.rawDescription && <details><summary>Original bank text</summary><p>{line.rawDescription}</p></details>}
         {line.directionRequired && <fieldset><legend>Was this money out or money in?</legend>
           <div className="statement-answers">{(['out', 'in'] as const).map(value => <Button key={value} variant={direction === value ? 'primary' : 'secondary'} aria-pressed={direction === value} disabled={busy} onClick={() => { setDirection(value); if (line.recipientQuestion) setKind(value === 'in' ? 'money_in' : direction === 'in' ? '' : kind); else if (!kind || line.kind === 'spending' || line.kind === 'money_in' || (value === 'out' && kind === 'refund') || (value === 'in' && (kind === 'spending' || kind === 'cash'))) setKind(value === 'in' ? 'money_in' : 'spending') }}>{value === 'out' ? 'Money out' : 'Money in'}</Button>)}</div>
         </fieldset>}

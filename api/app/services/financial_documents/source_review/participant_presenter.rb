@@ -70,6 +70,7 @@ module FinancialDocuments
             merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
           coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision), version_id: CoverageQuestion.latest(revision)&.id },
           first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,
+          category_groups: plan.category_groups.map { |group| group.map { |line| line.event.id } },
           attention: plan.attention.map { |line| attention_row(line, names) } }
       end
 
@@ -147,7 +148,7 @@ module FinancialDocuments
       # Lines approved before long account numbers were hidden still store the statement's words; she reads them masked.
       def shown_facts(facts)
         key = facts.key?(:merchant) ? :merchant : "merchant"
-        facts.is_a?(Hash) && facts[key].is_a?(String) ? facts.merge(key => AccountNumberMask.display(facts[key])) : facts
+        facts.is_a?(Hash) && facts[key].is_a?(String) ? facts.merge(key => FinancialDocuments::MerchantNormalizer.call(facts[key])) : facts
       end
 
       def attention_row(line, names)
@@ -166,9 +167,9 @@ module FinancialDocuments
         end
         # A saved line shows what she saved (her corrected amount, name, date and kind), not the statement as first read.
         saved = line.saved
-        { event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
+        { raw_description: AccountNumberMask.display(event.financial_source_evidence&.payload&.dig("raw_description")), event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
           amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
-          merchant: saved&.merchant.present? ? AccountNumberMask.display(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
+          merchant: saved&.merchant.present? ? FinancialDocuments::MerchantNormalizer.call(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head,
           recipient_question: !line.done && TransferPairs.person_wording?(event, line.merchant) && !event.signed_amount_cents.to_i.positive?,
           transfer_pair: line.pair && { event_id: line.pair[:event].id, approved_version_id: line.pair[:version]&.id, account_version_id: line.pair[:identity].id,

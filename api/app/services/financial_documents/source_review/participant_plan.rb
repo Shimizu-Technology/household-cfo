@@ -69,6 +69,11 @@ module FinancialDocuments
       def ready_ids = lines.select { |line| line.ready? && !line.done }.map { |line| line.event.id }
       # A saved purchase with no category counts nowhere, so it stays on her list as "What was this for?" until she picks one or leaves it out.
       def attention = lines.select { |line| line.without_category || !(line.ready? || line.done) }
+      def category_groups
+        attention.select { |line| !line.done && line.kind.in?(%i[no_category suggested_category still_category]) && line.merchant.present? }
+          .group_by { |line| merchant_key(line.merchant) }.values.flat_map { |group| group.each_slice(100).to_a }.select { |group| group.length > 1 }
+      end
+
       def line_for(event_id) = lines.find { |line| line.event.id == event_id }
 
       # Facts exactly as read from the statement. Participant answers change these
@@ -103,7 +108,7 @@ module FinancialDocuments
       # The words she sees and approves. Long account numbers show as ····1234; the statement's own text stays stored as read.
       def self.merchant_for(event)
         payload = event.financial_source_evidence&.payload || {}
-        AccountNumberMask.display(payload["merchant"].to_s.squish.presence || payload["raw_description"].to_s.squish.presence)
+        FinancialDocuments::MerchantNormalizer.call(payload["merchant"].to_s.squish.presence || payload["raw_description"].to_s.squish.presence)
       end
 
       private
@@ -166,7 +171,13 @@ module FinancialDocuments
           without_category = without_category?(heads[event.id]&.approved_version)
           # Saved with no category: show and ask exactly that, not the reader's earlier guess.
           kind, category_id = :no_category, nil if without_category
-          Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
+          # A retry compares the facts she actually saved, even if a later answer
+          # in this same batch taught the store a different category.
+          if done?(heads[event.id]&.approved_version) && !without_category
+            kind = nil
+            category_id = heads[event.id].approved_version.budget_category_id
+          end
+          Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && chosen.present?,
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
             done: done?(heads[event.id]&.approved_version), without_category: without_category, saved: (heads[event.id].approved_version if without_category), purchase_match: purchase_match)
         end.tap { |lines| refund_lines!(lines, heads, earlier, categories) }
@@ -280,15 +291,15 @@ module FinancialDocuments
         FinancialDocuments::MerchantNormalizer.call(merchant)&.downcase&.squish
       end
 
-      # What she chose for a merchant on any OTHER statement. This statement's own approvals are left out: they must not
-      # change what an earlier line of the same statement looks like, or a retry of a save that already went through would
-      # find its lines no longer matching what she was shown.
+      # Current approved heads only, including this file. Superseded corrections and
+      # excluded lines must never teach the next question an obsolete category.
+      # A batch freezes its plan before any writes, so its own answers cannot
+      # change the categories being validated halfway through that batch.
       def previous_choices(merchants)
         wanted = merchants.filter_map { |merchant| merchant_key(merchant) }.to_set
         return {} if wanted.empty?
-        own = SourceReviewHead.where(household: household, financial_source_event_id: revision.financial_source_events.select(:id)).select(:id)
-        history = SourceReviewVersion.where(household: household, disposition: "include").where.not(budget_category_id: nil).where.not(merchant: nil)
-          .where.not(source_review_head_id: own)
+        history = SourceReviewVersion.where(id: SourceReviewHead.where(household: household).select(:approved_version_id), disposition: "include")
+          .where.not(budget_category_id: nil).where.not(merchant: nil)
         patterns = search_patterns(wanted)
         history = history.where("merchant ILIKE ANY (ARRAY[?])", patterns) if patterns
         latest = history.group(:merchant, :budget_category_id).maximum(:id)

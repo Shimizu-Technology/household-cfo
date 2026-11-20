@@ -10,6 +10,7 @@ export type ExpectedLineHead = { approved_version_id: number | null; lock_versio
 /** A purchase she already confirmed (a receipt, chat, form or linked-account purchase) that this bank line may be. */
 export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
+  raw_description?: string | null
   recipient_question?: boolean
   transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; description?: string; posted_on: string; signed_amount_cents: number }
   event_id: number
@@ -52,6 +53,7 @@ export type StatementPlan = {
   totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
+  category_groups?: number[][]
   attention: PlanAttention[]
 }
 
@@ -105,6 +107,7 @@ export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdi
 
 /** What the line sheet opens on. */
 export type SheetLine = {
+  rawDescription?: string | null
   recipientQuestion?: boolean
   directionRequired?: boolean
   moneyDirection?: 'in' | 'out'
@@ -126,7 +129,7 @@ export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'o
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
-  return { recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
+  return { rawDescription: item.raw_description, recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
     kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
 }
 
@@ -222,7 +225,7 @@ export function statementProgressStatus(progress: StatementProgress): string {
 }
 
 export function statementCounts(plan: StatementPlan): { open: number; page: number; attention: number; sentence: string; action: string | null } {
-  const attention = plan.attention.length
+  const attention = plan.attention.length - (plan.category_groups ?? []).reduce((count, group) => count + group.length - 1, 0)
   const open = plan.ready.length
   const page = Math.min(open, APPROVE_PAGE)
   const look = `${attention} ${attention === 1 ? 'needs' : 'need'} a quick look.`
