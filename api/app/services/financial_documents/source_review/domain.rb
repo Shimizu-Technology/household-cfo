@@ -72,7 +72,7 @@ module FinancialDocuments
           line_batch[:verified_accounts].clear
           (line_batch[:invalidated_events] ||= Set.new) << event.id
           line_batch[:heads].delete(event.id)
-          overlap_context.refresh!
+          overlap_context.invalidate_event!(event)
         end
         related = line_batch[:related_revisions][event.id] if head
         unless related
@@ -239,7 +239,9 @@ module FinancialDocuments
           end
           if line_batch && action.to_s.in?(%w[account_link economic_link])
             line_batch[:verified_accounts].clear
-            overlap_context.refresh!
+            # Economic links allocate existing approved versions; they do not
+            # change source facts or account identities in the overlap pool.
+            overlap_context.refresh! if action.to_s == "account_link"
             related = line_revision_dependencies(line_batch[:events].values, line_batch[:heads])
             locked = lock_revisions!(related.values.flatten.uniq).index_by(&:id)
             line_batch[:related_revisions] = related.transform_values { |ids| ids.uniq.map { |id| locked.fetch(id) } }

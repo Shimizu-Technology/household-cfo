@@ -193,6 +193,9 @@ module FinancialDocuments
         line = plan.line_for(entry.fetch(:event_id).to_i) || raise(ActiveRecord::RecordNotFound)
         decision = entry.fetch(:decision).to_s
         raise ArgumentError, "Unknown answer for a statement line" unless decision.in?(DECISIONS)
+        if decision == "same_purchase" && entry[:edit].present?
+          raise Domain::StaleReview, "This line changed while you were reviewing it. Nothing was saved. Refresh and try again."
+        end
         event = line.event
         if decision == "pair_transfer"
           return approve_pair!(line, entry, counts)

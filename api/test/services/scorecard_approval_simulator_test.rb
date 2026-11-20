@@ -2,6 +2,21 @@ require "test_helper"
 require Rails.root.join("lib/scorecard/runner")
 
 class ScorecardApprovalSimulatorTest < ActiveSupport::TestCase
+  test "corrected same purchase uses the line merchant two days from a receipt and requires the same answer key event" do
+    user = User.create!(clerk_id: "simulator-talun", email: "simulator-talun@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    period = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).current_period_for(Date.new(2026, 8, 3))
+    receipt = household.household_transactions.create!(budget_period: period, occurred_on: "2026-08-03", merchant: "Talun Demo Market", total_amount_cents: 5000, source_type: "receipt", status: "confirmed")
+    simulator = Scorecard::ApprovalSimulator.allocate
+    simulator.instance_variable_set(:@household, household)
+    simulator.instance_variable_set(:@transaction_answers, { receipt.id => { "event_id" => "talun-groceries" } })
+    entry = { edit: { amount_cents: 5000, posted_on: "2026-08-05" } }
+    line = Struct.new(:merchant).new("Talun Demo Market")
+    assert simulator.send(:corrected_same_purchase?, entry, { "event_id" => "talun-groceries" }, line)
+    refute simulator.send(:corrected_same_purchase?, entry, { "event_id" => "talun-other" }, line)
+    refute simulator.send(:corrected_same_purchase?, entry.merge(edit: entry[:edit].merge(merchant: "Elsewhere Hardware")), { "event_id" => "talun-groceries" }, line)
+  end
+
   test "a confirmed category joins only the matching store category" do
     simulator = Scorecard::ApprovalSimulator.allocate
     line = Struct.new(:event, :category_id).new(Object.new, 5)

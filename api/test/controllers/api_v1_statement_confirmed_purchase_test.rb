@@ -208,6 +208,70 @@ class ApiV1StatementConfirmedPurchaseTest < ActionDispatch::IntegrationTest
     assert_equal 3000, budget_actual(@household_goods, month: 8)
   end
 
+  test "Same purchase refuses edits instead of silently discarding her correction" do
+    receipt = purchase("Talun Demo Market", "2026-08-03", { @groceries => 5000 })
+    statement = build_source([ [ "Talun Demo Market", -5000, "purchase", "2026-08-03" ] ])
+    line = statement[:revision].financial_source_events.sole
+    row = plan(statement).fetch("attention").sole
+    [ { amount_cents: 6000 }, { posted_on: "2026-08-20" }, { merchant: "Talun Demo Hardware" } ].each do |edit|
+      approve(statement, [ { event_id: line.id, decision: "same_purchase", match_transaction_id: receipt.id,
+        shown: row.slice("event_type", "category_id"), expected_head: row.fetch("expected_head"), edit: edit } ])
+      assert_response :conflict
+      assert_nil SourceReviewHead.find_by(financial_source_event: line)&.approved_version
+      assert_equal [ receipt.id ], @household.household_transactions.where(status: "confirmed").pluck(:id)
+    end
+    same_purchase(statement, line, row)
+    assert_response :success, response.body
+    saved = SourceReviewHead.find_by!(financial_source_event: line).approved_version_id
+    # Model a stale line question against an account that is already linked.
+    retry_row = row.merge("expected_head" => row.fetch("expected_head").merge("account_version_id" => saved_head(line).fetch("account_version_id")))
+    approve(statement, [ { event_id: line.id, decision: "same_purchase", match_transaction_id: receipt.id,
+      shown: row.slice("event_type", "category_id"), expected_head: retry_row.fetch("expected_head"), edit: { amount_cents: 6000 } } ])
+    assert_response :conflict, "An unchanged retry must not silently discard the edit either"
+    assert_equal saved, SourceReviewHead.find_by!(financial_source_event: line).approved_version_id
+    same_purchase(statement, line, retry_row)
+    assert_response :success, response.body
+    assert_equal 1, response.parsed_body.fetch("result").fetch("unchanged"), "An edit-free retry still changes nothing"
+  end
+
+  test "ops counts separate spending and multiply matched purchases without changing records" do
+    statement = build_source([ [ "Talun Demo Market", -5000, "purchase", "2026-08-03" ], [ "Talun Demo Market", -5000, "purchase", "2026-08-03" ] ])
+    statement[:revision].financial_source_events.each { |event| approve(statement, [ edit_entry(event, @groceries) ]); assert_response :success }
+    receipt = purchase("Talun Demo Market", "2026-08-03", { @groceries => 5000 })
+    before = [ SourceReviewVersion.count, HouseholdTransaction.count, @household.reload.attributes ]
+    counts = FinancialDocuments::SourceReview::DoubleCountedPurchases.call(@household)
+    assert_equal({ separately_approved_lines: 2, purchases_matched_by_multiple_lines: 0 }, counts)
+    assert_equal before, [ SourceReviewVersion.count, HouseholdTransaction.count, @household.reload.attributes ]
+    versions = statement[:revision].financial_source_events.map { |event| SourceReviewHead.find_by!(financial_source_event: event).approved_version }
+    replace = lambda do |version, changes|
+      saved = SourceReviewVersion.create!(version.attributes.except("id", "created_at", "updated_at").merge(changes).merge("version_number" => version.version_number + 1, "supersedes_id" => version.id, "digest" => SecureRandom.hex(32)))
+      version.source_review_head.reload.update!(approved_version: saved)
+      saved
+    end
+    versions = versions.map { |version| replace.call(version, { "disposition" => "match", "matched_transaction_id" => receipt.id }) }
+    assert_equal({ separately_approved_lines: 0, purchases_matched_by_multiple_lines: 1 }, FinancialDocuments::SourceReview::DoubleCountedPurchases.call(@household))
+    # Claims do not hide a separate charge from the diagnostic; ordinary review still hides them.
+    replace.call(versions.first, { "disposition" => "include", "matched_transaction_id" => nil })
+    assert_equal 1, FinancialDocuments::SourceReview::DoubleCountedPurchases.call(@household)[:separately_approved_lines]
+    receipt.update!(status: "ignored")
+    assert_equal({ separately_approved_lines: 0, purchases_matched_by_multiple_lines: 0 }, FinancialDocuments::SourceReview::DoubleCountedPurchases.call(@household))
+  end
+
+  test "ops task refuses an absent household and emits counts only for a selected household" do
+    require "rake"
+    Rails.application.load_tasks unless Rake::Task.task_defined?("ops:double_counted_purchases")
+    task = Rake::Task["ops:double_counted_purchases"]
+    original = ENV.delete("HOUSEHOLD_ID")
+    _out, err = capture_io { assert_raises(SystemExit) { task.execute } }
+    assert_equal "HOUSEHOLD_ID is required\n", err
+    ENV["HOUSEHOLD_ID"] = @household.id.to_s
+    out, err = capture_io { task.execute }
+    assert_empty err
+    assert_equal({ "separately_approved_lines" => 0, "purchases_matched_by_multiple_lines" => 0 }, JSON.parse(out))
+  ensure
+    original ? ENV["HOUSEHOLD_ID"] = original : ENV.delete("HOUSEHOLD_ID")
+  end
+
   private
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
