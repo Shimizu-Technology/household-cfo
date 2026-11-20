@@ -43,15 +43,26 @@ class ScorecardTest < ActiveSupport::TestCase
       %w[manifest.json checking-2026-01.pdf recorded_responses/checking-2026-01.pdf.json].each do |name|
         FileUtils.cp(source.join(name), root.join(name))
       end
-      before = Dir.glob(Rails.root.join("storage/**/*").to_s).sort
+      # Point this process's storage at an empty folder of its own. Parallel
+      # workers upload into the shared api/storage, so comparing that folder
+      # races with them; anything this run kept would land here instead.
+      outer = root.join("outer-storage")
+      outer.mkpath
+      previous = ENV.to_h.slice("STORAGE_BACKEND", "LOCAL_STORAGE_ROOT")
+      ENV["STORAGE_BACKEND"], ENV["LOCAL_STORAGE_ROOT"] = "local", File.realpath(outer)
       users = User.count
-      result = without_network do
-        Scorecard::Runner.new(family_dir: root, answer_key: root.join("manifest.json"), private_mode: true, document_limit: 1).call
-      end
+      runner = Scorecard::Runner.new(family_dir: root, answer_key: root.join("manifest.json"), private_mode: true, document_limit: 1)
+      result = without_network { runner.call }
       assert_equal 1, result.fetch("document_count")
       assert_equal users, User.count
-      assert_equal before, Dir.glob(Rails.root.join("storage/**/*").to_s).sort
+      assert_empty Dir.children(outer)
+      run_storage = runner.instance_variable_get(:@storage)
+      assert run_storage.present?
+      refute Dir.exist?(run_storage), "the run's own storage folder must be removed"
+      assert_equal({ "STORAGE_BACKEND" => "local", "LOCAL_STORAGE_ROOT" => File.realpath(outer) }, ENV.to_h.slice("STORAGE_BACKEND", "LOCAL_STORAGE_ROOT"))
       refute_includes JSON.generate(result), directory
+    ensure
+      %w[STORAGE_BACKEND LOCAL_STORAGE_ROOT].each { |key| previous.key?(key) ? ENV[key] = previous[key] : ENV.delete(key) } if previous
     end
   end
 
