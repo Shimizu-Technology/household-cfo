@@ -362,6 +362,12 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_response :success, response.body
     assert_empty budget_plan.fetch("cash_purchase_questions")
     assert_equal 4000, month_total(8), "The $30 stays named; the other $10 counts on its own, as she said"
+    head.reload
+    approve(@sources.fetch(withdrawal.id), [ { event_id: withdrawal.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version, account_version_id: version.source_account_identity_version_id },
+      decision: "edited", edit: { kind: "cash", amount_cents: 10_000, category_id: @cash.id } } ])
+    assert_response :success, response.body
+    assert_money_everywhere(11_000)
+    assert_equal 3000, TransactionDraft.find(draft.fetch("id")).confirmed_transaction.metadata.dig("cash_withdrawal", "amount_cents")
   end
 
   test "a cash answer on a purchase that isn't asked about is refused" do
@@ -435,7 +441,11 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_response :success, response.body
     assert_equal [ "match", purchase.id ], SourceReviewHead.find_by!(financial_source_event: line).approved_version.attributes.values_at("disposition", "matched_transaction_id")
     assert_nil purchase.reload.metadata["cash_withdrawal"]
-    refute HouseholdFinance::CashPayment.paid_in_cash?(TransactionDraft.find(draft.fetch("id"))), "It went on her card"
+    marker = purchase.metadata.fetch("paid_by_card")
+    assert_equal [ SourceReviewHead.find_by!(financial_source_event: line).id, line.id, withdrawal.id ],
+      [ marker["source_review_head_id"], marker["financial_source_event_id"], marker.dig("previous_link", "financial_source_event_id") ]
+    assert marker["at"].present?
+    assert HouseholdFinance::CashPayment.paid_in_cash?(TransactionDraft.find(draft.fetch("id"))), "Her original declaration survives undo"
     audit = @household.household_audit_events.find_by!(event_type: "cash_purchase.paid_by_card")
     assert_equal [ "HouseholdTransaction", purchase.id, withdrawal.id ], [ audit.auditable_type, audit.auditable_id, audit.metadata.dig("cash_withdrawal", "financial_source_event_id") ]
 
@@ -501,6 +511,134 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     drafts = @household.transaction_drafts.where(status: "confirmed").includes(confirmed_transaction: :transaction_splits).to_a
     cards = sql_count { assert_equal 6, drafts.count { |draft| HouseholdFinance::CashPayment.presentation(draft, drawdowns: drawdowns)&.dig(:open_question) } }
     assert_equal 0, cards
+  end
+
+  test "undoing Same purchase asks again and relinking counts correctly everywhere" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    statement = build_source([ [ "POS PURCHASE TASI DEMO CAFE", -4000, "purchase", "2026-08-05" ] ])
+    line = statement[:revision].financial_source_events.sole
+    same_purchase(statement, line, plan(statement).fetch("attention").sole)
+    assert_response :success, response.body
+    assert_money_everywhere(14_000)
+    assert_equal 0, home_cash_question_count
+    head = SourceReviewHead.find_by!(financial_source_event: line)
+    version = head.approved_version
+    approve(statement, [ { event_id: line.id, decision: "different", shown: { event_type: version.event_type, category_id: nil }, expected_head: { approved_version_id: version.id, lock_version: head.lock_version, account_version_id: version.source_account_identity_version_id } } ])
+    assert_response :success, response.body
+    head.reload
+    version = head.approved_version
+    approve(statement, [ { event_id: line.id, decision: "edited", expected_head: { approved_version_id: version.id, lock_version: head.lock_version, account_version_id: version.source_account_identity_version_id }, edit: { kind: "spending", category_id: @dining.id } } ])
+    assert_response :success, response.body
+    assert_money_everywhere(18_000)
+    question = budget_plan.fetch("cash_purchase_questions").sole
+    assert_equal withdrawal.id, question.fetch("candidates").first.fetch("financial_source_event_id")
+    assert_equal 1, home_cash_question_count
+    assert_nil TransactionDraft.find(draft.fetch("id")).confirmed_transaction.metadata["cash_withdrawal"]
+    cash_answer(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :success, response.body
+    assert_money_everywhere(14_000)
+    assert_equal [ 6000, 8000 ], [ budget_actual(@cash, month: 8), budget_actual(@dining, month: 8) ]
+    assert_equal 0, home_cash_question_count
+  end
+
+  test "removing the matching statement asks again without silently restoring cash" do
+    withdrawal = withdraw(10_000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft, cash_withdrawal_event_id: withdrawal.id)
+    statement = build_source([ [ "POS PURCHASE TASI DEMO CAFE", -4000, "purchase", "2026-08-05" ] ])
+    same_purchase(statement, statement[:revision].financial_source_events.sole, plan(statement).fetch("attention").sole)
+    delete "/api/v1/document_imports/#{statement[:import].id}", headers: headers
+    assert_response :unprocessable_entity, response.body
+    configured = S3Service.method(:configured?)
+    begin
+      S3Service.define_singleton_method(:configured?) { true }
+      post "/api/v1/document_imports/#{statement[:import].id}/reprocess", headers: headers
+      assert_response :unprocessable_entity, response.body
+    ensure
+      S3Service.define_singleton_method(:configured?, configured)
+    end
+    assert_equal 0, home_cash_question_count
+    # Model a historical import outside the current picture. Public deletion retains approved records.
+    statement[:import].update_column(:financial_generation, -1)
+    assert_money_everywhere(14_000)
+    assert_equal 1, home_cash_question_count
+    assert_equal withdrawal.id, budget_plan.fetch("cash_purchase_questions").sole.fetch("candidates").first.fetch("financial_source_event_id")
+    cash_answer(draft, cash_withdrawal_event_id: withdrawal.id)
+    assert_response :success, response.body
+    assert_money_everywhere(10_000)
+  end
+
+  test "a partial cash answer can be replayed" do
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    confirm(draft)
+    withdrawal = withdraw(2000, "2026-08-03")
+    2.times do
+      cash_answer(draft, cash_withdrawal_event_id: withdrawal.id)
+      assert_response :success, response.body
+    end
+    assert_money_everywhere(4000)
+  end
+
+  test "a prepared update cannot overwrite a newer cash declaration" do
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining)
+    record = TransactionDraft.find(draft.fetch("id"))
+    operation = HouseholdFinance::Operations::Transaction::DraftUpdate.new(@household)
+    prepared = operation.prepare(draft_id: record.id, merchant: "Changed cafe", source_type: "manual_ui")
+    record.update!(draft_payload: HouseholdFinance::CashPayment.with_paid_in_cash(record.draft_payload, true))
+    assert_raises(HouseholdFinance::Operations::Base::StaleOperation) do
+      @household.with_lock { operation.execute!(prepared, source: "manual_ui") }
+    end
+    assert_equal "Tasi Demo Cafe", record.reload.merchant
+  end
+
+  test "a kept pending Yes explains partial coverage" do
+    withdrawal = withdraw(2000, "2026-08-03")
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    record = TransactionDraft.find(draft.fetch("id"))
+    record.update!(draft_payload: HouseholdFinance::CashPayment.with_answer(record.draft_payload, withdrawal.id))
+    message = HouseholdFinance::CashPayment.presentation(record).fetch(:message)
+    assert_includes message, "$20 already counted"
+    assert_includes message, "the other $20 still counts on its own"
+    refute_includes message, "won't add"
+  end
+
+  test "document draft serialization shares one drawdown calculation" do
+    source = build_source([ [ "Tasi Demo ATM", -10_000, "cash_withdrawal", "2026-08-03" ] ])
+    3.times do |index|
+      draft = confirmed_cash_purchase("Demo cafe #{index}", 1000, "2026-08-05")
+      draft.update!(financial_document_import: source[:import])
+    end
+    creations = 0
+    trace = TracePoint.new(:call) { |event| creations += 1 if event.defined_class == HouseholdFinance::CashDrawdowns && event.method_id == :initialize }
+    trace.enable do
+      controller = Api::V1::DocumentImportsController.new
+      result = controller.send(:serialize_document_import, source[:import])
+      assert_equal 3, result.fetch(:transaction_drafts).length
+    end
+    assert_equal 1, creations
+  end
+
+  test "scorecard answers with an eligible withdrawal older than those offered" do
+    require Rails.root.join("lib/scorecard/approval_simulator")
+    older = withdraw(10_000, "2026-07-01")
+    newer_withdrawals
+    draft = log_purchase("Tasi Demo Cafe", 40, "2026-08-05", @dining, paid_with_cash: true)
+    refute_includes draft.dig("cash_payment", "candidates").pluck("financial_source_event_id"), older.id
+    simulator = Scorecard::ApprovalSimulator.allocate
+    simulator.instance_variable_set(:@household, @household)
+    simulator.instance_variable_set(:@row_answers, { 0 => { "event_id" => "old-cash" }, older.id => { "event_id" => "old-cash" } })
+    assert_equal older.id, simulator.send(:cash_withdrawal_answer, "old-cash", TransactionDraft.find(draft.fetch("id")))
+    assert_equal "elsewhere", simulator.send(:cash_withdrawal_answer, nil, TransactionDraft.find(draft.fetch("id")))
+    assert_raises(RuntimeError) { simulator.send(:cash_withdrawal_answer, "missing", TransactionDraft.find(draft.fetch("id"))) }
+  end
+
+  def assert_money_everywhere(cents)
+    assert_equal cents, month_total(8)
+    assert_equal cents, HouseholdFinance::Money.cents!(spending_report("2026-08-01", "2026-08-31").dig("totals", "actual"))
+    assert_equal cents, analyzer("2026-08-01", "2026-08-31").fetch(:observed_spending_cents)
+    assert_equal cents, mia_month(8).fetch(:spent_so_far_cents)
   end
 
   private

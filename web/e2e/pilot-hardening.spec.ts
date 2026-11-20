@@ -18798,3 +18798,66 @@ test('BOG UI own-account pair and person payment ask for explicit decisions', as
   expect(saved[4]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: 'spending', category_id: expect.any(Number) } }] })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
+
+function round4CashQuestion() {
+  return {
+    transaction_draft_id: 9342, transaction_id: 9343, state: 'unanswered', merchant: 'Round four demo lunch',
+    occurred_on: `${currentYear}-01-05`, amount: 40, amount_cents: 4000, cash_cents: 4000,
+    covered_cents: 0, counting_on_its_own_cents: 4000, message: 'This cash purchase currently counts on its own.',
+    question: 'Paid with the cash you took out?', decline_label: 'No, other cash',
+    candidates: [{ financial_source_event_id: 9344, withdrawn_on: `${currentYear - 1}-12-30`, amount: 100, amount_cents: 10000, available: 100, available_cents: 10000, covers_cents: 4000, label: 'the $100 you took out on Dec 30' }],
+  }
+}
+
+test('B5 round 4 cash answer invalidates a previously cached other year', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  Object.assign(workspace.budget.annual_plan, { cash_purchase_questions: [round4CashQuestion()] })
+  let reads = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/budget?**', route => {
+    reads += 1
+    const year = Number(new URL(route.request().url()).searchParams.get('year'))
+    return route.fulfill({ json: budgetFixtureForYear(year) })
+  })
+  await page.route('http://api.test/api/v1/transaction_drafts/9342/cash_answer', route => {
+    Object.assign(workspace.budget.annual_plan, { cash_purchase_questions: [] })
+    return route.fulfill({ json: { message: 'Saved cash answer.', workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Previous year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toContainText(String(currentYear - 1))
+  expect(reads).toBe(1)
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toContainText(String(currentYear))
+  await openSection(page, 'Review')
+  await page.getByRole('button', { name: /Yes: Round four demo lunch/ }).click()
+  await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toHaveCount(0)
+  await openSection(page, 'Budget')
+  await page.getByRole('button', { name: 'Previous year', exact: true }).click()
+  await expect.poll(() => reads).toBe(2)
+})
+
+test('B5 round 4 cash answers stay disabled until a pending Mia response settles', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  Object.assign(workspace.budget.annual_plan, { cash_purchase_questions: [round4CashQuestion()] })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/mia/messages', async route => {
+    await gate
+    return route.fulfill({ json: {
+      user_message: { id: 9345, role: 'user', author: 'You', content: 'Check my spending.', attachments: [] },
+      assistant_message: { id: 9346, role: 'assistant', author: 'Mia', content: 'Here is your spending.', attachments: [] },
+      transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null,
+    } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Check my spending.')
+  const sent = page.waitForRequest('http://api.test/api/v1/mia/messages')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await sent
+  await openSection(page, 'Review')
+  await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toBeDisabled()
+  release()
+  await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toBeEnabled()
+})

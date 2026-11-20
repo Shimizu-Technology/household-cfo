@@ -1,3 +1,4 @@
+import { cashCoverage } from '../lib/cashCoverage'
 import { useState } from 'react'
 import type { CashPurchaseAnswer, CashPurchaseQuestion } from '../api'
 import { formatHouseholdDay } from '../lib/householdDate'
@@ -52,7 +53,7 @@ export function CashPurchaseQuestions({ questions, totalCount = questions.length
               <p className="transaction-cash-question__note">{question.message}</p>
               <div className="transaction-duplicate-question__row">
                 {question.question && <p>{question.question}</p>}
-                {question.question && <small>Your cash already counted when you took it out, so {question.candidates.length === 1 ? 'Yes doesn’t' : 'choosing it doesn’t'} add to your spending.</small>}
+                {question.question && <small>{cashCoverage(question.cash_cents, question.candidates)}</small>}
                 <div className="transaction-duplicate-question__actions">
                   {question.candidates.map((candidate) => {
                     const text = question.candidates.length === 1 ? 'Yes' : `${candidate.label.charAt(0).toUpperCase()}${candidate.label.slice(1)}`

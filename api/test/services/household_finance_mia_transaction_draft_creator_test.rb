@@ -224,5 +224,10 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
       command: { type: "create_transaction_draft", merchant: "Tasi Demo Cafe", amount: "12.00", occurred_on: "2026-07-11", splits: [] },
       raw_input: "Lunch at Tasi Demo Cafe was $12.").call
     assert_nil plain.draft.draft_payload["cash_payment"]
+    card = HouseholdFinance::MiaTransactionDraftCreator.new(@household, user: @user,
+      command: { type: "create_transaction_draft", merchant: "Tasi Demo Cafe", amount: "40.00", occurred_on: "2026-07-12", splits: [] },
+      raw_input: "I paid $40 by card at Tasi Cafe, not in cash.").call
+    assert card.success?
+    assert_nil card.draft.draft_payload["cash_payment"]
   end
 end

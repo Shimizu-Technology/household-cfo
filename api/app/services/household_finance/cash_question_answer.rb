@@ -42,6 +42,10 @@ module HouseholdFinance
         if cash_withdrawal == CashPayment::ELSEWHERE
           # A link to a withdrawal that is gone names nothing; a link that is short keeps the part it still covers.
           transaction.update!(metadata: transaction.metadata.to_h.except(CashDrawdowns::LINK_KEY)) if open.state == :dropped
+          if open.state == :short
+            link = transaction.metadata.fetch(CashDrawdowns::LINK_KEY).merge("amount_cents" => open.covered_cents)
+            transaction.update!(metadata: transaction.metadata.merge(CashDrawdowns::LINK_KEY => link))
+          end
           draft.update!(draft_payload: CashPayment.with_answer(draft.draft_payload, CashPayment::ELSEWHERE))
         else
           CashDrawdowns.link!(household, transaction, event_id: cash_withdrawal, cents: open.cash_cents, user: user)
@@ -60,7 +64,7 @@ module HouseholdFinance
       return CashPayment.payload(draft)["answer"] == CashPayment::ELSEWHERE if cash_withdrawal == CashPayment::ELSEWHERE
 
       drawdown = CashDrawdowns.new(household).for_purchase(transaction)
-      drawdown && drawdown.event_id == cash_withdrawal.to_i && drawdown.amount_cents >= CashPayment.cash_cents(draft, total_cents: transaction.total_amount_cents)
+      drawdown && drawdown.event_id == cash_withdrawal.to_i && drawdown.amount_cents >= [ transaction.metadata.dig(CashDrawdowns::LINK_KEY, "amount_cents").to_i, CashPayment.cash_cents(draft, total_cents: transaction.total_amount_cents) ].min
     end
 
     def audit!(transaction, open, cash_withdrawal)

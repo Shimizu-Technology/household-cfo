@@ -91,7 +91,7 @@ module HouseholdFinance
         end
 
         def canonical_snapshot(draft, _input, lock:)
-          draft_snapshot(draft, lock: lock)
+          draft_snapshot(draft, lock: lock).merge(cash_payment: CashPayment.payload(draft))
         end
 
         def predicted_after(before, input)
@@ -139,7 +139,7 @@ module HouseholdFinance
         end
 
         def canonical_after_snapshot(draft, _input, prepared:)
-          draft_snapshot(draft.reload)
+          canonical_snapshot(draft.reload, {}, lock: false)
         end
       end
     end

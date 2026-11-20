@@ -185,6 +185,17 @@ module HouseholdFinance
       (@open_by_draft ||= {}).fetch(draft.id) { @open_by_draft[draft.id] = find_open_question(draft) }
     end
 
+    def card_answered?(transaction)
+      return false unless transaction&.metadata.to_h&.key?("paid_by_card")
+
+      @card_purchase_ids ||= SourceReviewVersion.joins(source_review_head: { financial_source_event: :financial_extraction_revision })
+        .where(household_id: household.id, disposition: "match").where.not(matched_transaction_id: nil)
+        .where("source_review_heads.approved_version_id = source_review_versions.id")
+        .where(financial_extraction_revisions: { financial_document_import_id: household.financial_document_imports.current_picture.select(:id) })
+        .pluck(:matched_transaction_id).to_set
+      @card_purchase_ids.include?(transaction.id)
+    end
+
     # What a purchase counts in Budget, by category.
     def counted_parts(transaction)
       transaction.transaction_splits.sort_by(&:id).select { |split| split.amount_cents.positive? && current_category_ids.include?(split.budget_category_id) }
@@ -200,6 +211,8 @@ module HouseholdFinance
       value = CashPayment.payload(draft)
       return unless value && value["answer"] != CashPayment::ELSEWHERE && transaction&.status.in?(COUNTED)
 
+      return if card_answered?(transaction)
+
       cents = CashPayment.cash_cents(draft, total_cents: transaction.total_amount_cents)
       return unless cents.positive?
 
@@ -212,7 +225,10 @@ module HouseholdFinance
       return unless state
 
       candidates = candidates(on: transaction.occurred_on, excluding: transaction)
-      return if state == :unanswered && candidates.empty?
+      previous_id = transaction.metadata.to_h.dig("paid_by_card", "previous_link", "financial_source_event_id")
+      previous = previous_id && candidate(previous_id, on: transaction.occurred_on, excluding: transaction)
+      candidates = ([ previous ] + candidates).compact.uniq { |row| row.withdrawal.financial_source_event_id }.first(MAX_CANDIDATES)
+      return if state == :unanswered && candidates.empty? && !transaction.metadata.to_h.key?("paid_by_card")
 
       withdrawn_on = link.is_a?(Hash) && link["withdrawn_on"].to_s.match?(/\A\d{4}-\d{2}-\d{2}\z/) ? Date.iso8601(link["withdrawn_on"]) : nil
       OpenQuestion.new(draft: draft, purchase: transaction, state: state, cash_cents: cents, covered_cents: covered,

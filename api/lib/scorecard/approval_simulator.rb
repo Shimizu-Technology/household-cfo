@@ -108,6 +108,17 @@ module Scorecard
 
     private
 
+    # The answer key may name cash older than the offered choices, or a duplicated source row.
+    def cash_withdrawal_answer(source, draft)
+      return HouseholdFinance::TransactionDraftConfirmer::ELSEWHERE unless source
+
+      drawdowns = HouseholdFinance::CashDrawdowns.new(@household)
+      chosen = row_answers.filter_map { |id, answer| drawdowns.candidate(id, on: draft.occurred_on) if answer["event_id"] == source }.first
+      raise "Answer-key cash withdrawal is not eligible: #{source}" unless chosen
+
+      chosen.withdrawal.financial_source_event_id
+    end
+
     # A multi-account spreadsheet asks money in or out once per account. Both
     # views answer from the answer key; a mix of conventions is "I'm not sure".
     def answer_account_signs(revision, doc)
@@ -390,9 +401,8 @@ module Scorecard
               # (paid_from_withdrawal_event_id), otherwise No.
               count(doc, :cash_withdrawal)
               source = @key.event(answer)["paid_from_withdrawal_event_id"]
-              chosen = result.cash_question.fetch(:candidates).find { |candidate| source && row_answers[candidate.fetch(:financial_source_event_id)]&.fetch("event_id") == source }
               result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes,
-                cash_withdrawal: chosen ? chosen.fetch(:financial_source_event_id) : HouseholdFinance::TransactionDraftConfirmer::ELSEWHERE).call
+                cash_withdrawal: cash_withdrawal_answer(source, draft)).call
             end
           end
           next if matched

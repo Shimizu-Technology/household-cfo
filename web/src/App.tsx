@@ -1,3 +1,4 @@
+import { cashCoverage } from './lib/cashCoverage'
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import { plannedOutForMonth } from './lib/plannedOutForMonth'
 import { ReviewConfirmedCard } from './components/ReviewConfirmedCard'
@@ -3383,7 +3384,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const signature = `transaction:cash-answer:${question.transaction_draft_id}:${'cashWithdrawalEventId' in answer ? answer.cashWithdrawalEventId : 'elsewhere'}`
       const { message, workspace } = await answerCashPurchaseQuestion(question.transaction_draft_id, answer, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
-      setData({ type: 'financial_mutation', update: workspace })
+      setData({ type: 'shared_financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
       void refreshSpendingReport(selectedBudgetPeriodRef.current)
       replaceMiaHistory(workspace.mia)
@@ -4642,7 +4643,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           {isRealWorkspace && auth.currentUser ? (
             <>
               <article className="panel activity-review-panel ui-card">
-                <CashPurchaseQuestions questions={activeBudgetPlan?.cash_purchase_questions ?? []} totalCount={activeBudgetPlan?.cash_purchase_questions_meta?.total_count} disabled={budgetYearLoading} errors={reviewErrors} onAnswer={handleCashPurchaseAnswer} />
+                <CashPurchaseQuestions questions={activeBudgetPlan?.cash_purchase_questions ?? []} totalCount={activeBudgetPlan?.cash_purchase_questions_meta?.total_count} disabled={budgetYearLoading || Boolean(chatDraftAction)} errors={reviewErrors} onAnswer={handleCashPurchaseAnswer} />
                 {(
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
@@ -8666,7 +8667,7 @@ function TransactionDraftReviewCard({
             {askCash ? (
               <div className="transaction-duplicate-question__row">
                 <p>{cashPayment.question}</p>
-                <small>Your cash already counted when you took it out, so {cashCandidates.length === 1 ? 'Yes doesn’t' : 'choosing it doesn’t'} add to your spending.</small>
+                <small>{cashCoverage(cashPayment.cash_cents, cashCandidates)}</small>
                 {cashAnswerButtons}
               </div>
             ) : cashPayment.message && <p className="transaction-cash-question__note">{cashPayment.message}</p>}

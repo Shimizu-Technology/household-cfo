@@ -29,7 +29,7 @@ module HouseholdFinance
     # She said cash for this one purchase. A message naming more than one amount can't say which purchase was cash.
     def said?(text)
       text = text.to_s.unicode_normalize(:nfkc).squish
-      return false if text.blank? || text.scan(MONEY).length > 1
+      return false if text.blank? || text.scan(MONEY).length > 1 || text.match?(/\b(?:not|never)\s+(?:(?:paid|pay|paying)\s+)?(?:(?:in|with|by)\s+)?cash\b/i)
 
       text.gsub(NOT_CASH, " ").match?(SAID)
     rescue ArgumentError, Encoding::CompatibilityError
@@ -71,7 +71,7 @@ module HouseholdFinance
 
     # She said a card line on her statement is this purchase ("Same purchase", ConfirmedPurchaseMatch): it went on her
     # card, so it wasn't cash. Its link to a withdrawal goes, so the purchase counts once on its own and that cash is
-    # whole again; it is no longer marked paid in cash, so it isn't asked about. Runs in the same save as her answer.
+    # whole again. Her original cash declaration survives; only this active card match answers it. Runs in the same save.
     def paid_by_card!(household, transaction, version:, user: nil)
       transaction.lock!
       drafts = household.transaction_drafts.where(confirmed_transaction_id: transaction.id).order(:id).lock.select { |draft| paid_in_cash?(draft) }
@@ -79,8 +79,14 @@ module HouseholdFinance
       return if drafts.empty? && link.nil?
 
       said = drafts.map { |draft| payload(draft) }
+      drafts.each { |draft| draft.update!(draft_payload: with_answer(draft.draft_payload, nil)) }
       transaction.update!(metadata: transaction.metadata.to_h.except(CashDrawdowns::LINK_KEY)) if link
-      drafts.each { |draft| draft.update!(draft_payload: draft.draft_payload.to_h.except(PAYLOAD_KEY)) }
+      head = version.source_review_head
+      previous = transaction.metadata.to_h.dig("paid_by_card", "previous_link")
+      transaction.update!(metadata: transaction.metadata.to_h.merge("paid_by_card" => {
+        "source_review_head_id" => head.id, "financial_source_event_id" => head.financial_source_event_id,
+        "at" => Time.current.iso8601, "previous_link" => link || previous
+      }))
       household.household_audit_events.create!(
         user: user, actor_type: "user", event_type: "cash_purchase.paid_by_card",
         auditable_type: "HouseholdTransaction", auditable_id: transaction.id, occurred_at: Time.current,
@@ -101,6 +107,9 @@ module HouseholdFinance
       value = payload(draft)
       return nil unless value
 
+      drawdowns ||= CashDrawdowns.new(draft.household)
+      return nil if !draft.pending? && drawdowns.card_answered?(draft.confirmed_transaction)
+
       cents = cash_cents(draft)
       base = { source: value["source"], cash: Money.dollars(cents), cash_cents: cents, answer: value["answer"] }
       if draft.pending?
@@ -110,7 +119,11 @@ module HouseholdFinance
         chosen = chosen_withdrawal_id(draft) && drawdowns.candidate(chosen_withdrawal_id(draft), on: draft.occurred_on)
         if chosen
           return base.merge(candidates: [], chosen_event_id: chosen.withdrawal.financial_source_event_id,
-            message: "You said this was paid with #{candidate_label(chosen)}, so it won't add to your spending.")
+            message: if chosen.available_cents < cents
+              "You said this was paid with #{candidate_label(chosen)}. #{money(chosen.available_cents)} already counted; the other #{money(cents - chosen.available_cents)} still counts on its own."
+                     else
+              "You said this was paid with #{candidate_label(chosen)}, so it won't add to your spending."
+                     end)
         end
         candidates = cents.positive? ? drawdowns.candidates(on: draft.occurred_on) : []
         return base.merge(candidates: [], message: none_message(draft)) if candidates.empty?

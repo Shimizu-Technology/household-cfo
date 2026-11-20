@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CashPurchaseQuestion } from '../api'
 import { CashPurchaseQuestions } from './CashPurchaseQuestions'
 
@@ -19,7 +19,8 @@ function question(overrides: Partial<CashPurchaseQuestion> = {}): CashPurchaseQu
 }
 
 describe('CashPurchaseQuestions', () => {
-  afterEach(cleanup)
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-08-06T12:00:00Z')) })
+  afterEach(() => { cleanup(); vi.useRealTimers() })
 
   it('says what counts right now and asks which cash paid for a purchase she confirmed before the statement', async () => {
     const onAnswer = vi.fn().mockResolvedValue(undefined)
@@ -55,6 +56,13 @@ describe('CashPurchaseQuestions', () => {
     expect(screen.getByText('Your cash already counted when you took it out, so choosing it doesn’t add to your spending.')).toBeTruthy()
     rerender(<CashPurchaseQuestions questions={[]} onAnswer={vi.fn()} />)
     expect(container.textContent).toBe('')
+  })
+
+  it('explains partial coverage and disables answers during another action', () => {
+    const lunch = question({ candidates: [{ ...candidate(901, 'the $20 you took out on Aug 3', 20), covers_cents: 2000 }] })
+    render(<CashPurchaseQuestions questions={[lunch]} disabled onAnswer={vi.fn()} />)
+    expect(screen.getByText(/the other \$20 still counts on its own/)).toBeTruthy()
+    expect(screen.getAllByRole('button').every(button => (button as HTMLButtonElement).disabled)).toBe(true)
   })
 
   it('says when Review lists only the newest of the purchases Home counts', () => {

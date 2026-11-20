@@ -808,6 +808,12 @@ describe('cash purchases', () => {
     await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(lunch, { differentPurchase: true }))
   })
 
+  it('explains the amount that still counts when Yes only covers part', () => {
+    const lunch = draft({ cash_payment: { source: 'participant', cash: 40, cash_cents: 4000, question: 'Paid with this cash?', candidates: [{ ...candidate(904, 'the $20 you took out on Aug 3', '2026-08-03', 20), covers_cents: 2000 }] } })
+    render(<TransactionDraftReviewStack {...stackProps([lunch])} />)
+    expect(screen.getByText(/the other \$20 still counts on its own/)).toBeTruthy()
+  })
+
   it('says on a confirmed purchase which cash paid for it', () => {
     const confirmed = draft({ status: 'confirmed', cash_payment: { source: 'participant', cash: 40, cash_cents: 4000, linked: true, linked_cents: 4000, withdrawn_on: '2026-08-03',
       message: "Paid with $40 of the $100 you took out on Aug 3. It doesn't add to your spending: that cash already counted when you took it out." } })

@@ -37,5 +37,7 @@ class HouseholdFinanceCashPaymentTest < ActiveSupport::TestCase
     refute said.call("got $20 cash back at the market, $62.40 total")
     refute said.call("lunch $40 in cash and gas $30 on my card"), "Two amounts: which one was cash is not guessed"
     refute said.call("took out cash")
+    refute said.call("I paid $40 by card at Tasi Cafe, not in cash.")
+    refute said.call("I did not pay cash for lunch $40")
   end
 end
