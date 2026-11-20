@@ -807,6 +807,28 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal [ 1700, 1800 ], @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).order(:id).pluck(:total_amount_cents)
   end
 
+  test "bulk corrections invalidate the coverage of aliases just like separate approvals" do
+    @source = source([ movement(-1000), movement(-1100, row: 2) ])
+    @identity = link(@source)
+    copies = @source[:events].map do |event|
+      original = approve(stage(event, amount: event.signed_amount_cents))
+      copy = source([ movement(event.signed_amount_cents) ])
+      identity = link(copy, tracked: @identity.source_tracked_account)
+      approve(stage(copy[:events].sole, identity: identity, amount: event.signed_amount_cents, disposition: "match", overlap: "match", matched_version_id: original.id))
+      copy[:import].update!(metadata: copy[:import].metadata.merge("source_accounting_review_pending" => false))
+      copy
+    end
+    event = @source[:events].first
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, @source[:revision])
+    entry = { event_id: event.id, decision: "edited", edit: { kind: "spending", amount_cents: 900, category_id: @category.id }, expected_head: plan.line_for(event.id).expected_head }
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      result = FinancialDocuments::SourceReview::LineApprover.new(domain, @source[:revision], { lines: [ entry ] }).call
+      assert_equal 1, result[:approved]
+    end
+    assert_equal [ true, false ], copies.map { |copy| copy[:import].reload.metadata.fetch("source_accounting_review_pending") }
+  end
+
   private
 
   def run_operation(klass, input)

@@ -24,7 +24,7 @@ module FinancialDocuments
         # and pending facts all participate; edited amounts must not hide copies.
         # Physical rows and reviewed references are strong regardless of date/amount.
         # A read-only page shares one narrowed superset, then applies the exact
-        # rules per line. Saves use fresh SQL instead, so earlier writes count.
+        # rules per line. A locked save updates approved heads in that superset.
         def preload!(events, artifact)
           dated = events.select { |event| event.signed_amount_cents && event.posted_on }
           days = dated.map(&:posted_on)

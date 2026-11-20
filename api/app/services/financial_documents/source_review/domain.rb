@@ -5,7 +5,7 @@ module FinancialDocuments
     class Domain
       StaleReview = Class.new(ArgumentError)
       attr_reader :household, :user
-      # A bulk save sets one so every line is checked against the same read of the household's events; it refreshes it after each write.
+      # A locked page save shares overlap candidates and period provisioning across its lines.
       attr_accessor :overlap_context, :projection_periods
       attr_reader :line_batch
 
@@ -34,14 +34,11 @@ module FinancialDocuments
       # pending-draft and optimistic-head checks still run against these records.
       def begin_line_batch!(events, revision:, plan:)
         authorize!
-        related = if plan.review_heads.values.none?(&:approved_version_id)
-          events.map(&:financial_extraction_revision_id)
-        else
-          related_revision_ids(events.map(&:id))
-        end
-        lock_revisions!((related + [ revision.id ]).uniq)
+        related = line_revision_dependencies(events, plan.review_heads)
+        locked = lock_revisions!((related.values.flatten + [ revision.id ]).uniq).index_by(&:id)
         @line_batch = {
           events: events.index_by(&:id),
+          related_revisions: related.transform_values { |ids| ids.uniq.map { |id| locked.fetch(id) } },
           source_accounts: plan.accounts_for_save,
           heads: plan.review_heads,
           identities: overlap_context.accounts.values.filter_map { |head| head.approved_version.tap { |identity| identity.source_account_review_head = head if identity } }.index_by(&:id),
@@ -272,6 +269,33 @@ module FinancialDocuments
         end
       end
 
+      # The same alias/link invalidation as a separate approval, discovered once.
+      # Keep dependencies per event so unchanged rows do not invalidate coverage.
+      def line_revision_dependencies(events, review_heads)
+        result = events.to_h { |event| [ event.id, [ event.financial_extraction_revision_id ] ] }
+        by_version = review_heads.values.select(&:approved_version_id).index_by(&:approved_version_id)
+        return result if by_version.empty?
+
+        aliases = versions.joins(:source_review_head).where(matched_version_id: by_version.keys)
+          .where("source_review_heads.approved_version_id = source_review_versions.id")
+          .includes(source_review_head: :financial_source_event)
+        aliases.each do |version|
+          result.fetch(by_version.fetch(version.matched_version_id).financial_source_event_id) << version.financial_source_event.financial_extraction_revision_id
+        end
+        linked = EconomicLinker.current_versions(household).select { |group| group.source_economic_memberships.any? { |member| by_version.key?(member.source_review_version_id) } }
+        linked_heads = linked.flat_map { |group| group.source_economic_memberships.map { |member| member.source_review_version.source_review_head } }
+        ActiveRecord::Associations::Preloader.new(records: linked_heads, associations: :financial_source_event).call
+        linked.each do |group|
+          members = group.source_economic_memberships
+          affected = members.filter_map { |member| by_version[member.source_review_version_id]&.financial_source_event_id }
+          next if affected.empty?
+
+          ids = members.map { |member| member.source_review_version.financial_source_event.financial_extraction_revision_id }
+          affected.each { |event_id| result.fetch(event_id).concat(ids) }
+        end
+        result
+      end
+
       def related_revision_ids(event_ids)
         current_ids = heads.where(financial_source_event_id: event_ids).pluck(:approved_version_id).compact
         aliases = versions.joins(:source_review_head).where(matched_version_id: current_ids).where("source_review_heads.approved_version_id = source_review_versions.id")
@@ -351,7 +375,9 @@ module FinancialDocuments
             legacy.update!(status: "ignored", draft_payload: legacy.draft_payload.merge("source_review_version_id" => version.id, "source_review_disposition" => version.disposition))
           end
         end
-        line_batch[:revisions][event.financial_extraction_revision_id] = event.financial_extraction_revision if line_batch
+        if line_batch
+          line_batch[:related_revisions].fetch(event.id).each { |record| line_batch[:revisions][record.id] = record }
+        end
         overlap_context.record_approval!(event, head) if line_batch
         version
       end
