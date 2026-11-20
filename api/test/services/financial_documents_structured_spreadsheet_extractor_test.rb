@@ -3,6 +3,16 @@ require "spreadsheet"
 require "zip"
 
 class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::TestCase
+  test "a named card payment with its last four is a debt payment rather than a purchase" do
+    Tempfile.create([ "named-card", ".csv" ]) do |file|
+      file.write("Date,Description,Withdrawal\n2026-10-03,Payment to Chase card ending 1234,500.00\n2026-10-03,Payment to Guam Power Authority,75.00\n")
+      file.flush
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "named-card.csv").call
+      assert result.success?, result.error
+      assert_equal %w[debt_payment purchase], result.data.fetch(:source_accounting).fetch(:events).pluck(:event_type)
+    end
+  end
+
   test "keeps CSV account names and masks account numbers without collapsing distinct numbers" do
     Tempfile.create([ "accounts", ".csv" ]) do |file|
       file.write(<<~CSV)

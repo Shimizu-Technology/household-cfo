@@ -24,7 +24,7 @@ export function StatementAnswers({ item, categories, disabled, unsaved, inlineCa
   const picksCategory = item.kind === 'no_category' || (item.kind === 'refund_category' && item.category_id == null)
   const suggests = item.kind === 'suggested_category' || item.kind === 'still_category' || (item.kind === 'refund_category' && item.category_id != null)
   return <>
-    {item.transfer_pair && <p>Matching line in {item.transfer_pair.account}: <span className="statement-num">{sourceMoney(Math.abs(item.transfer_pair.signed_amount_cents))}</span> on {formatMonthDay(item.transfer_pair.posted_on)}. Not spending or income.</p>}
+    {item.transfer_pair && <p>Matching line in {item.transfer_pair.account}: {item.transfer_pair.description} — <span className="statement-num">{sourceMoney(Math.abs(item.transfer_pair.signed_amount_cents))}</span> on {formatMonthDay(item.transfer_pair.posted_on)}. Not spending or income.</p>}
     <div className="statement-answers" role="group" aria-labelledby={`statement-question-${item.event_id}`}>
     {item.answers.map((choice) => (picksCategory || (inlineCategory && suggests)) && choice.id === 'edit'
       ? categories.length > 0 && categories.length <= 3

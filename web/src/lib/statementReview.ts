@@ -11,7 +11,7 @@ export type ExpectedLineHead = { approved_version_id: number | null; lock_versio
 export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
   recipient_question?: boolean
-  transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; posted_on: string; signed_amount_cents: number }
+  transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; description?: string; posted_on: string; signed_amount_cents: number }
   event_id: number
   amount_cents?: number | null
   kind: 'person_payment_duplicate' | 'person_payment' | 'transfer_pair' | 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'

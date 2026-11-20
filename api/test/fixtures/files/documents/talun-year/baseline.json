@@ -125,13 +125,13 @@
         "approve_page": 11,
         "manual_correction": 1,
         "no_category": 12,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "direction": 5,
-        "duplicate": 46,
-        "person_payment_duplicate": 4,
+        "duplicate": 49,
+        "person_payment_duplicate": 1,
         "coverage": 1
       },
       "manual_correction": 14,
@@ -146,13 +146,13 @@
       },
       "questions_by_kind": {
         "no_category": 12,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "direction": 5,
-        "duplicate": 46,
-        "person_payment_duplicate": 4
+        "duplicate": 49,
+        "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -278,14 +278,14 @@
         "account_identity": 7,
         "approve_page": 7,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 47,
+        "duplicate": 50,
         "no_category": 2,
-        "person_payment_duplicate": 4,
+        "person_payment_duplicate": 1,
         "manual_exclusion": 1
       },
       "manual_correction": 2,
@@ -300,13 +300,13 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 47,
+        "duplicate": 50,
         "no_category": 2,
-        "person_payment_duplicate": 4
+        "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -451,15 +451,15 @@
         "approve_page": 8,
         "still_category": 1,
         "no_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
-        "duplicate": 64,
+        "duplicate": 67,
         "coverage": 3,
         "refund_category": 1,
-        "person_payment_duplicate": 4
+        "person_payment_duplicate": 1
       },
       "manual_correction": 2,
       "manual_exclusion": 0,
@@ -474,14 +474,14 @@
       "questions_by_kind": {
         "still_category": 1,
         "no_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
-        "duplicate": 64,
+        "duplicate": 67,
         "refund_category": 1,
-        "person_payment_duplicate": 4
+        "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -607,13 +607,13 @@
         "account_identity": 5,
         "approve_page": 5,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 42,
+        "duplicate": 45,
         "manual_exclusion": 1,
-        "person_payment_duplicate": 4
+        "person_payment_duplicate": 1
       },
       "manual_correction": 0,
       "manual_exclusion": 1,
@@ -627,12 +627,12 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 42,
-        "person_payment_duplicate": 4
+        "duplicate": 45,
+        "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -759,15 +759,14 @@
         "approve_page": 7,
         "still_category": 1,
         "manual_correction": 1,
-        "person_payment": 2,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
         "unclear": 1,
         "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 49,
+        "duplicate": 52,
         "no_category": 1,
-        "person_payment_duplicate": 4
+        "person_payment_duplicate": 1
       },
       "manual_correction": 3,
       "manual_exclusion": 0,
@@ -781,14 +780,13 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 2,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
         "unclear": 1,
         "transfer_pair": 5,
-        "duplicate": 49,
+        "duplicate": 52,
         "no_category": 1,
-        "person_payment_duplicate": 4
+        "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -932,13 +930,13 @@
         "account_identity": 5,
         "approve_page": 5,
         "still_category": 2,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
-        "duplicate": 47,
-        "person_payment_duplicate": 4
+        "duplicate": 50,
+        "person_payment_duplicate": 1
       },
       "manual_correction": 1,
       "manual_exclusion": 0,
@@ -952,13 +950,13 @@
       },
       "questions_by_kind": {
         "still_category": 2,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
-        "duplicate": 47,
-        "person_payment_duplicate": 4
+        "duplicate": 50,
+        "person_payment_duplicate": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -1084,9 +1082,9 @@
         "account_identity": 7,
         "approve_page": 7,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
         "duplicate": 3,
@@ -1104,9 +1102,9 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "duplicate": 3,
         "no_category": 1
@@ -1235,9 +1233,9 @@
         "account_identity": 7,
         "approve_page": 7,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
         "duplicate": 3
@@ -1254,9 +1252,9 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "duplicate": 3
       },
@@ -1384,9 +1382,9 @@
         "account_identity": 7,
         "approve_page": 7,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
         "duplicate": 3
@@ -1403,9 +1401,9 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "duplicate": 3
       },
@@ -1551,9 +1549,9 @@
         "account_identity": 5,
         "approve_page": 5,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5
       },
@@ -1569,9 +1567,9 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5
       },
@@ -1699,9 +1697,9 @@
         "account_identity": 7,
         "approve_page": 7,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
         "duplicate": 3
@@ -1718,9 +1716,9 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "duplicate": 3
       },
@@ -1848,9 +1846,9 @@
         "account_identity": 5,
         "approve_page": 5,
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "no_category": 1
       },
@@ -1866,9 +1864,9 @@
       },
       "questions_by_kind": {
         "still_category": 1,
-        "person_payment": 3,
-        "transfer": 2,
+        "transfer": 4,
         "card_payment": 1,
+        "person_payment": 1,
         "transfer_pair": 5,
         "no_category": 1
       },
@@ -2003,17 +2001,17 @@
       "card_payment": 12,
       "coverage": 22,
       "direction": 5,
-      "duplicate": 307,
+      "duplicate": 325,
       "manual_correction": 2,
       "manual_exclusion": 2,
       "no_category": 18,
-      "person_payment": 35,
-      "person_payment_duplicate": 24,
+      "person_payment": 11,
+      "person_payment_duplicate": 6,
       "receipt_confirmation": 3,
       "refund_category": 1,
       "same_purchase": 3,
       "still_category": 12,
-      "transfer": 24,
+      "transfer": 48,
       "transfer_pair": 60,
       "unclear": 1
     },
@@ -2027,14 +2025,14 @@
     "questions_by_kind": {
       "card_payment": 12,
       "direction": 5,
-      "duplicate": 307,
+      "duplicate": 325,
       "no_category": 18,
-      "person_payment": 35,
-      "person_payment_duplicate": 24,
+      "person_payment": 11,
+      "person_payment_duplicate": 6,
       "refund_category": 1,
       "same_purchase": 3,
       "still_category": 12,
-      "transfer": 24,
+      "transfer": 48,
       "transfer_pair": 60,
       "unclear": 1
     },
@@ -2186,13 +2184,13 @@
           "account_identity": 10,
           "approve_page": 11,
           "no_category": 12,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "direction": 5,
-          "duplicate": 46,
-          "person_payment_duplicate": 4,
+          "duplicate": 49,
+          "person_payment_duplicate": 1,
           "coverage": 1
         },
         "manual_correction": 13,
@@ -2207,13 +2205,13 @@
         },
         "questions_by_kind": {
           "no_category": 12,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "direction": 5,
-          "duplicate": 46,
-          "person_payment_duplicate": 4
+          "duplicate": 49,
+          "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -2338,14 +2336,14 @@
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 47,
+          "duplicate": 50,
           "no_category": 2,
-          "person_payment_duplicate": 4
+          "person_payment_duplicate": 1
         },
         "manual_correction": 2,
         "manual_exclusion": 0,
@@ -2358,13 +2356,13 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 47,
+          "duplicate": 50,
           "no_category": 2,
-          "person_payment_duplicate": 4
+          "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -2508,15 +2506,15 @@
           "account_identity": 8,
           "approve_page": 8,
           "no_category": 1,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
-          "duplicate": 64,
+          "duplicate": 67,
           "coverage": 3,
           "refund_category": 1,
-          "person_payment_duplicate": 4
+          "person_payment_duplicate": 1
         },
         "manual_correction": 2,
         "manual_exclusion": 0,
@@ -2530,14 +2528,14 @@
         },
         "questions_by_kind": {
           "no_category": 1,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
-          "duplicate": 64,
+          "duplicate": 67,
           "refund_category": 1,
-          "person_payment_duplicate": 4
+          "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -2662,12 +2660,12 @@
         "decisions_by_kind": {
           "account_identity": 5,
           "approve_page": 5,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 42,
-          "person_payment_duplicate": 4
+          "duplicate": 45,
+          "person_payment_duplicate": 1
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
@@ -2680,12 +2678,12 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 42,
-          "person_payment_duplicate": 4
+          "duplicate": 45,
+          "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -2810,15 +2808,14 @@
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
           "unclear": 1,
           "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 49,
+          "duplicate": 52,
           "no_category": 1,
-          "person_payment_duplicate": 3
+          "person_payment": 1
         },
         "manual_correction": 1,
         "manual_exclusion": 0,
@@ -2831,14 +2828,13 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
           "unclear": 1,
           "transfer_pair": 5,
-          "duplicate": 49,
+          "duplicate": 52,
           "no_category": 1,
-          "person_payment_duplicate": 3
+          "person_payment": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -2981,13 +2977,13 @@
           "receipt_confirmation": 1,
           "account_identity": 5,
           "approve_page": 5,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
-          "duplicate": 47,
-          "person_payment_duplicate": 4
+          "duplicate": 50,
+          "person_payment_duplicate": 1
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
@@ -3000,13 +2996,13 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
-          "duplicate": 47,
-          "person_payment_duplicate": 4
+          "duplicate": 50,
+          "person_payment_duplicate": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -3131,9 +3127,9 @@
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
           "duplicate": 3,
@@ -3150,9 +3146,9 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "duplicate": 3,
           "no_category": 1
@@ -3280,9 +3276,9 @@
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
           "duplicate": 3
@@ -3298,9 +3294,9 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "duplicate": 3
         },
@@ -3427,9 +3423,9 @@
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
           "duplicate": 3
@@ -3445,9 +3441,9 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "duplicate": 3
         },
@@ -3592,9 +3588,9 @@
           "receipt_confirmation": 1,
           "account_identity": 5,
           "approve_page": 5,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5
         },
@@ -3609,9 +3605,9 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5
         },
@@ -3738,9 +3734,9 @@
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
           "duplicate": 3
@@ -3756,9 +3752,9 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "duplicate": 3
         },
@@ -3885,9 +3881,9 @@
         "decisions_by_kind": {
           "account_identity": 5,
           "approve_page": 5,
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "no_category": 1
         },
@@ -3902,9 +3898,9 @@
           "direction": 0
         },
         "questions_by_kind": {
-          "person_payment": 3,
-          "transfer": 2,
+          "transfer": 4,
           "card_payment": 1,
+          "person_payment": 1,
           "transfer_pair": 5,
           "no_category": 1
         },
@@ -4039,14 +4035,14 @@
         "card_payment": 12,
         "coverage": 22,
         "direction": 5,
-        "duplicate": 307,
+        "duplicate": 325,
         "no_category": 18,
-        "person_payment": 36,
-        "person_payment_duplicate": 23,
+        "person_payment": 12,
+        "person_payment_duplicate": 5,
         "receipt_confirmation": 3,
         "refund_category": 1,
         "same_purchase": 3,
-        "transfer": 24,
+        "transfer": 48,
         "transfer_pair": 60,
         "unclear": 1
       },
@@ -4060,13 +4056,13 @@
       "questions_by_kind": {
         "card_payment": 12,
         "direction": 5,
-        "duplicate": 307,
+        "duplicate": 325,
         "no_category": 18,
-        "person_payment": 36,
-        "person_payment_duplicate": 23,
+        "person_payment": 12,
+        "person_payment_duplicate": 5,
         "refund_category": 1,
         "same_purchase": 3,
-        "transfer": 24,
+        "transfer": 48,
         "transfer_pair": 60,
         "unclear": 1
       },

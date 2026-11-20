@@ -217,6 +217,9 @@ module Scorecard
         # "Same purchase as …?" with no answer to go on: she keeps the line, as the app shows it.
         return base.merge(decision: "different") if !@correct_proposals && line.kind == :same_purchase
         if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate person_payment person_payment_duplicate]) && !(line.kind == :refund_category && line.category_id.nil?)
+          if line.kind == :transfer_pair
+            return base.merge(decision: "edited", edit: { kind: row.event_type == "debt_payment" ? "card" : "moved", money_direction: row.signed_amount_cents.positive? ? "in" : "out" })
+          end
           return base.merge(decision: "as_read")
         end
         quality[month]["manual_exclusion"] += 1 if @correct_proposals
@@ -296,7 +299,7 @@ module Scorecard
         quality[month]["manual_correction"] += 1
         changes.each { |field| quality[month]["corrections_by_field"][field] += 1 }
       end
-      return base.merge(decision: line.kind.in?(%i[duplicate same_purchase person_payment_duplicate]) ? "different" : "as_read") if changes.empty? && !line.kind.in?(%i[direction unclear no_category])
+      return base.merge(decision: line.kind.in?(%i[duplicate same_purchase person_payment_duplicate]) ? "different" : "as_read") if changes.empty? && !line.kind.in?(%i[direction unclear no_category transfer_pair])
       proposed_kind = { "income" => "money_in", "transfer" => "moved", "debt_payment" => "card", "cash_withdrawal" => "cash", "refund" => "refund" }[row.event_type] || "spending"
       edit = { kind: changes.include?("type") || line.kind == :direction ? kind : proposed_kind,
         category_id: changes.include?("category") ? category : line.category_id,

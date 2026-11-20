@@ -67,6 +67,34 @@ class ApiV1StatementConfirmedPurchaseTest < ActionDispatch::IntegrationTest
     assert_equal({ "approved" => 0, "unchanged" => 1 }, response.parsed_body.fetch("result").slice("approved", "unchanged"))
   end
 
+  test "person-worded bank purchases ask Same purchase first including source overlaps" do
+    receipt = purchase("Venmo Ana Cruz", "2026-08-03", { @groceries => 4000 }, source_type: "manual_chat")
+    build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
+    statement = build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
+    line = statement[:revision].financial_source_events.sole
+    row = plan(statement).fetch("attention").sole
+    assert_not_empty FinancialDocuments::SourceReview::ParticipantPlan.new(@household, statement[:revision]).lines.sole.overlaps
+    assert_equal "same_purchase", row.fetch("kind")
+    approve(statement, [ { event_id: line.id, decision: "someone_else", expected_head: row.fetch("expected_head"), shown: row.slice("event_type", "category_id") } ])
+    assert_response :conflict
+    same_purchase(statement, line, row)
+    assert_response :success, response.body
+    assert_equal [ receipt.id ], @household.household_transactions.where(status: %w[confirmed reconciled]).pluck(:id)
+  end
+
+  test "a person duplicate answer cannot bypass a logged purchase via distinct overlap" do
+    purchase("Venmo Ana Cruz", "2026-08-03", { @groceries => 4000 }, source_type: "manual_chat")
+    statement = build_source([ [ "VENMO *ANA CRUZ", -4000, "purchase", "2026-08-03" ] ])
+    event = statement[:revision].financial_source_events.sole
+    # The person-duplicate answer marks the source overlap distinct. That is
+    # not an answer to the separate confirmed-purchase question.
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    head = SourceReviewHead.new(financial_source_event: event, household: @household)
+    facts = { disposition: "include", event_type: "purchase", signed_amount_cents: -4000, posted_on: "2026-08-03", merchant: "VENMO *ANA CRUZ", overlap_disposition: "distinct", external_reference: "sent-to-someone:#{event.id}" }
+    error = assert_raises(ArgumentError) { domain.send(:validate_confirmed_purchase!, head, facts) }
+    assert_includes error.message, "Answer Same purchase or Different purchase first"
+  end
+
   test "Different purchase counts the bank line as well, on purpose" do
     purchase("Payless Supermarkets", "2026-08-03", { @groceries => 3488 }, source_type: "manual_chat")
     statement = build_source([ [ "PAYLESS SUPERMARKETS", -3488, "purchase", "2026-08-03" ] ])

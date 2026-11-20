@@ -172,6 +172,7 @@ module FinancialDocuments
           category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head,
           recipient_question: !line.done && TransferPairs.person_wording?(event, line.merchant) && !event.signed_amount_cents.to_i.positive?,
           transfer_pair: line.pair && { event_id: line.pair[:event].id, approved_version_id: line.pair[:version]&.id, account_version_id: line.pair[:identity].id,
+            description: AccountNumberMask.display(ParticipantPlan.merchant_for(line.pair[:event])),
             account: AccountNumberMask.display(line.pair[:identity].source_tracked_account.label), posted_on: line.pair[:date].iso8601, signed_amount_cents: line.pair[:amount] } }
           .merge(line.kind == :same_purchase ? { purchase_match: line.purchase_match.summary } : {})
       end

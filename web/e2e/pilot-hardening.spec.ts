@@ -18756,7 +18756,7 @@ test('BOG UI own-account pair and person payment ask for explicit decisions', as
       question: 'Your own account or someone else?', category_id: null, category_name: null, answers: [{ id: 'own_account', label: 'Your own account' }, { id: 'someone_else', label: 'Someone else' }] },
     { event_id: 4002, event_type: 'transfer', kind: 'transfer_pair', merchant: 'Talun savings', posted_on: '2026-09-15', signed_amount_cents: -2500,
       question: 'Do these two lines show money moved between your accounts?', category_id: null, category_name: null, answers: [{ id: 'pair_transfer', label: 'Yes, pair them — not spending' }],
-      transfer_pair: { event_id: 4901, approved_version_id: null, account_version_id: 100, account: 'Savings ending 4412', posted_on: '2026-09-16', signed_amount_cents: 2500 } },
+      transfer_pair: { event_id: 4901, approved_version_id: null, account_version_id: 100, account: 'Savings ending 4412', description: 'Transfer from Talun checking', posted_on: '2026-09-16', signed_amount_cents: 2500 } },
     { event_id: 4003, event_type: 'purchase', kind: 'person_payment_duplicate', merchant: 'Zelle to Tasi Talun', posted_on: '2026-09-15', signed_amount_cents: -3500,
       question: 'Is this the same payment, or a different one?', category_id: null, category_name: null, answers: [{ id: 'leave_out', label: 'Same payment' }, { id: 'someone_else', label: 'Different payment — someone else' }] },
     { event_id: 4004, event_type: 'unknown', kind: 'direction', recipient_question: true, merchant: 'Venmo to Talun reserve', posted_on: '2026-09-15', signed_amount_cents: null, amount_cents: 3500,
@@ -18766,6 +18766,7 @@ test('BOG UI own-account pair and person payment ask for explicit decisions', as
   await review.getByRole('button', { name: 'Someone else: Zelle to Lina Talun', exact: true }).click()
   await expect.poll(() => saved.length).toBe(1)
   expect(saved[0]).toMatchObject({ lines: [{ decision: 'someone_else' }] })
+  await expect(review.getByText(/Matching line in Savings ending 4412: Transfer from Talun checking/)).toBeVisible()
   await review.getByRole('button', { name: 'Yes, pair them — not spending: Talun savings', exact: true }).click()
   await expect.poll(() => saved.length).toBe(2)
   expect(saved[1]).toMatchObject({ lines: [{ decision: 'pair_transfer', transfer_pair: { event_id: 4901, account_version_id: 100 } }] })

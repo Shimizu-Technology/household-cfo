@@ -319,7 +319,7 @@ module FinancialDocuments
           unless found.call.any? { |match| match.transaction.id == facts[:matched_transaction_id] }
             raise StaleReview, "That purchase changed or no longer matches this line. Nothing was saved. Refresh and look again."
           end
-        elsif facts[:disposition] == "include" && facts[:overlap_disposition] != "distinct" && ConfirmedPurchaseMatch.applies?(facts[:event_type], facts[:signed_amount_cents])
+        elsif facts[:disposition] == "include" && (facts[:overlap_disposition] != "distinct" || facts[:external_reference].to_s.start_with?("sent-to-someone:")) && ConfirmedPurchaseMatch.applies?(facts[:event_type], facts[:signed_amount_cents])
           counted_before = head.approved_version&.disposition == "include"
           match = found.call.first unless counted_before
           raise ArgumentError, "#{match.question} Answer Same purchase or Different purchase first. Nothing was saved." if match

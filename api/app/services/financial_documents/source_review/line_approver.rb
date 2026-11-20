@@ -220,11 +220,11 @@ module FinancialDocuments
         raise Domain::StaleReview, "This line changed. Please look again." unless entry[:expected_head] == line.expected_head
         check_shown!(line, entry)
         identity = domain.account_heads.find_by!(financial_source_account_id: line.event.financial_source_account_id).approved_version
-        facts = ParticipantPlan.facts_as_read(line.event, identity_id: identity.id, merchant: line.merchant, category_id: nil)
+        facts = ParticipantPlan.facts_as_read(line.event, identity_id: identity.id, merchant: line.merchant, category_id: nil).merge(event_type: line.event.event_type == "debt_payment" ? "debt_payment" : "transfer", purchase_amount_cents: nil)
         stage_and_approve!(line.event, domain.heads.find_by(financial_source_event: line.event), facts)
         unless pair[:version]
           other = pair[:event]
-          other_facts = ParticipantPlan.facts_as_read(other, identity_id: pair[:identity].id, merchant: ParticipantPlan.merchant_for(other), category_id: nil)
+          other_facts = ParticipantPlan.facts_as_read(other, identity_id: pair[:identity].id, merchant: ParticipantPlan.merchant_for(other), category_id: nil).merge(event_type: other.event_type == "debt_payment" ? "debt_payment" : "transfer", purchase_amount_cents: nil)
           stage_and_approve!(other, domain.heads.find_by(financial_source_event: other), other_facts)
         end
         versions = [ line.event, pair[:event] ].map { |event| domain.heads.find_by!(financial_source_event: event).approved_version }
@@ -291,7 +291,7 @@ module FinancialDocuments
           facts = edited_facts(base, edit, saved: saved&.disposition == "include")
           if !line.done && TransferPairs.person_wording?(line.event, line.merchant) && facts[:signed_amount_cents].to_i.negative?
             if facts[:event_type] == "purchase"
-              facts = facts.merge(budget_category_id: family_support_category!.id, external_reference: "sent-to-someone:#{line.event.id}")
+              facts = facts.merge(budget_category_id: facts[:budget_category_id] || family_support_category!.id, external_reference: "sent-to-someone:#{line.event.id}")
             elsif facts[:event_type].in?(%w[transfer debt_payment])
               facts = facts.merge(event_type: base[:event_type] == "debt_payment" ? "debt_payment" : facts[:event_type], external_reference: "own-account:#{line.event.id}")
             end
