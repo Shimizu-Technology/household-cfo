@@ -1,0 +1,81 @@
+{
+  "extra_acceptance": {
+    "concurrency_limited_completed": 5
+  },
+  "remaining_source_probes": {
+    "worker_heartbeat": [
+      "BEGIN",
+      "SELECT \"solid_queue_processes\".* FROM \"solid_queue_processes\" WHERE \"solid_queue_processes\".\"id\" = $1 LIMIT $2 FOR UPDATE",
+      "UPDATE \"solid_queue_processes\" SET \"last_heartbeat_at\" = $1 WHERE \"solid_queue_processes\".\"id\" = $2",
+      "COMMIT"
+    ],
+    "dispatcher_heartbeat": [
+      "BEGIN",
+      "SELECT \"solid_queue_processes\".* FROM \"solid_queue_processes\" WHERE \"solid_queue_processes\".\"id\" = $1 LIMIT $2 FOR UPDATE",
+      "UPDATE \"solid_queue_processes\" SET \"last_heartbeat_at\" = $1 WHERE \"solid_queue_processes\".\"id\" = $2",
+      "COMMIT"
+    ],
+    "concurrency_maintenance": [
+      "SELECT \"solid_queue_semaphores\".\"id\" FROM \"solid_queue_semaphores\" WHERE \"solid_queue_semaphores\".\"expires_at\" < $1 ORDER BY \"solid_queue_semaphores\".\"id\" ASC LIMIT $2",
+      "SELECT DISTINCT \"solid_queue_blocked_executions\".\"concurrency_key\" FROM \"solid_queue_blocked_executions\" WHERE \"solid_queue_blocked_executions\".\"expires_at\" < $1 ORDER BY \"solid_queue_blocked_executions\".\"concurrency_key\" ASC LIMIT $2"
+    ]
+  },
+  "listener_sessions": 0,
+  "interval": 0.1,
+  "idle_seconds": 60.08594399993308,
+  "idle_sql_statements": 1424,
+  "event_driven": false,
+  "idle_sql_sources": {
+    "SELECT \"solid_queue_pauses\".\"queue_name\" FROM \"solid_queue_pauses\"": 312,
+    "BEGIN": 370,
+    "SELECT \"solid_queue_ready_executions\".\"id\", \"solid_queue_ready_executions\".\"job_id\" FROM \"solid_queue_ready_executions\" ORDER BY \"solid_queue_ready_executions\".\"priority\" ASC, \"solid_queue_ready_executions\".\"job_id\" ASC LIMIT $1 FOR UPDATE SKIP LOCKED": 312,
+    "COMMIT": 370,
+    "SELECT \"solid_queue_scheduled_executions\".\"job_id\" FROM \"solid_queue_scheduled_executions\" WHERE \"solid_queue_scheduled_executions\".\"scheduled_at\" <= $1 ORDER BY \"solid_queue_scheduled_executions\".\"scheduled_at\" ASC, \"solid_queue_scheduled_executions\".\"priority\" ASC, \"solid_queue_scheduled_executions\".\"job_id\" ASC LIMIT $2 FOR UPDATE SKIP LOCKED": 56,
+    "SELECT \"solid_queue_processes\".* FROM \"solid_queue_processes\" WHERE \"solid_queue_processes\".\"id\" = $1 LIMIT $2 FOR UPDATE": 2,
+    "UPDATE \"solid_queue_processes\" SET \"last_heartbeat_at\" = $1 WHERE \"solid_queue_processes\".\"id\" = $2": 2
+  },
+  "idle_queries_per_minute": 1421.963179942636,
+  "first_workspace_request_after_idle_ms": 56.13299994729459,
+  "workspace_sql_statements": 57,
+  "immediate_pickup_ms": {
+    "p50": 98.57899998314679,
+    "p95": 238.7800000142306,
+    "max": 252.1809998434037,
+    "samples": [
+      5.203000036999583,
+      8.639000123366714,
+      10.471999878063798,
+      11.984999990090728,
+      34.945999970659614,
+      36.03100008331239,
+      49.03799993917346,
+      55.36000011488795,
+      65.64899999648333,
+      80.81499999389052,
+      87.35599997453392,
+      91.27600002102554,
+      96.50200000032783,
+      98.3590001706034,
+      98.57899998314679,
+      101.45000019110739,
+      120.10499997995794,
+      122.86300002597272,
+      146.25700004398823,
+      153.0670002102852,
+      164.20100000686944,
+      164.28199992515147,
+      170.6110001541674,
+      192.96199991367757,
+      199.48799978010356,
+      206.1749999411404,
+      206.26100013032556,
+      225.40199989452958,
+      238.7800000142306,
+      252.1809998434037
+    ]
+  },
+  "scheduled_lateness_ms": 253.72599996626377,
+  "burst_30_completion_ms": 243.10700013302267,
+  "retry_completion_ms": 1767.0149998739362,
+  "restart_pickup_ms": 3.854000009596348
+}

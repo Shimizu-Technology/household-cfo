@@ -1,0 +1,151 @@
+{
+  "supervisor_prune_no_dead_processes": {
+    "count": 1,
+    "sql": [
+      "SELECT \"solid_queue_processes\".* FROM \"solid_queue_processes\" WHERE \"solid_queue_processes\".\"last_heartbeat_at\" <= $1 AND 1=1 ORDER BY \"solid_queue_processes\".\"id\" ASC LIMIT $2 FOR UPDATE SKIP LOCKED"
+    ]
+  },
+  "scheduler_heartbeat": {
+    "count": 4,
+    "sql": [
+      "BEGIN",
+      "SELECT \"solid_queue_processes\".* FROM \"solid_queue_processes\" WHERE \"solid_queue_processes\".\"id\" = $1 LIMIT $2 FOR UPDATE",
+      "UPDATE \"solid_queue_processes\" SET \"last_heartbeat_at\" = $1 WHERE \"solid_queue_processes\".\"id\" = $2",
+      "COMMIT"
+    ]
+  },
+  "enterprise_disabled_business_body": {
+    "count": 0,
+    "sql": []
+  },
+  "enterprise_recurring_enqueue": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (397, 'probe-enterprise', '2026-11-20 13:41:00.311771', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_synchronize_enterprise_admission": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (398, 'synchronize_enterprise_admission', '2026-11-20 13:41:00.321978', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_recover_document_extraction": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (399, 'recover_document_extraction', '2026-11-20 13:41:00.323517', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_recover_challenge_reminders": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (400, 'recover_challenge_reminders', '2026-11-20 13:41:00.325433', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_expire_challenge_source_leases": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (401, 'expire_challenge_source_leases', '2026-11-20 13:41:00.327354', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_recover_document_source_cleanup": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (402, 'recover_document_source_cleanup', '2026-11-20 13:41:00.329111', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_clear_solid_queue_finished_jobs": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (403, 'clear_solid_queue_finished_jobs', '2026-11-20 13:41:00.338786', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_recover_stale_plaid_items": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (404, 'recover_stale_plaid_items', '2026-11-20 13:41:00.340437', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_recover_stale_content_source_url_intakes": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (405, 'recover_stale_content_source_url_intakes', '2026-11-20 13:41:00.342270', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  },
+  "recurring_enqueue_redact_terminal_content_source_url_intakes": {
+    "count": 8,
+    "sql": [
+      "BEGIN",
+      "INSERT INTO \"solid_queue_jobs\" (\"active_job_id\", \"arguments\", \"class_name\", \"concurrency_key\", \"created_at\", \"finished_at\", \"priority\", \"queue_name\", \"scheduled_at\", \"updated_at\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING \"id\"",
+      "SAVEPOINT active_record_1",
+      "SELECT \"solid_queue_jobs\".* FROM \"solid_queue_jobs\" WHERE \"solid_queue_jobs\".\"id\" = $1 LIMIT $2",
+      "INSERT INTO \"solid_queue_ready_executions\" (\"created_at\", \"job_id\", \"priority\", \"queue_name\") VALUES ($1, $2, $3, $4) RETURNING \"id\"",
+      "RELEASE SAVEPOINT active_record_1",
+      "INSERT INTO \"solid_queue_recurring_executions\" (\"job_id\",\"task_key\",\"run_at\",\"created_at\") VALUES (406, 'redact_terminal_content_source_url_intakes', '2026-11-20 13:41:00.345718', CURRENT_TIMESTAMP) ON CONFLICT (\"task_key\",\"run_at\") DO NOTHING RETURNING \"id\"",
+      "COMMIT"
+    ]
+  }
+}
