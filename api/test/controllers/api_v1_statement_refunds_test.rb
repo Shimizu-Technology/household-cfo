@@ -200,6 +200,9 @@ class ApiV1StatementRefundsTest < ActionDispatch::IntegrationTest
     report = response.parsed_body.fetch("spending_report")
     assert_equal true, report.fetch("actual_known")
     assert_equal 0, HouseholdFinance::Money.cents!(report.fetch("totals").fetch("actual")), "A known $0, not a missing total"
+    clothing = report.fetch("categories").find { |row| row["id"] == @clothing.id }
+    assert_equal [ 0.0, true ], [ clothing.fetch("actual").to_f, clothing.fetch("has_activity") ]
+    assert_equal false, report.fetch("categories").find { |row| row["id"] == @groceries.id }&.fetch("has_activity") || false
   end
 
   test "a refund she leaves out or calls money in never reduces spending" do

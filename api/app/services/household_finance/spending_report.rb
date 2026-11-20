@@ -100,6 +100,8 @@ module HouseholdFinance
             category: category,
             planned_cents: allocation_sums[id].to_i,
             actual_cents: actual_sums[id].to_i,
+            # A confirmed purchase or counted refund landed here, even when they net to $0.
+            has_activity: actual_sums.key?(id),
             pending_cents: pending_sums[id].to_i
           }
         end.sort_by { |row| [ row.fetch(:category).sort_order, row.fetch(:category).name ] }
@@ -343,7 +345,8 @@ module HouseholdFinance
         actual: Money.dollars(actual_cents),
         pending: Money.dollars(pending_cents),
         remaining: Money.dollars(planned_cents - actual_cents),
-        active: category.active
+        active: category.active,
+        has_activity: row.fetch(:has_activity)
       }
     end
 

@@ -75,3 +75,20 @@ it('shows a month whose refunds outweigh its spending as a known negative amount
   expect(view.container.textContent).not.toContain('No confirmed transactions yet')
   expect(view.container.textContent).toContain('More came back in refunds this month than was spent.')
 })
+
+it('a group or category whose purchases and refunds cancel out is a known $0, not "no transactions"', () => {
+  const position = { id: 7, name: 'Clothing', stackKey: 'discretionary' as const, stackLabel: 'Flexible spending', planned: 100, actual: 0, pending: 0, remaining: 100, active: true, hasActivity: true }
+  const group = render(<ExpenseStackOverview positions={[position]} />)
+  const flexible = group.container.querySelector('.stack-discretionary') as HTMLElement
+  expect(flexible.textContent).toContain('$0 spent after refunds')
+  expect(flexible.textContent).toContain('$100 left in this group.')
+  expect(flexible.textContent).not.toContain('No confirmed transactions yet')
+  expect(flexible.textContent).not.toContain('Nothing spent against this plan yet.')
+  group.unmount()
+  const noPlan = render(<CategoryPressureList positions={[position]} planKnown={false} />)
+  expect(noPlan.container.textContent).toContain('$0 actual')
+  expect(noPlan.container.textContent).not.toContain('Approved spending not known yet')
+  noPlan.unmount()
+  const quiet = render(<ExpenseStackOverview positions={[{ ...position, hasActivity: false }]} />)
+  expect((quiet.container.querySelector('.stack-discretionary') as HTMLElement).textContent).toContain('No confirmed transactions yet')
+})

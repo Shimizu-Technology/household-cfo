@@ -99,7 +99,7 @@ export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, 
         {groups.map(({ stackKey, label, totals, positions: categories }) => {
           const known = categories.some(category => category.id !== 0) && !categories.some(category => category.id !== 0 && category.active && category.allocationMissing)
           const over = known ? subtractMoney(totals.actual, totals.planned) : 0
-          const spent = totals.actual > 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} spent` : totals.actual < 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} after refunds` : 'No confirmed transactions yet'
+          const spent = totals.actual > 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} spent` : totals.actual < 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} after refunds` : categories.some(category => category.hasActivity) ? `${formatReviewMoney(0)} spent after refunds` : 'No confirmed transactions yet'
           const value = known && totals.planned > 0 ? Math.min(100, Math.max(0, totals.actual / totals.planned * 100)) : known && totals.actual > 0 ? 100 : 0
           return <article className={`expense-stack-row stack-${stackKey}${over > 0 ? ' is-over' : ''}${formatReviewMoney(Math.round(Math.max(totals.planned, totals.actual) * 100)).length > 12 ? ' is-long-money' : ''}`} key={stackKey}>
             <details className="expense-group-details">
@@ -109,7 +109,7 @@ export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, 
                   <div id={`${titleId}-${stackKey}-values`} className="expense-group-money"><b>{known ? `${formatReviewMoney(Math.round(totals.planned * 100))} planned` : 'Not entered'}</b><span>{spent}</span></div>
                 </div>
                 {known && <div className="ui-track" aria-hidden="true" style={{ '--value': `${value}%` } as CSSProperties}><span className="ui-track__fill" /></div>}
-                <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
+                <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 && !categories.some(category => category.hasActivity) ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
               </summary>
               {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} ${category.actual < 0 ? 'after refunds' : 'spent'} · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.neverPlanned ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.neverPlanned && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" disabled={Boolean(planningBlockedReason)} aria-describedby={planningBlockedReason ? `${titleId}-${category.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.neverPlanned && !category.allocationMissing && <small id={`${titleId}-${category.id}-plan-blocked`}>{planningBlockedReason}</small>}</li>)}</ul>}
             </details>
@@ -139,7 +139,7 @@ export function CategoryPressureList({
   planKnown?: boolean
 }) {
   const titleId = useId()
-  const activePositions = positions.filter((position) => position.active && (planKnown || position.actual !== 0 || position.pending > 0))
+  const activePositions = positions.filter((position) => position.active && (planKnown || position.actual !== 0 || position.hasActivity || position.pending > 0))
   const rankedPositions = [...activePositions]
     .sort((left, right) => categoryPressureScore(right) - categoryPressureScore(left) || right.actual - left.actual)
     .slice(0, limit ?? activePositions.length)
@@ -180,7 +180,7 @@ export function CategoryPressureList({
               </div>
               {positionPlanKnown && <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />}
               <div className="category-pressure-values">
-                <span>{(planKnown && position.id !== 0) || position.actual !== 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
+                <span>{(planKnown && position.id !== 0) || position.actual !== 0 || position.hasActivity ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
                 {positionPlanKnown && <>
                   <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
                   <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>

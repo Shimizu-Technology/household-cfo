@@ -600,6 +600,8 @@ export type SpendingReportCategory = {
   pending: number
   remaining: number
   active?: boolean
+  /** A confirmed purchase or counted refund landed in this category this period, even when they net to $0. */
+  has_activity?: boolean
 }
 
 export type ArchivedBudgetCategory = {
