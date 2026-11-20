@@ -152,7 +152,7 @@ module Scorecard
             if !@correct_proposals && answer && @same_charge_ids.include?(entry.fetch(:event_id))
               excluded = entry.merge(decision: "leave_out").except(:edit)
               @household.with_lock { form.send(:apply!, plan, excluded, Hash.new(0)) }
-            elsif answer && corrected_same_purchase?(entry, answer)
+            elsif answer && corrected_same_purchase?(entry, answer, plan.line_for(entry.fetch(:event_id)))
               # Corrected to a purchase she already confirmed for this same event: the app has no "Same purchase" for an
               # edited line, so the careful answer is to leave the bank line out and let her confirmed purchase count once.
               excluded = entry.merge(decision: "leave_out").except(:edit)
@@ -169,11 +169,12 @@ module Scorecard
     end
 
     # A corrected line the app now matches to a purchase she confirmed, when that purchase is the same answer-key event.
-    def corrected_same_purchase?(entry, answer)
+    # Matched on the same facts the app checks: the corrected amount and date, and the line's own name when the edit has none.
+    def corrected_same_purchase?(entry, answer, line)
       edit = entry[:edit]
       return false unless edit && edit[:amount_cents].to_i.positive? && edit[:posted_on].present?
       match = REVIEW::ConfirmedPurchaseMatch.new(@household, dates: [ edit[:posted_on].to_date ])
-        .best(signed_amount_cents: -edit[:amount_cents].to_i, posted_on: edit[:posted_on].to_date, merchant: edit[:merchant])
+        .best(signed_amount_cents: -edit[:amount_cents].to_i, posted_on: edit[:posted_on].to_date, merchant: edit[:merchant].presence || line&.merchant)
       match && transaction_answers[match.transaction.id]&.fetch("event_id") == answer.fetch("event_id")
     end
 
