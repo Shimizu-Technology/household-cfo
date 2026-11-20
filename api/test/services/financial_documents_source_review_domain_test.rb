@@ -1,4 +1,5 @@
 require "test_helper"
+require "benchmark"
 
 class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
   OPS = HouseholdFinance::Operations::SourceReview
@@ -745,6 +746,47 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal "sent-to-someone:#{line.event.id}", version.external_reference
     assert_equal "family support", version.budget_category.name
     assert SpendingPatterns::Analyzer.protected_category?(version.budget_category.name)
+  end
+
+  test "large household statement save has bounded plan preparation and history reads" do
+    template = approve(stage(@source[:events].sole))
+    4.times do |account_number|
+      12.times do |month|
+        history = source((1..34).map { |i| movement(-10_000 - account_number * 1000 - i, row: i) }, period: "2026-%02d" % (month + 1))
+        identity = link(history)
+        history[:events].each do |event|
+          head = SourceReviewHead.create!(household: @household, financial_source_event: event)
+          attributes = template.attributes.except("id").merge("source_review_head_id" => head.id, "source_account_identity_version_id" => identity.id,
+            "signed_amount_cents" => event.signed_amount_cents, "purchase_amount_cents" => event.signed_amount_cents.abs,
+            "posted_on" => event.posted_on, "digest" => SecureRandom.hex(32))
+          version = SourceReviewVersion.create!(attributes)
+          head.update!(approved_version: version)
+        end
+      end
+    end
+    assert_operator SourceReviewHead.where(household: @household).count, :>=, 1500
+    HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).ensure_plan!
+    [ 1, 22, 100 ].each do |size|
+      fresh = source((1..size).map { |i| movement(-50_000 - i, row: i) })
+      link(fresh)
+      entries = fresh[:events].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: @category.id } } }
+      queries = []
+      elapsed = Benchmark.realtime do
+        ActiveSupport::Notifications.subscribed(->(*args) { payload = args.last; queries << payload[:sql] unless payload[:name] == "SCHEMA" }, "sql.active_record") do
+          @household.with_lock do
+            domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+            result = FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], { lines: entries }).call
+            assert_equal size, result[:approved]
+          end
+        end
+      end
+      puts "STATEMENT_SAVE size=#{size} seconds=#{elapsed.round(3)} queries=#{queries.length}"
+      assert_equal size, @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).count
+      unless ENV["STATEMENT_SAVE_BASELINE"]
+        refute queries.any? { |sql| sql.include?('SELECT "financial_source_events".*') && sql.include?("DISTINCT ON") && !sql.include?('"signed_amount_cents"') }, "Overlap checks must narrow the household history"
+        assert_operator queries.count { |sql| sql.include?('FROM "budget_allocations"') }, :<=, 12
+      end
+    end
   end
 
   private

@@ -28,6 +28,7 @@ module FinancialDocuments
         end
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
+        domain.projection_periods = {}
         domain.overlap_context = OverlapDetector::Context.new(household)
         check_account_heads!(entries)
         link_accounts!
@@ -43,6 +44,7 @@ module FinancialDocuments
         raise ArgumentError, "Statement review request is missing required fields"
       ensure
         domain.overlap_context = nil
+        domain.projection_periods = nil
       end
 
       private

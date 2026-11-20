@@ -33,8 +33,7 @@ module FinancialDocuments
             raise ArgumentError, "Resolve split funding before projecting its full purchase" unless linked
           end
           raise ArgumentError, "The expense date is outside supported budget years" unless HouseholdFinance::AnnualBudgetManager.supported_year?(version.posted_on.year)
-          manager = HouseholdFinance::AnnualBudgetManager.new(domain.household, year: version.posted_on.year)
-          replacement = domain.household.household_transactions.create!(budget_period: manager.current_period_for(version.posted_on),
+          replacement = domain.household.household_transactions.create!(budget_period: domain.projection_period_for(version.posted_on),
             financial_source_event: event, source_import: event.financial_extraction_revision.financial_document_import,
             occurred_on: version.posted_on, merchant: version.merchant, total_amount_cents: version.purchase_amount_cents,
             source_type: "statement", status: "confirmed", metadata: { source_review_version_id: version.id })

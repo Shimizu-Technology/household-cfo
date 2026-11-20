@@ -3,8 +3,7 @@ module FinancialDocuments
     class OverlapDetector
       CROSS_FILE_DAYS = 3
 
-      # What every line of one statement is compared against, read once. A statement that overlaps an earlier one
-      # (the same file uploaded twice) asks the question for every line, so reading this per line costs minutes.
+      # Shared account identities and narrowed current-picture matches for a save.
       class Context
         def initialize(household)
           @household = household
@@ -12,60 +11,49 @@ module FinancialDocuments
 
         # After a write. The lines of every statement stay as they are while a page is saved; what has been approved, drafted or linked does.
         def refresh!
-          @heads = @pending = @accounts = @tracked = @reviewed_index = nil
+          @heads = @pending = @accounts = @tracked = nil
           self
         end
 
-        def heads = @heads ||= SourceReviewHead.where(household: @household).includes(:approved_version).index_by(&:financial_source_event_id)
-        def pending = @pending ||= SourceReviewDraft.where(household: @household).pending.index_by(&:source_review_head_id)
+        attr_reader :heads, :pending
+
         def accounts = @accounts ||= SourceAccountReviewHead.where(household: @household).includes(:approved_version).index_by(&:financial_source_account_id)
-        def events = @events ||= FinancialSourceEvent.where(household: @household)
-          .where(financial_extraction_revision_id: FinancialExtractionRevision.where(household: @household).where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)").select("DISTINCT ON (financial_document_import_id, source_document_identity) id").order(:financial_document_import_id, :source_document_identity, revision_number: :desc, id: :desc)).includes(:financial_source_evidence, financial_extraction_revision: :financial_document_import).to_a
         def tracked_account_for(identity_id) = (@tracked ||= {}).fetch(identity_id) { @tracked[identity_id] = SourceAccountIdentityVersion.find_by(household: @household, id: identity_id)&.source_tracked_account_id }
-        # Compare rows in the amount bucket, plus physical rows and reviewed
-        # references that can be strong matches even when amounts have changed.
+
+        # Read only possible matches from the current picture. Source, approved
+        # and pending facts all participate; edited amounts must not hide copies.
+        # Physical rows and reviewed references are strong regardless of date/amount.
         def candidates(facts, artifact, locator)
-          amount = facts[:signed_amount_cents]
-          row_key = [ artifact, locator ] if artifact.present? && locator&.fetch("row", nil).to_i.positive?
-          reference = facts[:external_reference].presence
-          ids = source_index[:amount].fetch(amount, []) + reviewed_index[:amount].fetch(amount, [])
-          ids += source_index[:artifact].fetch(row_key, []) + reviewed_index[:artifact].fetch(row_key, []) if row_key
-          ids += reviewed_index[:reference].fetch(reference, []) if reference
-          ids.uniq.filter_map { |id| events_by_id[id] }
-        end
-
-        private
-
-        def events_by_id = @events_by_id ||= events.index_by(&:id)
-
-        def source_index
-          @source_index ||= indexes do |index|
-            events.each do |row|
-              index[:amount][row.signed_amount_cents] << row.id if row.signed_amount_cents
-              checksum = row.financial_extraction_revision.financial_document_import&.checksum_sha256
-              index[:artifact][[ checksum, row.locator ]] << row.id if checksum.present? && row.locator&.fetch("row", nil).to_i.positive?
-            end
+          scope = FinancialSourceEvent.where(household: @household)
+          revisions = FinancialExtractionRevision.where(household: @household)
+            .where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)")
+            .select("DISTINCT ON (financial_document_import_id, source_document_identity) id")
+            .order(:financial_document_import_id, :source_document_identity, revision_number: :desc, id: :desc)
+          versions = SourceReviewVersion.where(household: @household)
+          matches = scope.none
+          reviewed = versions.none
+          if facts[:signed_amount_cents] && facts[:posted_on].present?
+            day = facts[:posted_on].to_date
+            days = (day - CROSS_FILE_DAYS)..(day + CROSS_FILE_DAYS)
+            matches = matches.or(scope.where(signed_amount_cents: facts[:signed_amount_cents], posted_on: days))
+            reviewed = reviewed.or(versions.where(signed_amount_cents: facts[:signed_amount_cents], posted_on: days))
+            drafts = SourceReviewDraft.where(household: @household).pending
+              .where("facts->>'signed_amount_cents' = ? AND facts->>'posted_on' BETWEEN ? AND ?", facts[:signed_amount_cents].to_s, days.begin.iso8601, days.end.iso8601)
+            matches = matches.or(scope.where(id: SourceReviewHead.where(id: drafts.select(:source_review_head_id)).select(:financial_source_event_id)))
           end
-        end
-
-        def reviewed_index
-          @reviewed_index ||= indexes do |index|
-            heads.each do |id, head|
-              row = events_by_id[id]
-              next unless row
-
-              approved = head.approved_version
-              amount = approved ? approved.signed_amount_cents : pending[head.id]&.facts&.fetch("signed_amount_cents", nil)
-              index[:amount][amount] << id if amount
-              checksum = approved&.source_artifact_digest
-              index[:artifact][[ checksum, row.locator ]] << id if checksum.present? && row.locator&.fetch("row", nil).to_i.positive?
-              index[:reference][approved.external_reference] << id if approved&.external_reference.present?
-            end
+          if artifact.present? && locator&.fetch("row", nil).to_i.positive?
+            imports = FinancialDocumentImport.where(household: @household, checksum_sha256: artifact)
+            physical = scope.where(locator: locator)
+            matches = matches.or(physical.where(financial_extraction_revision_id: FinancialExtractionRevision.where(financial_document_import_id: imports.select(:id)).select(:id)))
+            artifact_heads = SourceReviewHead.where(approved_version_id: versions.where(source_artifact_digest: artifact).select(:id))
+            matches = matches.or(physical.where(id: artifact_heads.select(:financial_source_event_id)))
           end
-        end
-
-        def indexes
-          %i[amount artifact reference].index_with { Hash.new { |hash, key| hash[key] = [] } }.tap { |index| yield index }
+          reviewed = reviewed.or(versions.where(external_reference: facts[:external_reference])) if facts[:external_reference].present?
+          matches = matches.or(scope.where(id: SourceReviewHead.where(approved_version_id: reviewed.select(:id)).select(:financial_source_event_id)))
+          rows = matches.where(financial_extraction_revision_id: revisions).includes(:financial_source_evidence, financial_extraction_revision: :financial_document_import).to_a
+          @heads = SourceReviewHead.where(household: @household, financial_source_event_id: rows.map(&:id)).includes(approved_version: :matched_version).index_by(&:financial_source_event_id)
+          @pending = SourceReviewDraft.where(household: @household, source_review_head_id: @heads.values.map(&:id)).pending.index_by(&:source_review_head_id)
+          rows
         end
       end
 
@@ -76,11 +64,13 @@ module FinancialDocuments
       end
 
       def call
-        heads, pending, accounts = context.heads, context.pending, context.accounts
+        accounts = context.accounts
         own_account = @unlinked ? nil : context.tracked_account_for(facts[:source_account_identity_version_id])
         own_revision = event.financial_extraction_revision
         artifact = own_revision.financial_document_import&.checksum_sha256
-        context.candidates(facts, artifact, event.locator).filter_map do |other|
+        candidates = context.candidates(facts, artifact, event.locator)
+        heads, pending = context.heads, context.pending
+        candidates.filter_map do |other|
           next if other.id == event.id
           other_revision = other.financial_extraction_revision
           same_source = if own_revision.financial_document_import_id && other_revision.financial_document_import_id

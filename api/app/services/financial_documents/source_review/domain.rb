@@ -6,10 +6,21 @@ module FinancialDocuments
       StaleReview = Class.new(ArgumentError)
       attr_reader :household, :user
       # A bulk save sets one so every line is checked against the same read of the household's events; it refreshes it after each write.
-      attr_accessor :overlap_context
+      attr_accessor :overlap_context, :projection_periods
 
       def initialize(household, user: nil)
         @household, @user = household, user
+      end
+
+      # Only a page save enables this cache, while holding the household lock.
+      # Projection writes cannot change plan inputs; each year's provisioning
+      # therefore has the same result once as it would for every line.
+      def projection_period_for(date)
+        manager = HouseholdFinance::AnnualBudgetManager.new(household, year: date.year)
+        return manager.current_period_for(date) unless projection_periods
+
+        periods = projection_periods[date.year] ||= manager.ensure_plan_inside_household_lock!.budget_periods.index_by(&:starts_on)
+        periods.fetch(date.beginning_of_month)
       end
 
       def authorize!(subject = nil)
