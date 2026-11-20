@@ -122,6 +122,7 @@ module FinancialDocuments
         suggestions, earlier = suggested_categories(events)
         accounts = revision.financial_source_accounts.index_by(&:id)
         candidates = overlap_candidates(events)
+        overlap_context.preload!(events.select { |event| candidates.include?(event.id) }, revision.financial_document_import&.checksum_sha256) if candidates.any?
         events.map do |event|
           merchant = self.class.merchant_for(event)
           if event.event_type == "cash_withdrawal"

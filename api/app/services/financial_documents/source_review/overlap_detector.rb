@@ -11,7 +11,7 @@ module FinancialDocuments
 
         # After a write. The lines of every statement stay as they are while a page is saved; what has been approved, drafted or linked does.
         def refresh!
-          @heads = @pending = @accounts = @tracked = nil
+          @heads = @pending = @accounts = @tracked = @preloaded = nil
           self
         end
 
@@ -23,7 +23,22 @@ module FinancialDocuments
         # Read only possible matches from the current picture. Source, approved
         # and pending facts all participate; edited amounts must not hide copies.
         # Physical rows and reviewed references are strong regardless of date/amount.
+        # A read-only page shares one narrowed superset, then applies the exact
+        # rules per line. Saves use fresh SQL instead, so earlier writes count.
+        def preload!(events, artifact)
+          dated = events.select { |event| event.signed_amount_cents && event.posted_on }
+          days = dated.map(&:posted_on)
+          window = ((days.min - CROSS_FILE_DAYS)..(days.max + CROSS_FILE_DAYS)) if days.any?
+          @preloaded = read_candidates({ signed_amount_cents: dated.map(&:signed_amount_cents).uniq }, artifact, nil, days: window, all_physical: true)
+        end
+
         def candidates(facts, artifact, locator)
+          @preloaded || read_candidates(facts, artifact, locator)
+        end
+
+        private
+
+        def read_candidates(facts, artifact, locator, days: nil, all_physical: false)
           scope = FinancialSourceEvent.where(household: @household)
           revisions = FinancialExtractionRevision.where(household: @household)
             .where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)")
@@ -32,18 +47,18 @@ module FinancialDocuments
           versions = SourceReviewVersion.where(household: @household)
           matches = scope.none
           reviewed = versions.none
-          if facts[:signed_amount_cents] && facts[:posted_on].present?
-            day = facts[:posted_on].to_date
-            days = (day - CROSS_FILE_DAYS)..(day + CROSS_FILE_DAYS)
+          if days || (facts[:signed_amount_cents] && facts[:posted_on].present?)
+            day = facts[:posted_on].to_date unless days
+            days ||= (day - CROSS_FILE_DAYS)..(day + CROSS_FILE_DAYS)
             matches = matches.or(scope.where(signed_amount_cents: facts[:signed_amount_cents], posted_on: days))
             reviewed = reviewed.or(versions.where(signed_amount_cents: facts[:signed_amount_cents], posted_on: days))
             drafts = SourceReviewDraft.where(household: @household).pending
-              .where("facts->>'signed_amount_cents' = ? AND facts->>'posted_on' BETWEEN ? AND ?", facts[:signed_amount_cents].to_s, days.begin.iso8601, days.end.iso8601)
+              .where("facts->>'signed_amount_cents' IN (?) AND facts->>'posted_on' BETWEEN ? AND ?", Array(facts[:signed_amount_cents]).map(&:to_s), days.begin.iso8601, days.end.iso8601)
             matches = matches.or(scope.where(id: SourceReviewHead.where(id: drafts.select(:source_review_head_id)).select(:financial_source_event_id)))
           end
-          if artifact.present? && locator&.fetch("row", nil).to_i.positive?
+          if artifact.present? && (all_physical || locator&.fetch("row", nil).to_i.positive?)
             imports = FinancialDocumentImport.where(household: @household, checksum_sha256: artifact)
-            physical = scope.where(locator: locator)
+            physical = all_physical ? scope : scope.where(locator: locator)
             matches = matches.or(physical.where(financial_extraction_revision_id: FinancialExtractionRevision.where(financial_document_import_id: imports.select(:id)).select(:id)))
             artifact_heads = SourceReviewHead.where(approved_version_id: versions.where(source_artifact_digest: artifact).select(:id))
             matches = matches.or(physical.where(id: artifact_heads.select(:financial_source_event_id)))
