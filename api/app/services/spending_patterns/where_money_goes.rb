@@ -54,13 +54,16 @@ module SpendingPatterns
       return if compared.empty?
 
       all_planned = planned.values.sum
-      months = @patterns[:coverage][:months]
+      months = recorded_months
       span = months.one? ? "for #{Date.iso8601("#{months.first[:month]}-01").strftime('%B')}" : "for those months"
       "Against your plan #{span}: #{compared.to_sentence}. In all, #{money(total)} went out against #{money(all_planned)} planned for spending."
     end
 
+    # Months with no reviewed purchases are unknown, not $0 against their plan.
+    def recorded_months = @patterns[:coverage][:months].select { |row| row[:spending_cents] }
+
     def planned_by_category
-      months = @patterns[:coverage][:months].map { |row| Date.iso8601("#{row[:month]}-01") }
+      months = recorded_months.map { |row| Date.iso8601("#{row[:month]}-01") }
       return if months.empty? || months.first < HouseholdFinance::PlanCoverage.new(@household).starts_on
 
       months.group_by(&:year).each_with_object(Hash.new(0)) do |(year, in_year), totals|
