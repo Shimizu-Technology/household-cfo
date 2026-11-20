@@ -770,6 +770,7 @@ describe('cash purchases', () => {
     const props = stackProps([lunch])
     const { rerender } = render(<TransactionDraftReviewStack {...props} />)
     expect(screen.getByText('Which cash paid for this $40?')).toBeTruthy()
+    expect(screen.getByText('Your cash already counted when you took it out, so choosing it doesn’t add to your spending.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Yes: Tasi Demo Cafe $40 on Aug 5 was paid with the $60 you took out on Jul 20' }))
     await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(lunch, { cashWithdrawalEventId: 903 }))
     expect(screen.getByText('The $100 you took out on Aug 3').tagName).toBe('BUTTON')

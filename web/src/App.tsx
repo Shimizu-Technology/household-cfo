@@ -8633,7 +8633,7 @@ function TransactionDraftReviewCard({
             {askCash ? (
               <div className="transaction-duplicate-question__row">
                 <p>{cashPayment.question}</p>
-                <small>Your cash already counted when you took it out, so Yes doesn’t add to your spending.</small>
+                <small>Your cash already counted when you took it out, so {cashCandidates.length === 1 ? 'Yes doesn’t' : 'choosing it doesn’t'} add to your spending.</small>
                 {cashAnswerButtons}
               </div>
             ) : cashPayment.message && <p className="transaction-cash-question__note">{cashPayment.message}</p>}
