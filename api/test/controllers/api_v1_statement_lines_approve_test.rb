@@ -1381,6 +1381,20 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_response :conflict
   end
 
+  test "grouped category save refuses an account suggestion created after the question loaded" do
+    fresh = build_source(label: "Fictional group checking", rows: [ [ "New shop", -1200, "purchase", 2 ], [ "New shop", -2200, "purchase", 9 ] ])
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    rows = plan.lines.map { |line| { event_id: line.event.id, revision_id: fresh[:revision].id, expected_head: line.expected_head, decision: "edited", edit: { category_id: @groceries.id } } }
+    account = fresh[:revision].financial_source_accounts.sole
+    assert_nil FinancialDocuments::SourceReview::AccountMatch.suggested(@household, "Fictional group checking", "asset", account: account)
+    track("Fictional group checking")
+    assert_no_difference [ "SourceReviewVersion.count", "SourceAccountIdentityVersion.count" ] do
+      approve_lines({ store_lines: rows, accounts: [ { source_account_id: account.id, expected_tracked_account_id: nil } ] }, source: fresh)
+    end
+    assert_response :conflict
+    assert_includes response.body, "Your saved accounts changed"
+  end
+
   test "one store answer saves category questions across current statements" do
     first = build_source(rows: [ [ "New shop", -1200, "purchase", 2 ] ])
     second = build_source(rows: [ [ "New shop", -2200, "purchase", 9 ] ])

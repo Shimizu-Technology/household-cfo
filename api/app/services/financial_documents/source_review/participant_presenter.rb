@@ -77,7 +77,7 @@ module FinancialDocuments
       end
 
       def store_groups(plan, names)
-        local = plan.attention.select { |line| !line.done && line.kind.in?(%i[no_category suggested_category still_category]) && line.merchant.present? }
+        local = plan.category_lines
         return [] if local.empty?
         keys = local.map { |line| MerchantNormalizer.call(line.merchant).to_s.downcase.squish }.to_set
         rows = local.map { |line| attention_row(line, names).merge(revision_id: revision.id, statement_name: revision.financial_document_import&.filename) }
@@ -87,8 +87,8 @@ module FinancialDocuments
           other = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
           next unless other
           other_plan = ParticipantPlan.new(household, other)
-          other_plan.attention.each do |line|
-            next if line.done || !line.kind.in?(%i[no_category suggested_category still_category]) || !keys.include?(MerchantNormalizer.call(line.merchant).to_s.downcase.squish)
+          other_plan.category_lines.each do |line|
+            next unless keys.include?(MerchantNormalizer.call(line.merchant).to_s.downcase.squish)
             next unless line.expected_head[:account_version_id]
             rows << attention_row(line, names).merge(revision_id: other.id, statement_name: document.filename)
           end

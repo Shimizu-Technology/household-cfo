@@ -69,9 +69,12 @@ module FinancialDocuments
       def ready_ids = lines.select { |line| line.ready? && !line.done }.map { |line| line.event.id }
       # A saved purchase with no category counts nowhere, so it stays on her list as "What was this for?" until she picks one or leaves it out.
       def attention = lines.select { |line| line.without_category || !(line.ready? || line.done) }
+      def category_lines
+        attention.select { |line| !line.done && !review_heads[line.event.id]&.source_review_drafts&.any? { |draft| draft.status == "pending" } && line.kind.in?(%i[no_category suggested_category still_category]) && line.merchant.present? }
+      end
+
       def category_groups
-        attention.select { |line| !line.done && line.kind.in?(%i[no_category suggested_category still_category]) && line.merchant.present? }
-          .group_by { |line| merchant_key(line.merchant) }.values.flat_map { |group| group.each_slice(100).to_a }.select { |group| group.length > 1 }
+        category_lines.group_by { |line| merchant_key(line.merchant) }.values.flat_map { |group| group.each_slice(100).to_a }.select { |group| group.length > 1 }
       end
 
       # Only an unambiguous approved statement copy can share this answer.
@@ -87,7 +90,7 @@ module FinancialDocuments
           next false if TransferPairs.person_payment?(line.event, line.merchant)
           next false if line.event.event_type.in?(%w[transfer debt_payment]) && transfer_pairs.candidate(line.event)
           approved = line.overlaps.select { |row| row[:approved_version_id] }
-          next false unless approved.one? && approved.first[:pending_draft_id].nil?
+          next false unless line.overlaps.one? && approved.one? && approved.first[:pending_draft_id].nil?
           next false unless claims[approved.first[:approved_version_id]] == 1
           match = overlap_context.heads[approved.first[:event_id]]&.approved_version
           own = overlap_context.accounts[line.event.financial_source_account_id]&.approved_version
@@ -159,7 +162,7 @@ module FinancialDocuments
 
       def build
         events = revision.financial_source_events.includes(:financial_source_evidence, financial_extraction_revision: :financial_document_import).order(:position, :id).to_a
-        heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(approved_version: { source_account_identity_version: :source_account_review_head }).index_by(&:financial_source_event_id)
+        heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(:source_review_drafts, approved_version: { source_account_identity_version: :source_account_review_head }).index_by(&:financial_source_event_id)
         @review_heads = heads
         categories = review_categories.map(&:id).to_set
         suggestions, earlier = suggested_categories(events)

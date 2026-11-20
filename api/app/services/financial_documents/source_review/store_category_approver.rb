@@ -22,6 +22,7 @@ module FinancialDocuments
         lines = plans.values.flat_map do |_, plan, entries|
           entries.map do |entry|
             line = plan.line_for(entry[:event_id]) || raise(ActiveRecord::RecordNotFound)
+            raise Domain::StaleReview, "This line has a pending correction. Review it individually." if plan.review_heads[line.event.id]&.source_review_drafts&.any? { |draft| draft.status == "pending" }
             saved = plan.review_heads[line.event.id]&.approved_version
             retrying = line.done && saved&.disposition == "include" && saved.expense? && saved.budget_category_id == entry[:edit][:category_id]
             unless retrying || (!line.done && line.kind.in?(%i[no_category suggested_category still_category]))
@@ -33,11 +34,13 @@ module FinancialDocuments
         raise ArgumentError, "Choose one store" unless lines.map { |line| MerchantNormalizer.call(line.merchant).to_s.downcase.squish }.uniq.one?
         counts = Hash.new(0)
         plans.each_value do |other, _plan, entries|
-          entries.each_slice(LineApprover::MAX_LINES) do |page|
+          entries.each_slice(LineApprover::MAX_LINES).with_index do |page, page_index|
             prepared = page.map do |entry|
               entry.except(:revision_id).merge(edit: { kind: "spending", category_id: entry[:edit][:category_id] })
             end
-            result = LineApprover.new(domain, other, { lines: prepared }.merge(other.id == revision.id ? input.slice(:coverage_answer, :expected_coverage_id) : {}), cohort_membership: membership).call
+            options = other.id == revision.id ? input.slice(:coverage_answer, :expected_coverage_id) : {}
+            options = options.merge(input.slice(:accounts)) if other.id == revision.id && page_index.zero?
+            result = LineApprover.new(domain, other, { lines: prepared }.merge(options), cohort_membership: membership).call
             result.each { |key, value| counts[key] += value if value.is_a?(Integer) }
           end
         end

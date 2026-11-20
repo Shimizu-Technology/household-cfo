@@ -2,6 +2,27 @@ require "test_helper"
 require Rails.root.join("lib/scorecard/runner")
 
 class ScorecardApprovalSimulatorTest < ActiveSupport::TestCase
+  test "a confirmed category joins only the matching store category" do
+    simulator = Scorecard::ApprovalSimulator.allocate
+    line = Struct.new(:event, :category_id).new(Object.new, 5)
+    plan = Object.new
+    plan.define_singleton_method(:line_for) { |_| line }
+    refute simulator.send(:category_only?, { event_id: 1, decision: "keep" }, plan, 4)
+    assert simulator.send(:category_only?, { event_id: 1, decision: "keep" }, plan, 5)
+  end
+
+  test "bulk repeats require answer key agreement with the entire offered list" do
+    simulator = Scorecard::ApprovalSimulator.allocate
+    simulator.instance_variable_set(:@row_answers, (1..3).to_h { |id| [ id + 10, { "event_id" => id, "leg_id" => id } ] })
+    lines = (1..3).map { |id| Struct.new(:event, :overlaps).new(Struct.new(:id).new(id), [ { approved_version_id: id, event_id: id + 10 } ]) }
+    plan = Struct.new(:repeated_lines).new(lines)
+    mappings = (1..3).to_h { |id| [ id, { "event_id" => id, "leg_id" => id } ] }
+    mappings[3] = { "event_id" => 99, "leg_id" => 99 }
+    assert_empty simulator.send(:confirmed_repeats, plan, mappings)
+    mappings[3] = { "event_id" => 3, "leg_id" => 3 }
+    assert_equal lines, simulator.send(:confirmed_repeats, plan, mappings)
+  end
+
   test "store category eligibility leaves type and direction corrections individual" do
     simulator = Scorecard::ApprovalSimulator.allocate
     row = Struct.new(:signed_amount_cents, :posted_on).new(-1000, Date.new(2026, 7, 2))

@@ -65,12 +65,7 @@ module Scorecard
       # A page is reviewed as displayed; answers on that page do not magically
       # teach the earlier questions on the same page a new category.
       initial = REVIEW::ParticipantPlan.new(@household, revision)
-      repeats = initial.repeated_lines.select do |line|
-        answer = mappings[line.event.id]
-        twin = line.overlaps.find { |row| row[:approved_version_id] }
-        other = twin && row_answers[twin[:event_id]]
-        answer && other && answer["event_id"] == other["event_id"] && leg_key(answer) == leg_key(other)
-      end
+      repeats = confirmed_repeats(initial, mappings)
       if repeats.length > 1
         count(doc, :repeated_file)
         entries = repeats.map do |line|
@@ -285,12 +280,24 @@ module Scorecard
       { "income" => "money_in", "transfer" => "moved", "debt_payment" => "card", "cash_withdrawal" => "cash", "refund" => "refund" }[row.event_type] || "spending"
     end
 
+    def confirmed_repeats(plan, mappings)
+      offered = plan.repeated_lines
+      repeats = offered.select do |line|
+        answer = mappings[line.event.id]
+        twin = line.overlaps.find { |row| row[:approved_version_id] }
+        other = twin && row_answers[twin[:event_id]]
+        answer && other && answer["event_id"] == other["event_id"] && leg_key(answer) == leg_key(other)
+      end
+      repeats.length == offered.length ? repeats : []
+    end
+
     def category_only?(entry, plan, category)
-      row = plan.line_for(entry[:event_id]).event
+      line = plan.line_for(entry[:event_id])
+      row = line.event
       edit = entry[:edit]
-      entry[:decision] != "leave_out" && (!edit || (
+      entry[:decision] != "leave_out" && (edit ? (
         edit[:kind] == "spending" && edit[:amount_cents] == row.signed_amount_cents&.abs &&
-        edit[:posted_on] == row.posted_on&.iso8601 && edit[:money_direction] == "out" && edit[:category_id] == category))
+        edit[:posted_on] == row.posted_on&.iso8601 && edit[:money_direction] == "out" && edit[:category_id] == category) : line.category_id == category)
     end
 
     def record_included_legs(entries)
