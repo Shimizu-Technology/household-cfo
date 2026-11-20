@@ -38,14 +38,16 @@ The local stack was stopped and reset. Owned test databases are dropped before d
 
 The local round-1 timings hid the production cost: each query crosses from the Render app to Postgres. Round 2 batches the request's reads under the household lock. It reuses the participant plan's events, heads, accounts and categories; checks all operation permissions against one resolved runtime; preloads identities, pending drafts, existing spending and legacy drafts; and discovers affected revisions once. The overlap superset covers source facts and edited amount/date facts, and receives every newly approved head before the next line. Coverage is computed once after the writes. Annual plan provisioning still runs once per affected year, with existing allocation keys read together. All model validations, fact checks, optimistic head/draft checks and duplicate rules still run.
 
-Measured on the same 1,632-line fictional history, before the final integration run:
+Measured on the same 1,632-line fictional history at implementation `612965c8`, based on `b6dea2c8b077dcc9d85841c124fdf7ef7baa17ac`:
 
 | Lines | Round 1 local seconds | Queries | Queries/line | Estimated seconds at 10 ms/query | Round 2 local seconds | Queries | Queries/line | Estimated seconds at 10 ms/query |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.250 | 242 | 242.00 | 2.42 | 0.054 | 60 | 60.00 | 0.60 |
-| 22 | 2.206 | 2,456 | 111.64 | 24.56 | 0.235 | 233 | 10.59 | 2.33 |
-| 100 | 9.941 | 10,667 | 106.67 | 106.67 | 0.984 | 857 | 8.57 | 8.57 |
+| 1 | 0.250 | 242 | 242.00 | 2.42 | 0.030 | 60 | 60.00 | 0.60 |
+| 22 | 2.206 | 2,456 | 111.64 | 24.56 | 0.145 | 233 | 10.59 | 2.33 |
+| 100 | 9.941 | 10,667 | 106.67 | 106.67 | 0.669 | 857 | 8.57 | 8.57 |
 
 The estimate counts only query round trips, not execution, CPU, rendering or other network time. SQL notifications include transaction statements. The regression test caps saves at 60 / 250 / 875 queries. `PROFILE_SAVE=1` writes grouped SQL and application caller locations to `/tmp/hcfo-query-profile-{size}.txt`. The remaining linear cost is eight writes per projected line: head, draft, approved version, transaction, split and projection inserts, then head and draft updates. This keeps append-only history and every model validation.
 
-Chromium on the real local stack (3424/5424) uploaded the fictional Bank of Guam CSV, linked its account, answered coverage and all four questions, then approved the remaining 23 lines. The bulk HTTP request took 0.297 seconds versus 1.448 seconds in round 1 (1.521 before the PR); all 27 lines saved and August Budget showed exactly $2,326.66. Production and mobile Safari are not run. Shared preview initially opened localhost, which failed CORS; the same browser passed using the launcher's 127.0.0.1 origin. The launcher's existing Unicode interpolation issue again needed a temporary local workaround; it was restored and is excluded from the PR.
+Chromium on the real local stack (3424/5424) uploaded the fictional Bank of Guam CSV, linked its account, answered coverage and all four questions, then approved the remaining 23 lines. The bulk HTTP request took 0.402 seconds on `95f68d8d` (an earlier round-2 run took 0.297) versus 1.448 seconds in round 1 (1.521 before the PR); all 27 lines saved and August Budget showed exactly $2,326.66. Production and mobile Safari are not run. Shared preview initially opened localhost, which failed CORS; the same browser passed using the launcher's 127.0.0.1 origin. The launcher's existing Unicode interpolation issue again needed a temporary local workaround; it was restored and is excluded from the PR.
+
+The follow-up category regression at `612965c8` proves that a category snapshot on the first line retains the metadata seen before Budget provisioning, while subsequent lines see any metadata that provisioning refreshed, just as separate domain approvals do. Both full and fast scorecard JSON outputs are byte-identical to their committed baseline files (SHA-256 `77e9b71b12ae66ce3867e6ffafa8dc0e3b46aa53598da1b3e7b54fef65984693` and `80f859b3f1d4d8ae68937a9849777429fb50aa805bcd4f2b162e309cf8d026d9`).
