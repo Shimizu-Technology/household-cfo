@@ -99,6 +99,27 @@ class ApiV1StatementConfirmedPurchaseTest < ActionDispatch::IntegrationTest
     assert_equal 18_488, budget_actual(@household_goods, month: 6), "She chose to count all of the receipt; the bank line adds nothing"
   end
 
+  test "Same purchase is refused when the purchase's amount changed after the question was shown" do
+    receipt = purchase("Payless Supermarkets", "2026-08-03", { @groceries => 5000 })
+    statement = build_source([ [ "PAYLESS SUPERMARKETS", -5000, "purchase", "2026-08-03" ] ])
+    line = statement[:revision].financial_source_events.sole
+    row = plan(statement).fetch("attention").sole
+    assert_equal "same_purchase", row.fetch("kind")
+
+    receipt.update_columns(total_amount_cents: 6000)
+    same_purchase(statement, line, row)
+    assert_response :conflict
+    assert_nil SourceReviewHead.find_by(financial_source_event: line)&.approved_version, "Nothing is saved as a match"
+  end
+
+  test "a statement purchase without its line link is never offered as one she confirmed" do
+    purchase("Payless Supermarkets", "2026-08-03", { @groceries => 5000 }, source_type: "statement")
+    statement = build_source([ [ "PAYLESS SUPERMARKETS", -5000, "purchase", "2026-08-03" ] ])
+    row = plan(statement).fetch("attention").sole
+    refute_equal "same_purchase", row.fetch("kind")
+    assert_nil row["purchase_match"]
+  end
+
   test "an answer about a purchase that changed is refused, and a reopened receipt brings the bank line back" do
     receipt = purchase("Payless Supermarkets", "2026-08-03", { @groceries => 5000 })
     statement = build_source([ [ "PAYLESS SUPERMARKETS", -5000, "purchase", "2026-08-03" ] ])

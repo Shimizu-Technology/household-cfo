@@ -223,7 +223,8 @@ module FinancialDocuments
         when "as_read" then line.kind == :refund_category ? base.merge(budget_category_id: line.category_id) : base
         when "different" then base.merge(overlap_disposition: "distinct")
         # The same purchase as one she confirmed: the line is the bank's record of it and counts nowhere itself.
-        when "same_purchase" then base.merge(disposition: "match", matched_transaction_id: line.purchase_match.transaction.id, budget_category_id: nil, overlap_disposition: "match")
+        # No match any more (the purchase changed) is refused as stale by check_allowed!, never saved.
+        when "same_purchase" then base.merge(disposition: "match", matched_transaction_id: line.purchase_match&.transaction&.id, budget_category_id: nil, overlap_disposition: "match")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
         else edited_facts(base, edit, saved: saved&.disposition == "include")
         end

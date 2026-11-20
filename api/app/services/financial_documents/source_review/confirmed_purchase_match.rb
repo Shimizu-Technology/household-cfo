@@ -67,7 +67,7 @@ module FinancialDocuments
       # Still the same purchase she said it was: counted, not from a statement, and not taken by another line.
       def self.current?(household, version)
         transaction = household.household_transactions.find_by(id: version.matched_transaction_id)
-        return false unless transaction && transaction.status.in?(COUNTED) && transaction.financial_source_event_id.nil?
+        return false unless transaction && transaction.status.in?(COUNTED) && transaction.financial_source_event_id.nil? && transaction.source_type != "statement"
 
         SourceReviewVersion.joins(:source_review_head).where(household: household, matched_transaction_id: transaction.id)
           .where("source_review_heads.approved_version_id = source_review_versions.id")
@@ -87,7 +87,8 @@ module FinancialDocuments
       end
 
       def read_pool(range)
-        household.household_transactions.where(status: COUNTED, financial_source_event_id: nil, occurred_on: range)
+        # A statement purchase is never one she confirmed herself, even one whose source line link is missing.
+        household.household_transactions.where(status: COUNTED, financial_source_event_id: nil, occurred_on: range).where.not(source_type: "statement")
           .includes(:transaction_drafts, transaction_splits: :budget_category).order(:id).to_a.tap { |rows| remember(rows) }
       end
 
