@@ -220,6 +220,18 @@ class ApiV1StatementConfirmedPurchaseTest < ActionDispatch::IntegrationTest
       assert_nil SourceReviewHead.find_by(financial_source_event: line)&.approved_version
       assert_equal [ receipt.id ], @household.household_transactions.where(status: "confirmed").pluck(:id)
     end
+    same_purchase(statement, line, row)
+    assert_response :success, response.body
+    saved = SourceReviewHead.find_by!(financial_source_event: line).approved_version_id
+    # Model a stale line question against an account that is already linked.
+    retry_row = row.merge("expected_head" => row.fetch("expected_head").merge("account_version_id" => saved_head(line).fetch("account_version_id")))
+    approve(statement, [ { event_id: line.id, decision: "same_purchase", match_transaction_id: receipt.id,
+      shown: row.slice("event_type", "category_id"), expected_head: retry_row.fetch("expected_head"), edit: { amount_cents: 6000 } } ])
+    assert_response :conflict, "An unchanged retry must not silently discard the edit either"
+    assert_equal saved, SourceReviewHead.find_by!(financial_source_event: line).approved_version_id
+    same_purchase(statement, line, retry_row)
+    assert_response :success, response.body
+    assert_equal 1, response.parsed_body.fetch("result").fetch("unchanged"), "An edit-free retry still changes nothing"
   end
 
   test "ops counts separate spending and multiply matched purchases without changing records" do
