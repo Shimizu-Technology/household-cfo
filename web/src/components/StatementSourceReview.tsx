@@ -19,7 +19,7 @@ function matchedPurchaseLabel(purchase?: { source_type: string }) {
   return purchase && ['receipt', 'screenshot'].includes(purchase.source_type) ? 'Counted with your receipt' : 'Already counted'
 }
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onProgress, onSignAnswered, focusAfterSign, onSignFocusDone }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onProgress, onOtherStatementsSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
   onSignAnswered?: (revisionId: number) => void
   focusAfterSign?: boolean
@@ -27,6 +27,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   onSaved?: () => void
   /** The statement's progress as last read back, so the upload's status in the list doesn't go stale after a save. */
   onProgress?: (progress: StatementProgress) => void
+  /** One store answer also saved lines in these other statements (by revision), so their uploads' status has moved too. */
+  onOtherStatementsSaved?: (revisionIds: number[]) => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
 }) {
@@ -88,7 +90,9 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (group.length > 1 && (id === 'keep' || (id === 'edit' && categoryId != null))) {
       const store = storeGroups.find(rows => rows.some(line => line.event_id === item.event_id))
       if (store && categoryId != null) {
+        const others = [...new Set(store.map(line => line.revision_id).filter(id => id !== revisionId))]
         void save({ lines: [], store_lines: store.map(line => ({ event_id: line.event_id, revision_id: line.revision_id, expected_head: line.expected_head, decision: 'edited', edit: { category_id: categoryId } as LineEdit })) }, index)
+          .then(saved => { if (saved && others.length) onOtherStatementsSaved?.(others) })
         return
       }
       void save({ lines: group.flatMap(line => answerInput(line, id, categoryId).lines) }, index)
