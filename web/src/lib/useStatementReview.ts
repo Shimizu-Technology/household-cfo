@@ -49,6 +49,9 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   // What she said about missing lines. It rides along with every save, and the server records it only when the statement is finished.
   const [coverageAnswer, setCoverageAnswer] = useState<CoverageAnswer | null>(null)
   const coverageVersion = useRef<number | null>(null)
+  // A kept answer with nothing left to save is flagged once per visit: if the server still can't record it (say a correction
+  // is pending), a successful "try again" must not bring the notice straight back.
+  const keptFlagged = useRef(false)
   // Her answer is kept on screen if saving it fails, with a plain way to try again; nothing moves on until it is recorded.
   const [coverageFailed, setCoverageFailed] = useState(false)
   const [unsavedAnswer, setUnsavedAnswer] = useState<UnsavedAnswer | null>(null)
@@ -91,7 +94,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
           setCoverageAnswer((current) => current ?? kept)
           // With every line saved there is no save left for it to ride with: say plainly it isn't saved yet.
           const { attention, ready, total } = review.plan
-          if (total > 0 && attention.length === 0 && ready.length === 0) setCoverageFailed(true)
+          if (total > 0 && attention.length === 0 && ready.length === 0 && !keptFlagged.current) { keptFlagged.current = true; setCoverageFailed(true) }
         }
       }
     }).catch((failure: unknown) => {

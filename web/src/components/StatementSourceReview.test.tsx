@@ -432,6 +432,12 @@ describe('statement review a participant can finish', () => {
     const first = mount()
     expect(await screen.findByText('We couldn’t save your answer yet. Please try again.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Nothing’s missing' }).getAttribute('aria-pressed')).toBe('true')
+    // "Try again" saves, but the server can't record it yet: the notice doesn't come straight back.
+    mutate.mockResolvedValueOnce({ result: { approved: 0, left_out: 0, unchanged: 0, complete: false } })
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(fetchReview.mock.calls.length).toBeGreaterThan(1))
+    await waitFor(() => expect(screen.queryByText('We couldn’t save your answer yet. Please try again.')).toBeNull())
     first.unmount()
     fetchReview.mockResolvedValue({ ...data, participant_review: { ...data.participant_review!, plan: { ...data.participant_review!.plan, coverage: { question: null, answer: 'nothing_missing', version_id: 940 } } } })
     mount()
