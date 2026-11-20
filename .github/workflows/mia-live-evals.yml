@@ -58,7 +58,7 @@ jobs:
   live:
     needs: check-key
     if: needs.check-key.outputs.present == 'true'
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
