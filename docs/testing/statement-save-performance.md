@@ -12,13 +12,15 @@ The transactional fixture creates 1,632 invented approved historical lines acros
 
 | Save | Before seconds / queries | After seconds / queries |
 | --- | --- | --- |
-| One line | 0.406 / 248 | 0.162 / 242 |
-| 22 lines | 2.434 / 2,860 | 1.355 / 2,453 |
-| 100 lines | 10.085 / 12,532 | 4.384 / 10,748 |
+| One line | 0.406 / 248 | 0.250 / 242 |
+| 22 lines | 2.434 / 2,860 | 2.206 / 2,456 |
+| 100 lines | 10.085 / 12,532 | 9.941 / 10,667 |
+
+An earlier run measured 0.162 / 1.355 / 4.384 seconds for these sizes; the table records the final isolated run after the duplicate-page fix. The 100-line timing varies substantially across runs.
 
 The typical page meets the three-second target locally; the 100-line stress case still exceeds it. Regression assertions bound annual allocation reads regardless of page size and reject the former unbounded current-picture event read. They avoid wall-clock assertions.
 
-The real local stack on ports 3424/5424 used a fresh fictional participant/household and uploaded the invented Bank of Guam CSV through the UI. Desktop Chromium approved individual movement/refund/category answers and all 23 ready lines, verified all 27 lines saved, then checked August Budget spending of $2,326.66. Before and after both passed. Bulk HTTP duration fell from 1.521 to 0.764 seconds. This smaller browser fixture is separate from the large-history fixture.
+The real local stack on ports 3424/5424 used a fresh fictional participant/household and uploaded the invented Bank of Guam CSV through the UI. Desktop Chromium approved individual movement/refund/category answers and all 23 ready lines, verified all 27 lines saved, then checked August Budget spending of $2,326.66. Before and after both passed. Bulk HTTP duration fell from 1.521 to 1.448 seconds. This smaller browser fixture is separate from the large-history fixture.
 
 Evidence: `/Users/agent/work/hcfo-evidence/perf-statement-save-speed/` outside this public repository. Shared preview twice failed with `net::ERR_CONNECTION_REFUSED`; QA used headless Playwright. Temporary braced-variable corrections worked around Unicode-ellipsis interpolation in the local launcher and were restored afterwards. No web or launcher changes are included.
 
