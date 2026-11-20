@@ -10,9 +10,11 @@ module HouseholdFinance
 
     # summary: the reader's summary of the whole document. A one-purchase
     # receipt's summary can say how it was paid when the row itself doesn't.
-    def initialize(document_import, transaction_drafts, summary: nil)
+    # summary_cut: the summary was longer than the reader keeps.
+    def initialize(document_import, transaction_drafts, summary: nil, summary_cut: false)
       @document_import = document_import
       @summary = summary
+      @summary_cut = summary_cut
       @household = document_import.household
       @transaction_drafts = Array(transaction_drafts)
       limit = @transaction_drafts.all? { |draft| draft.is_a?(Hash) && draft[:financial_source_event_id].present? } ? FinancialDocuments::AccountingContract::MAX_EVENTS : MAX_DRAFTS
@@ -182,8 +184,12 @@ module HouseholdFinance
       return unchanged unless source_type == "receipt" && draft_payload[:financial_source_event_id].blank?
 
       texts = [ draft_payload[:evidence], *Array(draft_payload[:warnings]) ]
-      texts << @summary if transaction_drafts.length == 1
-      reading = ReceiptTenders.read(total_cents: total_amount_cents, texts: texts)
+      cut = draft_payload[:receipt_text_cut] == true
+      if transaction_drafts.length == 1
+        texts << @summary
+        cut ||= @summary_cut
+      end
+      reading = ReceiptTenders.read(total_cents: total_amount_cents, texts: texts, cut: cut)
       return unchanged unless reading
 
       payment = { "reader" => "receipt_tenders_v1", "receipt_total_cents" => reading.receipt_total_cents,

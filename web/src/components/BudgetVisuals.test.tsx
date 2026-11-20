@@ -92,3 +92,21 @@ it('a group or category whose purchases and refunds cancel out is a known $0, no
   const quiet = render(<ExpenseStackOverview positions={[{ ...position, hasActivity: false }]} />)
   expect((quiet.container.querySelector('.stack-discretionary') as HTMLElement).textContent).toContain('No confirmed transactions yet')
 })
+
+it('an archived category whose purchases and refunds cancel out still shows in its group as a known $0', () => {
+  const position = { id: 8, name: 'Old hobby', stackKey: 'discretionary' as const, stackLabel: 'Flexible spending', planned: 40, actual: 0, pending: 0, remaining: 40, active: false, hasActivity: true }
+  const view = render(<ExpenseStackOverview positions={[position]} />)
+  const flexible = view.container.querySelector('.stack-discretionary') as HTMLElement
+  expect(flexible.textContent).toContain('Old hobby')
+  expect(flexible.textContent).toContain('$0 after refunds · archived')
+  expect(flexible.textContent).toContain('$0 spent after refunds')
+  expect(flexible.textContent).toContain('Purchases and refunds cancelled out.')
+  expect(flexible.textContent).not.toContain('No confirmed transactions yet')
+  expect(flexible.textContent).not.toContain('Spending has used the full plan.')
+  view.unmount()
+  // An archived category with nothing this month stays out of the group.
+  const quiet = render(<ExpenseStackOverview positions={[{ ...position, hasActivity: false }]} />)
+  const quietGroup = quiet.container.querySelector('.stack-discretionary') as HTMLElement
+  expect(quietGroup.textContent).not.toContain('Old hobby')
+  expect(quietGroup.textContent).toContain('No confirmed transactions yet')
+})

@@ -85,6 +85,12 @@ class HouseholdFinanceReceiptTendersTest < ActiveSupport::TestCase
     assert_nil read(5_000, "Gift card $20.00; Debit $30.00", "#{'x' * 1_200} refunded to gift card")
   end
 
+  test "text that was cut before it got here leaves the receipt alone" do
+    voucher = "TOTAL $184.88; Voucher / gift card $150.00; Debit card 7302 $34.88; Balance due $0.00"
+    assert_equal 3_488, read(18_488, voucher).new_money_cents
+    assert_nil HouseholdFinance::ReceiptTenders.read(total_cents: 18_488, texts: [ voucher ], cut: true)
+  end
+
   test "a minus or bracketed tender amount leaves the receipt alone" do
     assert_nil read(5_000, "Gift card -$20.00; Debit $30.00")
     assert_nil read(5_000, "Gift card ($20.00); Debit $30.00")
