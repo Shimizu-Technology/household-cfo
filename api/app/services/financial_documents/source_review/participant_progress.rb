@@ -30,6 +30,11 @@ module FinancialDocuments
           .where.not("source_review_versions.event_type = 'cash_withdrawal' AND source_review_versions.purchase_amount_cents IS NULL")
         read_count, read_cents = read.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(signed_amount_cents), 0)"))
         counted_count, counted_cents = counted.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(source_review_versions.signed_amount_cents), 0)"))
+        # A line she said is the same purchase as one she confirmed is counted, once, through that purchase.
+        same = current_versions.where(disposition: "match").where.not(matched_transaction_id: nil).where("source_review_versions.signed_amount_cents < 0").to_a
+          .select { |version| ConfirmedPurchaseMatch.current?(@household, version) }
+        counted_count += same.length
+        counted_cents += same.sum { |version| version.signed_amount_cents.abs }
         # Refunds she approved that came back to a category; they lower spending in the month they posted.
         credits = HouseholdFinance::RefundCredits.new(@household)
         refunds = current_versions.where(disposition: "include", event_type: "refund").where("source_review_versions.signed_amount_cents > 0")

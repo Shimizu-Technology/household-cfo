@@ -48,6 +48,11 @@ module FinancialDocuments
       def self.dependencies(household, versions)
         ids = versions.map(&:id)
         matches = versions.select { |version| version.disposition == "match" }.map do |version|
+          # The same purchase as one she confirmed stays current while that purchase still counts and is not another line's.
+          if version.matched_transaction_id
+            next({ alias_version_id: version.id, target_transaction_id: version.matched_transaction_id,
+              current: ConfirmedPurchaseMatch.current?(household, version) })
+          end
           target = version.matched_version
           head_id = target&.source_review_head&.approved_version_id
           identity_id = target&.source_account_identity_version&.source_account_review_head&.approved_version_id

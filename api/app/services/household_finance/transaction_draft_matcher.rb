@@ -1,5 +1,3 @@
-require "set"
-
 module HouseholdFinance
   class TransactionDraftMatcher
     SEARCH_WINDOW_DAYS = 3
@@ -102,31 +100,8 @@ module HouseholdFinance
       [ 0.0, 1.0 - (delta_days.to_f / (SEARCH_WINDOW_DAYS + 1)) ].max
     end
 
-    # Bank lines carry boilerplate the receipt doesn't ("POS PURCHASE PAYLESS
-    # SUPERMARKET #12 TAMUNING GU"), so also compare the cleaned store names.
     def merchant_score(transaction)
-      raw = text_score(normalized(transaction.merchant), normalized(draft.merchant))
-      left = cleaned_name(transaction.merchant)
-      return raw if left.blank? || draft_cleaned_name.blank?
-
-      [ raw, text_score(left, draft_cleaned_name, min_contained_length: 4) ].max
-    end
-
-    def text_score(left, right, min_contained_length: 1)
-      return 0.4 if left.blank? || right.blank?
-      return 1.0 if left == right
-      return 0.88 if [ left.length, right.length ].min >= min_contained_length && (left.include?(right) || right.include?(left))
-
-      overlap = token_overlap(left, right)
-      overlap >= 0.5 ? overlap : 0.2
-    end
-
-    def cleaned_name(value)
-      normalized(SpendingPatterns::MerchantName.call(value))
-    end
-
-    def draft_cleaned_name
-      @draft_cleaned_name ||= cleaned_name(draft.merchant)
+      MerchantMatchScore.call(transaction.merchant, draft.merchant)
     end
 
     def category_score(transaction)
@@ -140,14 +115,6 @@ module HouseholdFinance
       @draft_category_ids ||= draft.transaction_draft_splits.map(&:budget_category_id).compact
     end
 
-    def token_overlap(left, right)
-      left_tokens = left.split.to_set
-      right_tokens = right.split.to_set
-      return 0.0 if left_tokens.empty? || right_tokens.empty?
-
-      (left_tokens & right_tokens).length.to_f / [ left_tokens.length, right_tokens.length ].max
-    end
-
     def reason_for(transaction, confidence)
       parts = []
       parts << "same amount" if transaction.total_amount_cents == match_amount_cents
@@ -155,10 +122,6 @@ module HouseholdFinance
       parts << "similar merchant" if merchant_score(transaction) >= 0.8
       parts << "same category" if category_score(transaction) >= 1.0
       parts.presence&.to_sentence || "#{(confidence * 100).round}% match on amount, date, and merchant"
-    end
-
-    def normalized(value)
-      value.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
     end
   end
 end

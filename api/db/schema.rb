@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_20_090000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -3630,17 +3630,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.bigint "source_review_head_id", null: false
     t.bigint "supersedes_id"
     t.integer "version_number", null: false
+    t.bigint "matched_transaction_id"
     t.index ["approved_by_user_id"], name: "index_source_review_versions_on_approved_by_user_id"
     t.index ["budget_category_id"], name: "index_source_review_versions_on_budget_category_id"
     t.index ["household_id"], name: "index_source_review_versions_on_household_id"
     t.index ["id", "household_id"], name: "source_review_versions_household_identity", unique: true
     t.index ["id", "source_review_head_id", "household_id"], name: "source_review_versions_head_identity", unique: true
+    t.index ["matched_transaction_id"], name: "index_source_review_versions_on_matched_transaction_id", where: "(matched_transaction_id IS NOT NULL)"
     t.index ["source_account_identity_version_id"], name: "idx_on_source_account_identity_version_id_48cebccb51"
     t.index ["source_review_head_id", "version_number"], name: "source_review_versions_sequence", unique: true
     t.index ["source_review_head_id"], name: "index_source_review_versions_on_source_review_head_id"
     t.check_constraint "(disposition::text <> ALL (ARRAY['include'::character varying::text, 'match'::character varying::text])) OR signed_amount_cents IS NOT NULL AND signed_amount_cents <> 0 AND posted_on IS NOT NULL AND event_type::text <> 'unknown'::text", name: "source_review_posted_facts"
     t.check_constraint "disposition::text = ANY (ARRAY['include'::character varying::text, 'match'::character varying::text, 'exclude'::character varying::text, 'informational'::character varying::text])", name: "source_review_disposition"
     t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'refund'::character varying::text, 'income'::character varying::text, 'transfer'::character varying::text, 'debt_payment'::character varying::text, 'cash_withdrawal'::character varying::text, 'interest'::character varying::text, 'adjustment'::character varying::text, 'unknown'::character varying::text])", name: "source_review_event_type"
+    t.check_constraint "matched_transaction_id IS NULL OR disposition::text = 'match'::text AND matched_version_id IS NULL", name: "source_review_matched_transaction"
   end
 
   create_table "source_revision_approvals", force: :cascade do |t|
