@@ -11,17 +11,19 @@ import { useStatementReviewMutation } from './useStatementReviewMutation'
 
 /**
  * The server records "Is anything missing?" only once every line is saved, so an earlier answer is kept on this device
- * for that statement and that question. Leaving and coming back doesn't lose it; a changed question or a recorded answer drops it.
+ * for that person, household and statement. Leaving and coming back doesn't lose it; a recorded answer drops it.
  */
-const coverageKey = (importId: number, revisionId: number) => `hcfo:statement-coverage:${importId}:${revisionId}`
-function keptCoverage(key: string, version: number | null): CoverageAnswer | null {
+type Actor = { user_id: number; household_id: number }
+const coverageKey = (actor: Actor, importId: number, revisionId: number) => `hcfo:statement-coverage:${actor.user_id}:${actor.household_id}:${importId}:${revisionId}`
+function keptCoverage(key: string): CoverageAnswer | null {
   try {
-    const kept = JSON.parse(localStorage.getItem(key) ?? 'null') as { version: number | null; answer: CoverageAnswer } | null
-    return kept && kept.version === version && (kept.answer === 'nothing_missing' || kept.answer === 'something_missing') ? kept.answer : null
+    const kept = localStorage.getItem(key)
+    return kept === 'nothing_missing' || kept === 'something_missing' ? kept : null
   } catch { return null }
 }
-function keepCoverage(key: string, value: { version: number | null; answer: CoverageAnswer } | null) {
-  try { if (value) localStorage.setItem(key, JSON.stringify(value)); else localStorage.removeItem(key) } catch { /* The answer still rides with her next save. */ }
+function keepCoverage(key: string | null, answer: CoverageAnswer | null) {
+  if (!key) return
+  try { if (answer) localStorage.setItem(key, answer); else localStorage.removeItem(key) } catch { /* The answer still rides with her next save. */ }
 }
 
 export type UnsavedAnswer = { input: ApproveLinesInput; index: number | null; eventId?: number; choice?: PlanAnswerId; categoryId?: number; accountId?: number; basis?: 'asset' | 'liability' }
@@ -80,10 +82,17 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
         setResult({ key: requestKey, data: payload }); clearMutationError()
         const version = review.plan.coverage.version_id ?? null
         if (version !== coverageVersion.current) { setCoverageAnswer(null); setCoverageFailed(false) }
-        const key = coverageKey(importId, revisionId)
-        const kept = review.plan.coverage.answer ? null : keptCoverage(key, version)
+        const key = coverageKey(review.actor_scope, importId, revisionId)
         if (review.plan.coverage.answer) keepCoverage(key, null)
-        if (kept) { coverageVersion.current = version; setCoverageAnswer(kept) }
+        const kept = review.plan.coverage.answer ? null : keptCoverage(key)
+        if (kept) {
+          coverageVersion.current = version
+          // An answer she has just given on screen wins over the kept one.
+          setCoverageAnswer((current) => current ?? kept)
+          // With every line saved there is no save left for it to ride with: say plainly it isn't saved yet.
+          const { attention, ready, total } = review.plan
+          if (total > 0 && attention.length === 0 && ready.length === 0) setCoverageFailed(true)
+        }
       }
     }).catch((failure: unknown) => {
       if (live) setResult((previous) => ({ key: requestKey, data: previous?.data, error: participantErrorMessage(failure, 'Could not load this statement.') }))
@@ -137,7 +146,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   // The question is hers to answer. If every line is already saved the answer is saved now; otherwise it goes with the next save.
   function answerCoverage(value: CoverageAnswer) {
     coverageVersion.current = plan?.coverage.version_id ?? null
-    keepCoverage(coverageKey(importId, revisionId), { version: coverageVersion.current, answer: value })
+    keepCoverage(review?.actor_scope ? coverageKey(review.actor_scope, importId, revisionId) : null, value)
     setCoverageAnswer(value)
     setCoverageFailed(false)
     if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value }).then((saved) => setCoverageFailed(!saved))
@@ -178,7 +187,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   function reload() { setAttempt((value) => value + 1) }
   function resetAndReload() {
     setUnsavedAnswer(null); setCoverageAnswer(null); setCoverageFailed(false); coverageVersion.current = null
-    keepCoverage(coverageKey(importId, revisionId), null)
+    keepCoverage(review?.actor_scope ? coverageKey(review.actor_scope, importId, revisionId) : null, null)
     reload()
   }
 

@@ -42,6 +42,7 @@ import { confirmAction } from './lib/confirmAction'
 import { useDialogViewport } from './lib/useDialogViewport'
 import { StatementSourceReview } from './components/StatementSourceReview'
 import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
+import type { StatementProgress } from './lib/statementReview'
 import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
 import { categoryDisplayName } from './lib/categoryDisplayName'
@@ -4886,7 +4887,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
-            onStatementChanged={() => { void refreshDocumentImports({ quiet: true }) }}
+            onStatementProgress={(importId, progress) => setDocumentImports(current => current.map(row => row.id === importId && row.statement_review ? { ...row, statement_review: progress } : row))}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -4932,7 +4933,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
-            onStatementChanged={() => { void refreshDocumentImports({ quiet: true }) }}
+            onStatementProgress={(importId, progress) => setDocumentImports(current => current.map(row => row.id === importId && row.statement_review ? { ...row, statement_review: progress } : row))}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -5539,7 +5540,7 @@ function DocumentImportWorkspace({
   onAskMia,
   onReturnToStart,
   onStatementSaved,
-  onStatementChanged,
+  onStatementProgress,
   sectionRef,
   isRealWorkspace,
   imports,
@@ -5577,8 +5578,8 @@ function DocumentImportWorkspace({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
-  /** A line or answer was saved before the statement is finished: the upload's status in the list moves with it. */
-  onStatementChanged?: () => void
+  /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
+  onStatementProgress?: (importId: number, progress: StatementProgress) => void
   onReturnToStart?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
@@ -5681,7 +5682,7 @@ function DocumentImportWorkspace({
           onReviewBaseline={onReviewBaseline}
           onAskMia={onAskMia}
           onStatementSaved={onStatementSaved}
-          onStatementChanged={onStatementChanged}
+          onStatementProgress={onStatementProgress}
         />}
       </div>
 
@@ -5928,7 +5929,7 @@ export function DocumentReviewPanel({
   onReviewBaseline,
   onAskMia,
   onStatementSaved,
-  onStatementChanged,
+  onStatementProgress,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -5956,8 +5957,8 @@ export function DocumentReviewPanel({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
-  /** A line or answer was saved before the statement is finished: the upload's status in the list moves with it. */
-  onStatementChanged?: () => void
+  /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
+  onStatementProgress?: (importId: number, progress: StatementProgress) => void
 }) {
   const { assistantName } = useBrand()
   const [signFocus, setSignFocus] = useState<{ importId: number; revisionId: number } | null>(null)
@@ -6067,7 +6068,7 @@ export function DocumentReviewPanel({
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           onSaved={onStatementSaved}
-          onChanged={onStatementChanged}
+          onProgress={progress => onStatementProgress?.(documentImport.id, progress)}
           onSignAnswered={revisionId => setSignFocus({ importId: documentImport.id, revisionId })}
           focusAfterSign={signFocus?.importId === documentImport.id && signFocus.revisionId === documentImport.metadata.source_accounting_revision_id}
           onSignFocusDone={() => setSignFocus(null)}
