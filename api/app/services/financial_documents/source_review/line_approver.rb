@@ -184,7 +184,7 @@ module FinancialDocuments
         end
         identity = domain.account_heads.find_by(financial_source_account_id: event.financial_source_account_id)&.approved_version
         head = domain.heads.find_by(financial_source_event_id: event.id)
-        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done))
+        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done), prior: head&.approved_version)
         if line.done && same_facts?(head.approved_version, facts)
           counts[:unchanged] += 1
           return
@@ -269,18 +269,21 @@ module FinancialDocuments
         end
       end
 
-      def facts_for(line, decision, edit, identity_id, saved = nil)
+      # prior: the line's approved version even while unfinished, so an answer she already gave ("different charge") stands.
+      def facts_for(line, decision, edit, identity_id, saved = nil, prior: nil)
         base = ParticipantPlan.facts_as_read(line.event, identity_id: identity_id, merchant: line.merchant, category_id: line.category_id)
         # A line she already saved changes from what she saved, never from the statement as first read:
         # choosing a category must not undo a corrected amount, name, date or kind, or her "different charge".
         if saved&.disposition == "include"
           base = base.merge(saved.reviewed_facts.slice(:event_type, :signed_amount_cents, :purchase_amount_cents, :posted_on, :authorized_on, :merchant, :overlap_disposition, :external_reference))
         end
+        # Her "different charge" or "different purchase" was saved on the way to this question; keep it.
+        cleared = line.kind == :person_payment_duplicate || prior&.external_reference.to_s.start_with?("overlap-cleared:", "ownership-needed:")
         case decision
-        when "own_account" then base.merge(event_type: base[:event_type] == "debt_payment" ? "debt_payment" : "transfer", purchase_amount_cents: nil, budget_category_id: nil, external_reference: "own-account:#{line.event.id}", overlap_disposition: line.kind == :person_payment_duplicate ? "distinct" : base[:overlap_disposition])
+        when "own_account" then base.merge(event_type: base[:event_type] == "debt_payment" ? "debt_payment" : "transfer", purchase_amount_cents: nil, budget_category_id: nil, external_reference: "own-account:#{line.event.id}", overlap_disposition: cleared ? "distinct" : base[:overlap_disposition])
         when "someone_else"
           category = family_support_category!
-          base.merge(event_type: "purchase", purchase_amount_cents: base[:signed_amount_cents].abs, budget_category_id: category.id, external_reference: "sent-to-someone:#{line.event.id}", overlap_disposition: line.kind == :person_payment_duplicate ? "distinct" : base[:overlap_disposition])
+          base.merge(event_type: "purchase", purchase_amount_cents: base[:signed_amount_cents].abs, budget_category_id: category.id, external_reference: "sent-to-someone:#{line.event.id}", overlap_disposition: cleared ? "distinct" : base[:overlap_disposition])
         when "as_read" then line.kind == :refund_category ? base.merge(budget_category_id: line.category_id) : base
         when "different"
           if TransferPairs.person_payment?(line.event, line.merchant)
@@ -296,8 +299,9 @@ module FinancialDocuments
         else
           facts = edited_facts(base, edit, saved: saved&.disposition == "include")
           if !line.done && TransferPairs.person_wording?(line.event, line.merchant) && facts[:signed_amount_cents].to_i.negative?
-            if facts[:event_type] == "purchase"
-              facts = facts.merge(budget_category_id: facts[:budget_category_id] || family_support_category!.id, external_reference: "sent-to-someone:#{line.event.id}")
+            # Spending in a category she chose is ordinary spending; only "someone else" (no category) is family support.
+            if facts[:event_type] == "purchase" && facts[:budget_category_id].nil?
+              facts = facts.merge(budget_category_id: family_support_category!.id, external_reference: "sent-to-someone:#{line.event.id}")
             elsif facts[:event_type].in?(%w[transfer debt_payment])
               facts = facts.merge(event_type: base[:event_type] == "debt_payment" ? "debt_payment" : facts[:event_type], external_reference: "own-account:#{line.event.id}")
             end
