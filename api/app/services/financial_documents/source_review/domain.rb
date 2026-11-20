@@ -37,7 +37,7 @@ module FinancialDocuments
         related = line_revision_dependencies(events, plan.review_heads)
         locked = lock_revisions!((related.values.flatten + [ revision.id ]).uniq).index_by(&:id)
         @line_batch = {
-          events: events.index_by(&:id),
+          events: events.index_by(&:id), known_event_ids: events.map(&:id).to_set,
           related_revisions: related.transform_values { |ids| ids.uniq.map { |id| locked.fetch(id) } },
           source_accounts: plan.accounts_for_save,
           heads: plan.review_heads,
@@ -46,10 +46,41 @@ module FinancialDocuments
           version_numbers: SourceReviewVersion.where(source_review_head_id: plan.review_heads.values.map(&:id)).group(:source_review_head_id).maximum(:version_number),
           actuals: household.household_transactions.where(financial_source_event_id: events.map(&:id), status: %w[confirmed reconciled]).order(:id).includes(:transaction_splits).group_by(&:financial_source_event_id),
           legacy: household.transaction_drafts.pending.where(financial_source_event_id: events.map(&:id)).order(:id).lock.group_by(&:financial_source_event_id),
-          drafts: {}, revisions: {}
+          drafts: {}, revisions: {}, verified_accounts: Set.new
         }
-        ActiveRecord::Associations::Preloader.new(records: line_batch[:heads].values, associations: :source_review_drafts).call
+        events.each do |event|
+          line_batch[:legacy][event.id] ||= []
+          line_batch[:actuals][event.id] ||= []
+        end
+        ActiveRecord::Associations::Preloader.new(records: line_batch[:heads].values.compact, associations: :source_review_drafts).call
         events.map { |event| event.financial_extraction_revision.financial_document_import }.uniq(&:id).each { |source| HouseholdFinance::FinancialGenerationGuard.source!(source, locked_household: household) }
+      end
+
+      # All event writers use this hook, including counterpart approvals. A known
+      # head can be retained; projections/links and externally written heads must
+      # be read again before the next operation uses them.
+      def record_write!(event, head: nil)
+        return unless line_batch
+        line_batch[:actuals].delete(event.id) unless head
+        line_batch[:legacy].delete(event.id) unless head
+        line_batch[:drafts].delete_if { |_, draft| draft.source_review_head.financial_source_event_id == event.id } unless head
+        if head
+          line_batch[:heads][event.id] = head
+          line_batch[:version_numbers][head.id] = head.approved_version.version_number
+          overlap_context.record_approval!(event, head)
+        else
+          line_batch[:verified_accounts].clear
+          (line_batch[:invalidated_events] ||= Set.new) << event.id
+          line_batch[:heads].delete(event.id)
+          overlap_context.refresh!
+        end
+        related = line_batch[:related_revisions][event.id] if head
+        unless related
+          ids = related_revision_ids([ event.id ])
+          related = lock_revisions!(ids)
+          line_batch[:related_revisions][event.id] = related
+        end
+        related.each { |record| line_batch[:revisions][record.id] = record }
       end
 
       def flush_line_batch!
@@ -68,7 +99,10 @@ module FinancialDocuments
 
       def line_head(event)
         return heads.find_by(financial_source_event_id: event.id) unless line_batch
-        line_batch[:heads][event.id]
+        return line_batch[:heads][event.id] if line_batch[:heads].key?(event.id) || (line_batch[:known_event_ids].include?(event.id) && !line_batch[:invalidated_events]&.include?(event.id))
+        head = heads.includes(:approved_version, :source_review_drafts).find_by(financial_source_event_id: event.id)
+        line_batch[:version_numbers][head.id] = head.source_review_versions.maximum(:version_number).to_i if head
+        line_batch[:heads][event.id] = head
       end
 
       def pending_draft(head)
@@ -78,12 +112,12 @@ module FinancialDocuments
 
       def actuals_for(event)
         return household.household_transactions.where(financial_source_event: event, status: %w[confirmed reconciled]).order(:id).limit(2).to_a unless line_batch
-        line_batch[:actuals].fetch(event.id, []).select { |row| row.status.in?(%w[confirmed reconciled]) }
+        line_batch[:actuals].fetch(event.id) { line_batch[:actuals][event.id] = household.household_transactions.where(financial_source_event_id: event.id, status: %w[confirmed reconciled]).order(:id).includes(:transaction_splits).to_a }.select { |row| row.status.in?(%w[confirmed reconciled]) }
       end
 
       def legacy_drafts(event)
         return household.transaction_drafts.pending.where(financial_source_event: event).order(:id).lock unless line_batch
-        line_batch[:legacy].fetch(event.id, []).select { |row| row.status == "pending" }
+        line_batch[:legacy].fetch(event.id) { line_batch[:legacy][event.id] = household.transaction_drafts.pending.where(financial_source_event_id: event.id).order(:id).lock.to_a }.select { |row| row.status == "pending" }
       end
 
       def review_draft(id)
@@ -132,7 +166,7 @@ module FinancialDocuments
           coverage = input.fetch(:coverage_attestation).to_h.deep_symbolize_keys
           accounts = Array(coverage[:accounts]).map do |row|
             row = row.to_h.deep_symbolize_keys
-            identity = line_batch ? current_identity!(line_batch[:events].values.find { |event| event.financial_source_account_id == row[:source_account_id].to_i }, row.fetch(:identity_version_id)) : identities.find(row.fetch(:identity_version_id))
+            identity = identities.find(row.fetch(:identity_version_id))
             { source_account_id: source_account(row.fetch(:source_account_id)).id, identity_version_id: identity.id,
               period_start_on: coverage_date(row.fetch(:period_start_on), identity, "period_start_on", status),
               period_end_on: coverage_date(row.fetch(:period_end_on), identity, "period_end_on", status), all_rows_accounted: row[:all_rows_accounted] == true }
@@ -185,16 +219,28 @@ module FinancialDocuments
         ApplicationRecord.transaction do
           household.lock! unless line_batch
           authorize! unless line_batch
-          affected_revision_ids = line_batch ? [] : revision_ids(action, input)
-          lock_revisions!(affected_revision_ids) unless line_batch
+          # A replaced/unpaired group can lose its old members. Capture and
+          # lock those dependencies before writing, then rediscover the new ones.
+          affected_revision_ids = line_batch && action.to_s != "economic_link" ? [] : revision_ids(action, input)
+          lock_revisions!(affected_revision_ids) if affected_revision_ids.any?
           result = case action.to_s
           when "account_link" then link_account!(input)
           when "stage" then stage!(input)
           when "approve" then approve!(input)
-          when "cancel" then cancel!(input)
-          when "project" then project!(input)
-          when "revision_approve" then RevisionApprover.new(self, revision(input[:revision_id]), input, state: line_batch&.dig(:approval_state)).call
+          when "cancel"
+            cancel!(input).tap { |draft| record_write!(draft.source_review_head.financial_source_event) if line_batch }
+          when "project"
+            project!(input).tap { record_write!(versions.find(input[:version_id]).financial_source_event) if line_batch }
+          when "revision_approve" then RevisionApprover.new(self, revision(input[:revision_id]), input, state: nil).call
           when "economic_link" then EconomicLinker.new(self, input).call
+          end
+          if line_batch && action.to_s.in?(%w[account_link economic_link])
+            line_batch[:verified_accounts].clear
+            overlap_context.refresh!
+            related = line_revision_dependencies(line_batch[:events].values, line_batch[:heads])
+            locked = lock_revisions!(related.values.flatten.uniq).index_by(&:id)
+            line_batch[:related_revisions] = related.transform_values { |ids| ids.uniq.map { |id| locked.fetch(id) } }
+            related.values.flatten.uniq.each { |id| line_batch[:revisions][id] = locked.fetch(id) }
           end
           affected_revision_ids.each { |id| mark_review_pending!(revision(id)) } if action.to_s.in?(%w[account_link approve economic_link])
           result
@@ -202,12 +248,24 @@ module FinancialDocuments
       end
 
       def source_event(id)
-        return line_batch[:events].fetch(id.to_i) { raise ActiveRecord::RecordNotFound } if line_batch
+        if line_batch
+          return line_batch[:events].fetch(id.to_i) do
+            event = FinancialSourceEvent.where(household_id: household.id).find(id)
+            lock_revisions!([ event.financial_extraction_revision_id ])
+            line_batch[:events][event.id] = event
+          end
+        end
         FinancialSourceEvent.where(household_id: household.id).find(id).tap { |event| HouseholdFinance::FinancialGenerationGuard.source!(event.financial_extraction_revision.financial_document_import) }
       end
 
       def source_account(id)
-        return line_batch[:source_accounts].fetch(id.to_i) { raise ActiveRecord::RecordNotFound } if line_batch
+        if line_batch
+          return line_batch[:source_accounts].fetch(id.to_i) do
+            account = FinancialSourceAccount.where(household_id: household.id).find(id)
+            lock_revisions!([ account.financial_extraction_revision_id ])
+            account
+          end
+        end
         FinancialSourceAccount.where(household_id: household.id).find(id).tap { |account| HouseholdFinance::FinancialGenerationGuard.source!(account.financial_extraction_revision.financial_document_import) }
       end
 
@@ -232,9 +290,10 @@ module FinancialDocuments
       def digest(value) = HouseholdFinance::Operations::PreparedOperation.fingerprint(value)
 
       def current_identity!(event, id)
-        identity = line_batch ? line_batch[:identities].fetch(id.to_i) { raise ActiveRecord::RecordNotFound } : identities.find(id)
+        identity = line_batch ? line_batch[:identities].fetch(id.to_i) { line_batch[:identities][id.to_i] = identities.find(id) } : identities.find(id)
         head = line_batch ? overlap_context.accounts[identity.source_account_review_head.financial_source_account_id] : identity.source_account_review_head
-        head.reload unless line_batch
+        head.reload unless line_batch && line_batch[:verified_accounts].include?(head.id)
+        line_batch[:verified_accounts] << head.id if line_batch
         unless head.financial_source_account_id == event.financial_source_account_id && head.approved_version_id == identity.id
           raise StaleReview, "Review this source account’s current identity before approving its rows."
         end
@@ -336,7 +395,10 @@ module FinancialDocuments
         draft.lock! if draft.persisted? && !line_batch
         draft.update!(staged_by_user: user, base_version_id: head.approved_version_id, base_head_lock_version: head.lock_version,
           facts: input[:facts], projection: input[:projection], reason: input[:reason], digest: digest(input))
-        line_batch[:drafts][draft.id] = draft if line_batch
+        if line_batch
+          line_batch[:drafts][draft.id] = draft
+          overlap_context.record_draft!(event, head, draft)
+        end
         draft
       end
 
@@ -375,10 +437,7 @@ module FinancialDocuments
             legacy.update!(status: "ignored", draft_payload: legacy.draft_payload.merge("source_review_version_id" => version.id, "source_review_disposition" => version.disposition))
           end
         end
-        if line_batch
-          line_batch[:related_revisions].fetch(event.id).each { |record| line_batch[:revisions][record.id] = record }
-        end
-        overlap_context.record_approval!(event, head) if line_batch
+        record_write!(event, head: head) if line_batch
         version
       end
 
@@ -402,7 +461,7 @@ module FinancialDocuments
       end
 
       def mark_review_pending!(revision)
-        import = revision.financial_document_import
+        import = revision.financial_document_import&.reload
         return unless import && import.metadata["source_accounting_revision_id"].to_i == revision.id
         import.update!(metadata: import.metadata.merge("source_accounting_review_pending" => true))
       end

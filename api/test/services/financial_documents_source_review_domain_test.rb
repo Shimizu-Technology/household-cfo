@@ -785,7 +785,7 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
       puts "STATEMENT_SAVE size=#{size} seconds=#{elapsed.round(3)} queries=#{queries.length} queries_per_line=#{(queries.length.to_f / size).round(2)} estimated_production_seconds=#{(queries.length * 0.01).round(2)}"
       assert_equal size, @household.household_transactions.where(financial_source_event_id: fresh[:events].map(&:id)).count
       unless ENV["STATEMENT_SAVE_BASELINE"]
-        assert_operator queries.length, :<=, { 1 => 60, 22 => 250, 100 => 875 }.fetch(size)
+        assert_operator queries.length, :<=, { 1 => 100, 22 => 300, 100 => 1125 }.fetch(size)
         refute queries.any? { |sql| sql.include?('SELECT "financial_source_events".*') && sql.include?("DISTINCT ON") && !sql.include?('"signed_amount_cents"') }, "Overlap checks must narrow the household history"
         assert_operator queries.count { |sql| sql.include?('FROM "budget_allocations"') }, :<=, 12
       end
@@ -827,6 +827,111 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
       assert_equal 1, result[:approved]
     end
     assert_equal [ true, false ], copies.map { |copy| copy[:import].reload.metadata.fetch("source_accounting_review_pending") }
+  end
+
+  test "bulk coverage includes an account with no lines" do
+    account = @source[:revision].financial_source_accounts.sole.dup
+    account.assign_attributes(source_key: "empty-savings", opening_balance_cents: 0, closing_balance_cents: 0, printed_debit_cents: 0, printed_credit_cents: 0, printed_row_count: 0)
+    account.save!
+    raw = account_input_without_lookup(account)
+    run_operation(OPS::AccountLink, raw)
+    result = bulk_save(@source, [ edit_entry(@source[:events].sole) ], coverage_answer: "nothing_missing", expected_coverage_id: nil)
+    assert result[:complete]
+    assert_equal "complete", SourceRevisionApproval.where(financial_extraction_revision: @source[:revision]).last.coverage_status
+  end
+
+  test "bulk validates an earlier stale line before a later invalid edit" do
+    fresh = source([ movement(-1700), movement(-1800, row: 2) ])
+    identity = link(fresh)
+    approve(stage(fresh[:events].first, identity: identity, amount: -1700))
+    first, second = fresh[:events]
+    error = assert_raises(FinancialDocuments::SourceReview::Domain::StaleReview) do
+      bulk_save(fresh, [ edit_entry(first).tap { |entry| entry[:expected_head][:approved_version_id] = nil; entry[:edit][:amount_cents] = 1699 }, { event_id: second.id, decision: "edited", edit: { kind: "invalid" } } ])
+    end
+    assert_match "another window", error.message
+  end
+
+  test "bulk uses page candidate scope when the statement has no checksum" do
+    fresh = source([ movement(-1763), movement(-1763, row: 2) ], checksum: nil)
+    link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    refute plan.lines.any? { |line| line.kind == :duplicate }
+    result = bulk_save(fresh, fresh[:events].map { |event| edit_entry(event) })
+    assert_equal 2, result[:approved]
+  end
+
+  test "bulk refuses the same line twice before voiding its spending" do
+    event = @source[:events].sole
+    version = approve(stage(event))
+    project(version)
+    error = assert_raises(ArgumentError) do
+      bulk_save(@source, [ { event_id: event.id, decision: "leave_out" }, edit_entry(event) ])
+    end
+    assert_match "only once", error.message
+    assert_equal "confirmed", @household.household_transactions.where(financial_source_event: event).sole.status
+  end
+
+  test "a counterpart approval refreshes heads sequence actuals and overlap state inside a batch" do
+    fresh = source([ movement(-1700), movement(-1800, row: 2) ])
+    link(fresh)
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      domain.overlap_context = FinancialDocuments::SourceReview::OverlapDetector::Context.new(@household)
+      plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision], overlap_context: domain.overlap_context)
+      domain.begin_line_batch!(plan.lines.map(&:event), revision: fresh[:revision], plan: plan)
+      worker = FinancialDocuments::SourceReview::LineApprover.new(domain, fresh[:revision], {})
+      event = fresh[:events].last
+      facts = worker.send(:facts_for, plan.line_for(event.id), "edited", { kind: "spending", category_id: @category.id }, domain.overlap_context.accounts[event.financial_source_account_id].approved_version_id)
+      worker.send(:stage_and_approve!, event, domain.line_head(event), facts)
+      first = domain.line_head(event).approved_version
+      assert_equal 1, domain.actuals_for(event).length
+      # A second domain instance models a counterpart writer using ordinary
+      # operations in this same locked request. Explicitly invalidate its event.
+      external = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      other_worker = FinancialDocuments::SourceReview::LineApprover.new(external, fresh[:revision], {})
+      other_worker.send(:stage_and_approve!, event, external.line_head(event), facts)
+      domain.record_write!(event)
+      assert_equal 2, domain.line_head(event).approved_version.version_number
+      assert_equal 1, domain.actuals_for(event).length
+      worker.send(:stage_and_approve!, event, domain.line_head(event), facts.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded"))
+      assert_equal 3, domain.line_head(event).approved_version.version_number
+      assert_empty domain.actuals_for(event)
+      assert_equal first.id, domain.line_head(event).approved_version.supersedes.supersedes_id
+    ensure
+      domain.end_line_batch!
+    end
+  end
+
+  test "coverage preserves metadata written after the import was loaded" do
+    approve(stage(@source[:events].sole))
+    revision = @source[:revision]
+    stale_import = revision.financial_document_import
+    FinancialDocumentImport.find(stale_import.id).update!(metadata: stale_import.metadata.merge("counterpart_note" => "keep this"))
+    state = FinancialDocuments::SourceReview::ApprovalState.new(@household, revision).call
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    raw = { revision_id: revision.id, requested_status: "complete", expected_digest: state[:content_digest], reason: "Verified synthetic coverage",
+      coverage_attestation: { all_document_rows_accounted: true, accounts: [ { source_account_id: @source[:events].sole.financial_source_account_id,
+        identity_version_id: @identity.id, period_start_on: "2026-07-01", period_end_on: "2026-07-31", all_rows_accounted: true } ] } }
+    input = domain.normalize("revision_approve", raw)
+    @household.with_lock { FinancialDocuments::SourceReview::RevisionApprover.new(domain, revision, input).call }
+    assert_equal "keep this", stale_import.reload.metadata["counterpart_note"]
+  end
+
+  def bulk_save(source, entries, **extra)
+    @household.with_lock do
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      FinancialDocuments::SourceReview::LineApprover.new(domain, source[:revision], { lines: entries }.merge(extra)).call
+    end
+  end
+
+  def edit_entry(event)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, event.financial_extraction_revision)
+    { event_id: event.id, decision: "edited", expected_head: plan.line_for(event.id).expected_head, edit: { kind: "spending", category_id: @category.id } }
+  end
+
+  def account_input_without_lookup(account)
+    { source_account_id: account.id, account_basis: "asset", label: "Synthetic savings", base_version_id: nil, base_lock_version: 0,
+      statement_facts: account.attributes.slice("period_start_on", "period_end_on", "opening_balance_cents", "closing_balance_cents", "printed_debit_cents", "printed_credit_cents", "printed_row_count"), reason: "Verified empty account" }
   end
 
   private

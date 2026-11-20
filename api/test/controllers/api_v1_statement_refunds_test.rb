@@ -217,6 +217,25 @@ class ApiV1StatementRefundsTest < ActionDispatch::IntegrationTest
     assert_empty HouseholdFinance::RefundCredits.new(@household).call
   end
 
+  test "saved refund category answer checks duplicates using the corrected amount and date" do
+    a = build_source([ [ "Island Demo Shoes", -6000, "purchase", "2026-08-01" ], [ "Island Demo Shoes", 2500, "refund", "2026-08-02" ] ])
+    purchase, event = a[:revision].financial_source_events.order(:position).to_a
+    suggest(a, purchase, @clothing)
+    approve(a, [ { event_id: event.id, decision: "edited", edit: { kind: "refund", amount_cents: 3000, posted_on: "2026-08-03" } } ])
+    assert_response :success, response.body
+    b = build_source([ [ "Island Demo Shoes", 3000, "refund", "2026-08-04" ] ])
+    other = b[:revision].financial_source_events.sole
+    row = plan(b).fetch("attention").sole
+    approve(b, [ { event_id: other.id, decision: "different", shown: row.slice("event_type", "category_id") } ])
+    assert_response :success, response.body
+    row = plan(a).fetch("attention").find { |item| item["event_id"] == event.id }
+    assert_equal "refund_category", row.fetch("kind")
+    approve(a, [ { event_id: event.id, expected_head: row.fetch("expected_head"), decision: "as_read", shown: row.slice("event_type", "category_id") } ])
+    assert_response :unprocessable_entity, response.body
+    assert_includes response.body, "These rows may overlap"
+    assert_nil SourceReviewHead.find_by!(financial_source_event: event).approved_version.budget_category_id
+  end
+
   private
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }

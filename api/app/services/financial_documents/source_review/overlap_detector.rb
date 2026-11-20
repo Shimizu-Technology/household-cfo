@@ -5,8 +5,9 @@ module FinancialDocuments
 
       # Shared account identities and narrowed current-picture matches for a save.
       class Context
-        def initialize(household)
+        def initialize(household, excluded_revision_id: nil)
           @household = household
+          @excluded_revision_id = excluded_revision_id
         end
 
         # After a write. The lines of every statement stay as they are while a page is saved; what has been approved, drafted or linked does.
@@ -37,20 +38,26 @@ module FinancialDocuments
         end
 
         def record_approval!(event, head)
+          return if event.financial_extraction_revision_id == @excluded_revision_id
+
           if @preloaded && @preloaded.none? { |row| row.id == event.id }
-            eligible = (@eligible_revisions ||= {}).fetch(event.financial_extraction_revision_id) do |id|
-              @eligible_revisions[id] = FinancialExtractionRevision.where(id: @candidate_revisions).exists?(id: id)
-            end
+            eligible = FinancialExtractionRevision.where(id: @candidate_revisions).exists?(id: event.financial_extraction_revision_id)
             @preloaded << event if eligible
           end
           @heads[event.id] = head if @heads
           @pending&.delete(head.id)
         end
 
+        def record_draft!(event, head, draft)
+          record_approval!(event, head)
+          @pending[head.id] = draft if @pending
+        end
+
         private
 
         def read_candidates(facts, artifact, locator, days: nil, all_physical: false, known_events: [])
           scope = FinancialSourceEvent.where(household: @household)
+          scope = scope.where.not(financial_extraction_revision_id: @excluded_revision_id) if @excluded_revision_id
           revisions = FinancialExtractionRevision.where(household: @household)
             .where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)")
             .select("DISTINCT ON (financial_document_import_id, source_document_identity) id")

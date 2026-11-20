@@ -26,6 +26,7 @@ module FinancialDocuments
       def perform
         CohortReleases::OperationAccess.require_all!(household: household, user: domain.user, keys: TOOLS, membership: @cohort_membership)
         entries = Array(input[:lines]).map { |entry| entry.to_h.deep_symbolize_keys }
+        raise ArgumentError, "Choose each statement line only once" unless entries.map { |entry| entry.fetch(:event_id).to_i }.uniq.length == entries.length
         answer = input[:coverage_answer].presence
         raise ArgumentError, "Choose whether anything is missing from this statement" if answer && !answer.in?(CoverageQuestion::ANSWERS)
         if answer && input[:expected_coverage_id] != CoverageQuestion.latest(revision)&.id
@@ -34,24 +35,12 @@ module FinancialDocuments
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
         domain.projection_periods = {}
-        domain.overlap_context = OverlapDetector::Context.new(household)
+        domain.overlap_context = OverlapDetector::Context.new(household, excluded_revision_id: revision.id)
         check_account_heads!(entries)
         link_accounts!
         plan = ParticipantPlan.new(household, revision, unlinked_account_ids: @linked_now, overlap_context: domain.overlap_context, accounts: @source_accounts)
         check_expected!(plan, entries)
         domain.begin_line_batch!(plan.lines.map(&:event), revision: revision, plan: plan)
-        candidate_events = plan.lines.map(&:event) + entries.filter_map do |entry|
-          next unless entry[:decision] == "edited"
-          line = plan.line_for(entry.fetch(:event_id).to_i)
-          next unless line
-          identity = domain.overlap_context.accounts[line.event.financial_source_account_id]&.approved_version
-          facts = facts_for(line, "edited", entry[:edit].to_h.deep_symbolize_keys, identity.id, (domain.line_head(line.event)&.approved_version if line.done))
-          line.event.dup.tap do |event|
-            event.signed_amount_cents = facts[:signed_amount_cents]
-            event.posted_on = facts[:posted_on]
-          end
-        end
-        domain.overlap_context.preload!(candidate_events, revision.financial_document_import&.checksum_sha256) if candidate_events.drop(plan.lines.length).any? { |edited| plan.lines.none? { |line| line.event.signed_amount_cents == edited.signed_amount_cents && line.event.posted_on == edited.posted_on } }
         counts = Hash.new(0)
         entries.sort_by { |entry| plan.line_for(entry.fetch(:event_id).to_i)&.event&.position.to_i }.each do |entry|
           apply!(plan, entry, counts)
@@ -207,6 +196,12 @@ module FinancialDocuments
         identity = domain.overlap_context.accounts[event.financial_source_account_id]&.approved_version
         head = domain.line_head(event)
         facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done), prior: head&.approved_version)
+        if facts[:signed_amount_cents] != event.signed_amount_cents || facts[:posted_on].to_s != event.posted_on.to_s
+          candidate = event.dup
+          candidate.signed_amount_cents = facts[:signed_amount_cents]
+          candidate.posted_on = facts[:posted_on]
+          domain.overlap_context.preload!(plan.lines.map(&:event) + [ candidate ], revision.financial_document_import&.checksum_sha256)
+        end
         if line.done && same_facts?(head.approved_version, facts)
           counts[:unchanged] += 1
           return
@@ -410,8 +405,7 @@ module FinancialDocuments
       def finish_coverage!(answer)
         return false unless domain.line_batch[:events].any? || answer.present?
 
-        state = ApprovalState.new(household, revision, batch: domain.line_batch, accounts: domain.overlap_context.accounts.slice(*domain.line_batch[:source_accounts].keys)).call
-        domain.line_batch[:approval_state] = state if domain.line_batch
+        state = ApprovalState.new(household, revision).call
         return false if (state[:deficiencies] & NOT_REVIEWED).any? || state[:pending_corrections].positive?
         asked = CoverageQuestion.text(revision, deficiencies: state[:deficiencies]).present?
         said = answer || CoverageQuestion.answer(revision)

@@ -6,8 +6,8 @@ module FinancialDocuments
       end
 
       def call
-        SourceAccountReviewHead.where(household: domain.household, financial_source_account_id: revision.financial_source_accounts.select(:id)).order(:id).lock.load unless domain.line_batch
-        SourceReviewHead.where(household: domain.household, financial_source_event_id: revision.financial_source_events.select(:id)).order(:id).lock.load unless domain.line_batch
+        SourceAccountReviewHead.where(household: domain.household, financial_source_account_id: revision.financial_source_accounts.select(:id)).order(:id).lock.load
+        SourceReviewHead.where(household: domain.household, financial_source_event_id: revision.financial_source_events.select(:id)).order(:id).lock.load
         state = @state || ApprovalState.new(domain.household, revision).call
         raise Domain::StaleReview, "Source versions changed before coverage approval; nothing changed." unless state[:content_digest] == input[:expected_digest]
         deficiencies = state[:deficiencies].dup
@@ -35,7 +35,7 @@ module FinancialDocuments
           version_number: prior&.version_number.to_i + 1, supersedes: prior, reason: input[:reason], digest: state[:content_digest],
           source_version_ids: state[:source_version_ids], account_version_ids: state[:account_version_ids], coverage_status: status,
           coverage_attestation: coverage, deficiencies: deficiencies.uniq, dependencies: state[:dependencies])
-        import = revision.financial_document_import
+        import = revision.financial_document_import&.reload
         if import && import.metadata["source_accounting_revision_id"].to_i == revision.id
           pending = deficiencies.any? { |value| value.in?(%w[unreviewed_source_rows unreviewed_source_accounts account_identity_changed document_rows_not_attested account_period_or_row_coverage_not_attested account_attestation_scope_mismatch]) }
           import.update!(metadata: import.metadata.merge("source_accounting_review_pending" => pending, "source_revision_approval_id" => approved.id, "source_coverage_status" => status))

@@ -43,6 +43,7 @@ module FinancialDocuments
           domain.line_batch[:actuals][event.id] = [ replacement ] if domain.line_batch
         end
         previous&.update!(status: "ignored")
+        domain.line_batch[:actuals][event.id] = [] if domain.line_batch && previous && !replacement
         if replacement
           domain.legacy_drafts(event).each do |draft|
             draft.update!(status: "corrected", confirmed_transaction: replacement, draft_payload: draft.draft_payload.merge("source_review_version_id" => version.id))
