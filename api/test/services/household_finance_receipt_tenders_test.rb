@@ -89,6 +89,7 @@ class HouseholdFinanceReceiptTendersTest < ActiveSupport::TestCase
     assert_nil read(5_000, "Gift card -$20.00; Debit $30.00")
     assert_nil read(5_000, "Gift card ($20.00); Debit $30.00")
     assert_nil read(5_000, "Gift card -20.00; Debit 30.00")
+    assert_nil read(5_000, "Gift card -$ 20.00; Debit $30.00")
     assert_equal 3_000, read(5_000, "Gift card $20.00; Debit $30.00").new_money_cents
     assert_equal 3_000, read(5_000, "Gift card - $20.00; Debit - $30.00").new_money_cents, "A spaced dash is a separator, not a sign"
   end

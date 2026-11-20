@@ -171,7 +171,7 @@ module HouseholdFinance
         next if amounts.empty?
         return nil if segment.match?(CASH_BACK)
         # A minus or bracketed amount is money going back, not a way she paid: don't guess.
-        return nil if amounts.any? { |match| match[0].match?(/\A(?:-\$?\d|\()/) }
+        return nil if amounts.any? { |match| match[0].match?(/\A(?:-(?:\$\s*)?\d|\()/) }
 
         labelled(segment, amounts).each do |label, cents|
           if label.match?(CHANGE) && !NOT_NEW_MONEY.any? { |_, pattern| label.match?(pattern) }
