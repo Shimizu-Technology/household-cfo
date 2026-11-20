@@ -13,8 +13,9 @@ class ScorecardTest < ActiveSupport::TestCase
       assert_empty baseline_ratchet.regressions(report, baseline)
       assert_equal full ? 79 : Scorecard::Runner::FAST_PATHS.length, report.fetch("document_count")
       assert_equal report.dig("annual", "decisions_by_kind").values.sum, report.dig("annual", "decisions")
-      assert_equal full ? 298 : Scorecard::Runner::FAST_CSV_ROWS, report.dig("annual", "questions_by_kind", "direction")
-      assert_equal full ? 298 : Scorecard::Runner::FAST_CSV_ROWS, report.dig("annual", "decisions_by_kind", "direction")
+      # The multi-account CSV asks money in or out once per account it holds, not once per line.
+      assert_equal full ? 5 : 2, report.dig("annual", "questions_by_kind", "direction")
+      assert_equal full ? 5 : 2, report.dig("annual", "decisions_by_kind", "direction")
       assert_equal users, User.count
       assert_equal households, Household.count
     end

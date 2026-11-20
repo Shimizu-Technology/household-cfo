@@ -98,7 +98,18 @@ module HouseholdFinance
       name = normalized(category_name)
       return if name.blank?
 
-      categories.find { |category| normalized(category.name) == name }
+      categories.find { |category| normalized(category.name) == name } || equivalent_category(categories, name)
+    end
+
+    # "Grocery" and "Groceries", "Food & Dining" and "Food and dining" name the same category. Two candidates are no answer.
+    def equivalent_category(categories, name)
+      key = equivalent_key(name)
+      matches = categories.select { |category| equivalent_key(normalized(category.name)) == key }
+      matches.first if matches.one?
+    end
+
+    def equivalent_key(name)
+      name.split.reject { |word| word == "and" }.map(&:singularize).join(" ")
     end
 
     def merchant_rule_suggestion(merchant, categories)

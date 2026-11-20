@@ -1178,6 +1178,17 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a bank export's long descriptor that names the statement's merchant is asked about near its date, a single shared word is not" do
+    first = build_source(label: "Demo checking", rows: [ [ "Tasi Demo Fuel", -4886, "purchase", 5 ], [ "Ross", -1700, "purchase", 8 ], [ "Non-WF ATM Tamuning Gum", -10_000, "cash_withdrawal", 12 ], [ "Tasi Demo Mobile", -6_500, "purchase", 14 ] ])
+    approve_lines({ lines: first[:revision].financial_source_events.order(:position).map { |row| { event_id: row.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } } }, source: first)
+    assert_response :success, response.body
+    second = build_source(label: "Demo checking", rows: [ [ "Purchase authorized on 01/05 Tasi Demo Fuel Tamuning Gum Card 7302", -4886, "purchase", 3 ], [ "Ross Corner Market", -1700, "purchase", 7 ],
+      [ "Non-WF ATM Withdrawal authorized on 03/17 Tamuning Gum Card 7302", -10_000, "cash_withdrawal", 10 ], [ "Tasi Demo Mobile Gum", -6_500, "purchase", 13 ], [ "Demo Mobile Tasi", -6_500, "purchase", 15 ] ])
+    # Out of order is a different name.
+    fuel, _ross, atm, mobile, _reordered = second[:revision].financial_source_events.order(:position)
+    assert_equal [ fuel.id, atm.id, mobile.id ], plan_for(second).fetch("attention").select { |row| row["kind"] == "duplicate" }.pluck("event_id").sort
+  end
+
   test "an older line she edited is compared by what she approved, so a copy of the edited line is asked about and the rest can be approved" do
     first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
     older = first[:revision].financial_source_events.sole

@@ -128,8 +128,19 @@ module FinancialDocuments
         elsif draft then draft.facts["merchant"]
         else ParticipantPlan.merchant_for(other)
         end
-        merchant = merchant_key(facts[:merchant])
-        merchant.present? && merchant == merchant_key(other_merchant)
+        merchant, other_key = merchant_key(facts[:merchant]), merchant_key(other_merchant)
+        merchant.present? && other_key.present? && (merchant == other_key || names_merchant?(merchant, other_key))
+      end
+
+      # A bank export's long descriptor ("Non-WF ATM Withdrawal authorized on 03/17 Tamuning Gum…") has every word of the
+      # statement's merchant ("Non-WF ATM Tamuning Gum"), in order. This only asks "Same charge?"; one word alone is too common to ask about.
+      def names_merchant?(one, other)
+        short, long = [ one, other ].map(&:split).sort_by(&:length)
+        position = 0
+        short.length >= 2 && short.all? do |word|
+          found = long.drop(position).index(word)
+          position += found + 1 if found
+        end
       end
 
       def merchant_key(merchant)

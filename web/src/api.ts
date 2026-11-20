@@ -4877,8 +4877,9 @@ export async function mutateStatementReview(importId: number, revisionId: number
   return fetchJson(`/api/v1/document_imports/${importId}/review/${action}`, { method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify({ revision_id: revisionId, input }) })
 }
-export async function answerSpreadsheetSign(importId: number, revisionId: number, negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual'): Promise<{ revision_id: number }> {
-  return postJson(`/api/v1/document_imports/${importId}/sign_answer`, { revision_id: revisionId, ...(negativeIsMoneyOut == null ? {} : { negative_is_money_out: negativeIsMoneyOut }) })
+/** sourceAccountId answers for one account of a multi-account file; without it the answer is for the whole file. */
+export async function answerSpreadsheetSign(importId: number, revisionId: number, negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual', sourceAccountId?: number): Promise<{ revision_id: number }> {
+  return postJson(`/api/v1/document_imports/${importId}/sign_answer`, { revision_id: revisionId, ...(negativeIsMoneyOut == null ? {} : { negative_is_money_out: negativeIsMoneyOut }), ...(sourceAccountId == null ? {} : { source_account_id: sourceAccountId }) })
 }
 
 export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {

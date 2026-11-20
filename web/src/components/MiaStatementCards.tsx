@@ -141,12 +141,13 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     const index = focusAfterRef.current
     focusAfterRef.current = undefined
     const next = index == null ? null : questions.current?.children[index]?.querySelector<HTMLElement>('.statement-question')
-    ;(next ?? heading.current)?.focus()
+    // A multi-account file's next account question comes before the summary.
+    ;(next ?? heading.current?.closest('section')?.querySelector<HTMLElement>('[data-sign-next]') ?? heading.current)?.focus()
   }, [data, focusAfterRef])
 
   // Keep remount focus separate: a new parent callback must not consume a line's pending focus before refreshed rows arrive.
   useEffect(() => {
-    if (data && focusAfterSign) { (heading.current?.closest('section')?.querySelector<HTMLElement>('.statement-sign-result') ?? heading.current)?.focus(); onSignFocusDone() }
+    if (data && focusAfterSign) { (heading.current?.closest('section')?.querySelector<HTMLElement>('[data-sign-next], .statement-sign-result') ?? heading.current)?.focus(); onSignFocusDone() }
   }, [data, focusAfterSign, onSignFocusDone])
 
   if (!data || !review || !plan || !counts) {
