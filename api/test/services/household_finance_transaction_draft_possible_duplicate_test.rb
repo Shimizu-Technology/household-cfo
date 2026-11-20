@@ -273,6 +273,54 @@ class HouseholdFinanceTransactionDraftPossibleDuplicateTest < ActiveSupport::Tes
 
   private
 
+  test "a voucher receipt read as its new money is offered the bank line without any correction" do
+    travel_to Date.new(2026, 7, 1) do
+      bank_line = existing_purchase(merchant: "Purchase authorized on 06/23 Tasi Demo Home Store Tamuning Gum", cents: 3_488, on: Date.new(2026, 6, 23), category: @household_goods)
+      document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "receipt", status: "processing",
+        filename: "receipt.jpg", content_type: "image/jpeg", byte_size: 100, s3_key: "household-cfo/test/voucher-receipt.jpg")
+      payload = { occurred_on: "2026-06-23", merchant: "TASI DEMO HOME STORE", total_amount: 184.88, source_type: "receipt", category_name: "Household",
+        evidence: "Home fan 129.99; Shelf kit 54.89; TOTAL $184.88; Voucher / gift card $150.00; Debit card 7302 $34.88; Balance due $0.00",
+        splits: [ { amount: 184.88, category_name: "Household" } ] }
+
+      HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ payload ]).call
+
+      receipt = document.transaction_drafts.sole
+      assert_equal 3_488, receipt.total_amount_cents
+      match = receipt.transaction_draft_matches.proposed.sole
+      assert_equal bank_line.id, match.household_transaction_id
+      assert_includes match.match_reason, "same amount"
+
+      # Confirming as proposed asks "Same purchase?"; it never counts $34.88 twice.
+      refused = HouseholdFinance::TransactionDraftConfirmer.new(receipt).call
+      refute refused.success?
+      assert_equal [ bank_line.id ], refused.possible_matches.map { |candidate| candidate.fetch(:transaction_id) }
+      accepted = HouseholdFinance::TransactionDraftMatchAccepter.new(receipt, match_id: match.id).call
+      assert accepted.success?, accepted.errors.to_sentence
+      assert_equal [ bank_line.id ], @household.household_transactions.where(status: %w[confirmed reconciled]).pluck(:id)
+      assert_equal 3_488, @household.household_transactions.where(status: %w[confirmed reconciled]).sum(:total_amount_cents)
+    end
+  end
+
+  test "counting all of a voucher receipt still asks about its bank line, and an amount she types is compared as typed" do
+    travel_to Date.new(2026, 7, 1) do
+      bank_line = existing_purchase(merchant: "Purchase authorized on 06/23 Tasi Demo Home Store Tamuning Gum", cents: 3_488, on: Date.new(2026, 6, 23), category: @household_goods)
+      document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "receipt", status: "processing",
+        filename: "receipt.jpg", content_type: "image/jpeg", byte_size: 100, s3_key: "household-cfo/test/voucher-receipt-all.jpg")
+      HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ { occurred_on: "2026-06-23", merchant: "TASI DEMO HOME STORE", total_amount: 184.88,
+        source_type: "receipt", evidence: "TOTAL $184.88; Voucher / gift card $150.00; Debit card 7302 $34.88", splits: [ { amount: 184.88, category_name: "Household" } ] } ]).call
+      receipt = document.transaction_drafts.sole
+
+      # What "Count all $184.88" sends for a one-split receipt.
+      @runner.run(operation_key: "transaction.draft.update", input: { draft_id: receipt.id, amount: "184.88", source_type: "manual_ui" }, idempotency_key: SecureRandom.uuid)
+      assert_equal 18_488, receipt.reload.total_amount_cents
+      # The $34.88 already reached her bank line; counting all must not add it silently a second time.
+      assert_equal [ bank_line.id ], receipt.transaction_draft_matches.proposed.pluck(:household_transaction_id)
+
+      @runner.run(operation_key: "transaction.draft.update", input: { draft_id: receipt.id, amount: "90.00", source_type: "manual_ui" }, idempotency_key: SecureRandom.uuid)
+      assert_empty receipt.reload.transaction_draft_matches.proposed
+    end
+  end
+
   def existing_purchase(merchant:, cents:, on:, category: @groceries)
     period = HouseholdFinance::AnnualBudgetManager.new(@household, year: on.year).current_period_for(on)
     @household.household_transactions.create!(budget_period: period, occurred_on: on, merchant: merchant,

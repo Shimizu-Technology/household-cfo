@@ -68,9 +68,15 @@ module HouseholdFinance
       end
     end
 
+    # A receipt partly paid with a gift card or voucher is compared by its new
+    # money: that is what reached the bank, even when she counts all of it.
+    def match_amount_cents
+      @match_amount_cents ||= ReceiptTenders.match_amount_cents(draft)
+    end
+
     def amount_range
-      drift = [ (draft.total_amount_cents * 0.02).round, 100 ].max
-      (draft.total_amount_cents - drift)..(draft.total_amount_cents + drift)
+      drift = [ (match_amount_cents * 0.02).round, 100 ].max
+      (match_amount_cents - drift)..(match_amount_cents + drift)
     end
 
     def confidence_for(transaction)
@@ -83,10 +89,10 @@ module HouseholdFinance
     end
 
     def amount_score(transaction)
-      delta = (transaction.total_amount_cents - draft.total_amount_cents).abs
+      delta = (transaction.total_amount_cents - match_amount_cents).abs
       return 1.0 if delta.zero?
 
-      [ 0.0, 1.0 - (delta.to_f / [ draft.total_amount_cents, 1 ].max) ].max
+      [ 0.0, 1.0 - (delta.to_f / [ match_amount_cents, 1 ].max) ].max
     end
 
     def date_score(transaction)
@@ -144,7 +150,7 @@ module HouseholdFinance
 
     def reason_for(transaction, confidence)
       parts = []
-      parts << "same amount" if transaction.total_amount_cents == draft.total_amount_cents
+      parts << "same amount" if transaction.total_amount_cents == match_amount_cents
       parts << "same date" if transaction.occurred_on == draft.occurred_on
       parts << "similar merchant" if merchant_score(transaction) >= 0.8
       parts << "same category" if category_score(transaction) >= 1.0

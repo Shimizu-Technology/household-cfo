@@ -888,7 +888,8 @@ module Api
           splits: include_details ? ordered_draft_splits_for(draft).map { |split| serialize_transaction_draft_split(split) } : [],
           matches: include_details ? ordered_draft_matches_for(draft).map { |match| serialize_transaction_draft_match(match) } : [],
           matched_transaction_id: draft.matched_transaction_id,
-          draft_payload: safe_draft_payload(draft.draft_payload)
+          draft_payload: safe_draft_payload(draft.draft_payload),
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft)
         }
       end
 

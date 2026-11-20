@@ -146,4 +146,115 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
     singleton.send(:remove_method, :new) if singleton.method_defined?(:new)
     singleton.define_method(:new, original_new)
   end
+
+  def receipt_import
+    FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "receipt", status: "processing",
+      filename: "receipt.jpg", content_type: "image/jpeg", byte_size: 100, s3_key: "household-cfo/test/receipt.jpg")
+  end
+
+  def voucher_receipt(**overrides)
+    { occurred_on: "2026-06-23", merchant: "Tasi Demo Home Store", total_amount: 184.88, source_type: "receipt", category_name: "Household",
+      evidence: "Home fan 129.99; Shelf kit 54.89; TOTAL $184.88; Voucher / gift card $150.00; Debit card 7302 $34.88; Balance due $0.00",
+      warnings: [ "Paid with $150.00 voucher/gift card plus $34.88 on debit card 7302." ],
+      splits: [ { amount: 129.99, category_name: "Household", notes: "Home fan" }, { amount: 54.89, category_name: "Dining Out", notes: "Shelf kit" } ] }.merge(overrides)
+  end
+
+  test "a receipt partly paid with a voucher proposes only the new money, splits scaled, receipt kept as context" do
+    @household.budget_categories.create!(name: "Household", stack_key: "discretionary", sort_order: 2)
+    document = receipt_import
+
+    result = HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ voucher_receipt ]).call
+
+    assert_equal 1, result.fetch(:created_count)
+    draft = document.transaction_drafts.sole
+    assert_equal 3_488, draft.total_amount_cents
+    splits = draft.transaction_draft_splits.order(:id)
+    # 34.88 * 129.99 / 184.88 = 24.524…, 34.88 * 54.89 / 184.88 = 10.355…: the whole cent goes to the larger remainder.
+    assert_equal [ 2_452, 1_036 ], splits.map(&:amount_cents)
+    assert_equal [ 12_999, 5_489 ], splits.map { |split| split.metadata["receipt_amount_cents"] }
+    assert_equal [ 2_452, 1_036 ], splits.map { |split| split.metadata["new_money_amount_cents"] }
+    payment = draft.draft_payload.fetch("receipt_payment")
+    assert_equal 18_488, payment.fetch("receipt_total_cents")
+    assert_equal 3_488, payment.fetch("new_money_cents")
+    assert_equal [ false, true ], payment.fetch("paid_with").map { |tender| tender.fetch("new_money") }
+
+    shown = HouseholdFinance::ReceiptTenders.presentation(draft)
+    assert_equal "$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts. The receipt total was $184.88.", shown.fetch(:message)
+    assert_equal "Count all $184.88", shown.fetch(:count_all_label)
+    assert_nil shown[:count_new_money_label]
+    assert_equal [ 129.99, 54.89 ], shown.fetch(:count_all_splits).map { |split| split.fetch(:amount).to_f }
+  end
+
+  test "counting all of the receipt is her choice and the card then offers the new money back" do
+    document = receipt_import
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ voucher_receipt ]).call
+    draft = document.transaction_drafts.sole
+    shown = HouseholdFinance::ReceiptTenders.presentation(draft)
+
+    result = HouseholdFinance::TransactionDraftUpdater.new(draft, { amount: shown.fetch(:receipt_total), splits: shown.fetch(:count_all_splits) }).call
+
+    assert result.success?, result.errors.to_sentence
+    assert_equal 18_488, draft.reload.total_amount_cents
+    assert_equal [ 12_999, 5_489 ], draft.transaction_draft_splits.order(:id).map(&:amount_cents)
+    again = HouseholdFinance::ReceiptTenders.presentation(draft)
+    assert_equal "all", again.fetch(:counting)
+    assert_equal "Counting all $184.88, including the $150.00 paid with a voucher or gift card.", again.fetch(:message)
+    assert_equal "Count only $34.88", again.fetch(:count_new_money_label)
+    assert_equal [ 24.52, 10.36 ], again.fetch(:count_new_money_splits).map { |split| split.fetch(:amount).to_f }
+  end
+
+  test "the summary is read for a one-purchase receipt when the row does not say how it was paid" do
+    document = receipt_import
+    payload = voucher_receipt(evidence: "Home fan 129.99; Shelf kit 54.89; TOTAL $184.88", warnings: [])
+
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ payload ],
+      summary: "Receipt dated 2026-06-23, total $184.88. Paid with a $150.00 voucher/gift card and $34.88 on debit card 7302.").call
+
+    assert_equal 3_488, document.transaction_drafts.sole.total_amount_cents
+  end
+
+  test "payment lines that do not add up leave the receipt as read" do
+    document = receipt_import
+    payload = voucher_receipt(evidence: "TOTAL $184.88; Gift card $150.00; Debit card 7302 $30.00", warnings: [])
+
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ payload ]).call
+
+    draft = document.transaction_drafts.sole
+    assert_equal 18_488, draft.total_amount_cents
+    assert_nil draft.draft_payload["receipt_payment"]
+    assert_nil HouseholdFinance::ReceiptTenders.presentation(draft)
+  end
+
+  test "buying a gift card on a receipt still counts in full" do
+    document = receipt_import
+    payload = voucher_receipt(total_amount: 50, evidence: "Gift card purchase $50.00; TOTAL $50.00; Visa $50.00", warnings: [],
+      splits: [ { amount: 50, category_name: "Gifts" } ])
+
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ payload ]).call
+
+    assert_equal 5_000, document.transaction_drafts.sole.total_amount_cents
+  end
+
+  test "a statement row is never read for gift card payments" do
+    payload = voucher_receipt(source_type: "statement")
+
+    HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, [ payload ]).call
+
+    assert_equal 18_488, @document_import.transaction_drafts.sole.total_amount_cents
+  end
+
+  test "all of it paid with a gift card keeps the amount and says none is new money" do
+    document = receipt_import
+    payload = voucher_receipt(total_amount: 40, evidence: "TOTAL $40.00; Gift card $40.00; Balance due $0.00", warnings: [],
+      splits: [ { amount: 40, category_name: "Household" } ])
+
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document, [ payload ]).call
+
+    draft = document.transaction_drafts.sole
+    assert_equal 4_000, draft.total_amount_cents
+    shown = HouseholdFinance::ReceiptTenders.presentation(draft)
+    assert_equal "All $40.00 was paid with a gift card, so none of it is new money. Choose Not now to leave it out of your spending.", shown.fetch(:message)
+    assert_nil shown[:count_all_label]
+    assert_nil shown[:count_new_money_label]
+  end
 end

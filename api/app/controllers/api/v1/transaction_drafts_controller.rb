@@ -340,7 +340,8 @@ module Api
           financial_document_import_id: draft.financial_document_import_id,
           splits: ordered_draft_splits_for(draft).map { |split| serialize_split(split) },
           matches: ordered_draft_matches_for(draft).map { |match| serialize_match(match) },
-          matched_transaction_id: draft.matched_transaction_id
+          matched_transaction_id: draft.matched_transaction_id,
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft)
         }
       end
 
