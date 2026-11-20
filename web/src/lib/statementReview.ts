@@ -10,7 +10,7 @@ export type ExpectedLineHead = { approved_version_id: number | null; lock_versio
 export type PlanAttention = {
   event_id: number
   amount_cents?: number | null
-  kind: 'direction' | 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'
+  kind: 'direction' | 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
@@ -25,7 +25,7 @@ export type PlanAttention = {
 export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
 export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 /** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
-export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number }
+export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number; refund_count?: number; refund_cents?: number }
 export type StatementPlan = {
   signed_amount_single_sign?: boolean
   signed_amount_balance_factor?: number | null

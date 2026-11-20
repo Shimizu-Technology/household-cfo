@@ -86,7 +86,9 @@ module HouseholdFinance
         # These cells are uncapped SQL aggregates of approved category splits,
         # independent of the capped recent/pending transaction lists.
         actual = approved || before_start ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
-        actual = nil unless household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: Date.new(year, month, 1).all_month).exists?
+        # A month with only an approved refund is known: Budget shows the money that came back.
+        actual = nil unless household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: Date.new(year, month, 1).all_month).exists? ||
+          RefundCredits.new(household, from: Date.new(year, month, 1), to: Date.new(year, month, 1).end_of_month).counted.any?
         pending = Array(plan[:pending_transaction_drafts]).select { |draft| draft[:occurred_on].to_s.start_with?(format("%04d-%02d", year, month)) }
         truncated = plan.dig(:pending_transaction_drafts_meta, :truncated) == true
         pending_unknown = truncated

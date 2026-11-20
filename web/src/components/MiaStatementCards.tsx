@@ -297,6 +297,9 @@ function readSentence(plan: StatementPlan): string {
 /** What now counts toward her spending, from the lines she approved. */
 function countedSentence(plan: StatementPlan): string {
   const spending = plan.spending
-  if (spending && spending.counted_count > 0) return `${spending.counted_count.toLocaleString('en-US')} ${spending.counted_count === 1 ? 'purchase' : 'purchases'}, ${formatReviewMoney(spending.counted_cents)}, now ${spending.counted_count === 1 ? 'counts' : 'count'} in your spending.`
-  return 'Nothing from this statement counts as spending.'
+  const refunds = spending?.refund_count ?? 0
+  // A refund lowers the category of what she bought, so the card says what came back as well as what was spent.
+  const back = refunds > 0 ? ` ${refunds.toLocaleString('en-US')} ${refunds === 1 ? 'refund' : 'refunds'}, ${formatReviewMoney(spending?.refund_cents ?? 0)}, came back to your categories.` : ''
+  if (spending && spending.counted_count > 0) return `${spending.counted_count.toLocaleString('en-US')} ${spending.counted_count === 1 ? 'purchase' : 'purchases'}, ${formatReviewMoney(spending.counted_cents)}, now ${spending.counted_count === 1 ? 'counts' : 'count'} in your spending.${back}`
+  return `Nothing from this statement counts as spending.${back}`
 }

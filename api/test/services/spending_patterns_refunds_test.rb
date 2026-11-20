@@ -44,10 +44,11 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     reviewed("Ross", 1000, on: Date.new(2026, 7, 4))
     reviewed("Rosslyn Cafe", 1000)
     assert_equal 5525, analyze[:discretionary_merchants].sole[:total_cents]
-    # Refunds are capped by matching observed spending; an excess never becomes savings or negative spending.
+    # A refund larger than what she spent there is shown as it is (Budget shows the same negative month), but a store
+    # refunded below zero is not somewhere she is spending, and it is never called savings.
     reviewed("Ross", 10_000)
     assert_empty analyze[:discretionary_merchants]
-    assert_nil analyze[:observed_spending_cents]
+    assert_equal(-4475, analyze[:observed_spending_cents])
     refute analyze[:savings_inferred]
   end
 
@@ -87,11 +88,23 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     assert_equal 1000, analyze[:discretionary_merchants].find { |row| row[:label] == "Island Table Cafe" }[:total_cents]
   end
 
-  test "rounding cannot overdraw a tiny final split" do
-    row = { amount_cents: 10, splits: [ { amount_cents: 3 }, { amount_cents: 3 }, { amount_cents: 3 }, { amount_cents: 1 } ] }
-    assert_equal 9, SpendingPatterns::RefundNetting.send(:deduct!, row, 9)
-    assert row[:splits].all? { |split| split[:amount_cents] >= 0 }
-    assert_equal 1, row[:splits].sum { |split| split[:amount_cents] }
+  test "proportional refund shares keep exact cents and give rounding to the largest remainders, not a tiny split" do
+    parts = [ 3, 3, 3, 1 ].each_with_index.map { |cents, index| { category_id: index, amount_cents: cents } }
+    shares = HouseholdFinance::RefundCredits.proportional(parts, 9)
+    assert_equal 9, shares.sum { |share| share[:amount_cents] }
+    assert shares.all? { |share| share[:amount_cents].positive? }
+    assert_equal [ [ 0, 2 ], [ 1, 3 ], [ 2, 3 ], [ 3, 1 ] ], shares.map(&:values)
+    assert_equal [ 1500, 1000 ], HouseholdFinance::RefundCredits.proportional([ { category_id: 1, amount_cents: 6000 }, { category_id: 2, amount_cents: 4000 } ], 2500).pluck(:amount_cents)
+  end
+
+  test "a refund in a later month nets that month, not the month of the purchase" do
+    purchase("Ross", 5525)
+    reviewed("Ross", 1525, on: Date.new(2026, 11, 2))
+    october = SpendingPatterns::Analyzer.new(@savings_household, today: Date.new(2026, 11, 4), from: "2026-10-01", to: "2026-10-31").call
+    november = SpendingPatterns::Analyzer.new(@savings_household, today: Date.new(2026, 11, 4), from: "2026-11-01", to: "2026-11-04").call
+    assert_equal 5525, october[:observed_spending_cents]
+    assert_equal(-1525, november[:observed_spending_cents])
+    assert_equal 0, november[:purchase_count]
   end
 
   private

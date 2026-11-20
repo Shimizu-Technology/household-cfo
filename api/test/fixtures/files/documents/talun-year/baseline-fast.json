@@ -283,10 +283,10 @@
     },
     "2026-03": {
       "total_spending": {
-        "actual_cents": 34237,
+        "actual_cents": 31238,
         "expected_cents": 31238,
-        "error_cents": 2999,
-        "absolute_error_percent": 9.6005
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -350,10 +350,10 @@
           "absolute_error_percent": 0.0
         },
         "Clothing": {
-          "actual_cents": 8425,
+          "actual_cents": 5426,
           "expected_cents": 5426,
-          "error_cents": 2999,
-          "absolute_error_percent": 55.2709
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "Cash": {
           "actual_cents": 0,
@@ -387,10 +387,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 34237,
+        "actual_cents": 31238,
         "expected_cents": 31238,
-        "error_cents": 2999,
-        "absolute_error_percent": 9.6005
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -401,22 +401,22 @@
       "decisions_by_kind": {
         "account_identity": 1,
         "approve_page": 1,
-        "refund": 1,
+        "refund_category": 1,
         "no_category": 4,
         "card_payment": 1
       },
-      "manual_correction": 4,
+      "manual_correction": 5,
       "manual_exclusion": 0,
-      "accepted_as_proposed": 4,
+      "accepted_as_proposed": 3,
       "corrections_by_field": {
         "type": 0,
         "amount": 0,
         "date": 0,
-        "category": 4,
+        "category": 5,
         "direction": 0
       },
       "questions_by_kind": {
-        "refund": 1,
+        "refund_category": 1,
         "no_category": 4,
         "card_payment": 1
       },
@@ -1655,10 +1655,10 @@
   },
   "annual": {
     "total_spending": {
-      "actual_cents": 643622,
+      "actual_cents": 640623,
       "expected_cents": 640623,
-      "error_cents": 2999,
-      "absolute_error_percent": 0.4681
+      "error_cents": 0,
+      "absolute_error_percent": 0.0
     },
     "income": {
       "actual_cents": 1356300,
@@ -1667,10 +1667,10 @@
       "absolute_error_percent": 0.0
     },
     "analyzer_spending": {
-      "actual_cents": 643622,
+      "actual_cents": 640623,
       "expected_cents": 640623,
-      "error_cents": 2999,
-      "absolute_error_percent": 0.4681
+      "error_cents": 0,
+      "absolute_error_percent": 0.0
     },
     "spending_by_category": {
       "Housing": {
@@ -1734,10 +1734,10 @@
         "absolute_error_percent": 0.0
       },
       "Clothing": {
-        "actual_cents": 8425,
+        "actual_cents": 5426,
         "expected_cents": 5426,
-        "error_cents": 2999,
-        "absolute_error_percent": 55.2709
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "Cash": {
         "actual_cents": 40000,
@@ -1769,9 +1769,9 @@
     "transfer_leakage_spending_cents": 0,
     "transfer_leakage_income_cents": 0,
     "decisions": 82,
-    "manual_correction": 21,
+    "manual_correction": 22,
     "manual_exclusion": 21,
-    "accepted_as_proposed": 56,
+    "accepted_as_proposed": 55,
     "unmapped_spending_cents": 0,
     "unmapped_spending_count": 0,
     "decisions_by_kind": {
@@ -1784,13 +1784,13 @@
       "manual_correction": 1,
       "no_category": 15,
       "receipt_match": 1,
-      "refund": 1,
+      "refund_category": 1,
       "still_category": 1,
       "transfer": 12
     },
     "corrections_by_field": {
       "amount": 1,
-      "category": 20,
+      "category": 21,
       "date": 0,
       "direction": 3,
       "type": 4
@@ -1800,7 +1800,7 @@
       "direction": 24,
       "duplicate": 3,
       "no_category": 15,
-      "refund": 1,
+      "refund_category": 1,
       "still_category": 1,
       "transfer": 12
     },
@@ -1824,7 +1824,7 @@
     "unrecognized_rows": 0
   },
   "targets": {
-    "monthly_spending_within_one_percent": false,
+    "monthly_spending_within_one_percent": true,
     "zero_double_counts": true,
     "zero_transfer_leakage": true,
     "decisions_under_200": true
@@ -2111,10 +2111,10 @@
       },
       "2026-03": {
         "total_spending": {
-          "actual_cents": 34237,
+          "actual_cents": 31238,
           "expected_cents": 31238,
-          "error_cents": 2999,
-          "absolute_error_percent": 9.6005
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -2178,10 +2178,10 @@
             "absolute_error_percent": 0.0
           },
           "Clothing": {
-            "actual_cents": 8425,
+            "actual_cents": 5426,
             "expected_cents": 5426,
-            "error_cents": 2999,
-            "absolute_error_percent": 55.2709
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
           },
           "Cash": {
             "actual_cents": 0,
@@ -2215,10 +2215,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 34237,
+          "actual_cents": 31238,
           "expected_cents": 31238,
-          "error_cents": 2999,
-          "absolute_error_percent": 9.6005
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "double_counts": 0,
         "transfer_leakage_cents": 0,
@@ -2229,22 +2229,22 @@
         "decisions_by_kind": {
           "account_identity": 1,
           "approve_page": 1,
-          "refund": 1,
+          "refund_category": 1,
           "no_category": 4,
           "card_payment": 1
         },
-        "manual_correction": 4,
+        "manual_correction": 5,
         "manual_exclusion": 0,
-        "accepted_as_proposed": 4,
+        "accepted_as_proposed": 3,
         "corrections_by_field": {
           "type": 0,
           "amount": 0,
           "date": 0,
-          "category": 4,
+          "category": 5,
           "direction": 0
         },
         "questions_by_kind": {
-          "refund": 1,
+          "refund_category": 1,
           "no_category": 4,
           "card_payment": 1
         },
@@ -3481,10 +3481,10 @@
     },
     "annual": {
       "total_spending": {
-        "actual_cents": 688299,
+        "actual_cents": 685300,
         "expected_cents": 640623,
-        "error_cents": 47676,
-        "absolute_error_percent": 7.4421
+        "error_cents": 44677,
+        "absolute_error_percent": 6.974
       },
       "income": {
         "actual_cents": 1356300,
@@ -3493,10 +3493,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 688299,
+        "actual_cents": 685300,
         "expected_cents": 640623,
-        "error_cents": 47676,
-        "absolute_error_percent": 7.4421
+        "error_cents": 44677,
+        "absolute_error_percent": 6.974
       },
       "spending_by_category": {
         "Housing": {
@@ -3560,10 +3560,10 @@
           "absolute_error_percent": 125.88
         },
         "Clothing": {
-          "actual_cents": 8425,
+          "actual_cents": 5426,
           "expected_cents": 5426,
-          "error_cents": 2999,
-          "absolute_error_percent": 55.2709
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "Cash": {
           "actual_cents": 40000,
@@ -3595,9 +3595,9 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "decisions": 94,
-      "manual_correction": 40,
+      "manual_correction": 41,
       "manual_exclusion": 0,
-      "accepted_as_proposed": 55,
+      "accepted_as_proposed": 54,
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0,
       "decisions_by_kind": {
@@ -3610,12 +3610,12 @@
         "duplicate_guard": 14,
         "no_category": 15,
         "receipt_confirmation": 1,
-        "refund": 1,
+        "refund_category": 1,
         "transfer": 12
       },
       "corrections_by_field": {
         "amount": 0,
-        "category": 31,
+        "category": 32,
         "date": 0,
         "direction": 24,
         "type": 20
@@ -3625,7 +3625,7 @@
         "direction": 24,
         "duplicate": 3,
         "no_category": 15,
-        "refund": 1,
+        "refund_category": 1,
         "transfer": 12
       },
       "receipt_extraction_absolute_error_cents": 15000,

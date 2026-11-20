@@ -7,7 +7,8 @@ module FinancialDocuments
     class ParticipantPlan
       # as_before: the category is only what she chose for this merchant on an earlier statement; the reader guessed nothing.
       # saved: the approved version of a line saved with no category, so she is shown (and changes) what she saved.
-      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :saved, :expected_head, keyword_init: true) do
+      # refund_to: for a refund whose purchase was found, the categories it goes back to (shown, never saved on the line).
+      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :saved, :expected_head, :refund_to, keyword_init: true) do
         def ready? = kind.nil?
       end
 
@@ -19,6 +20,8 @@ module FinancialDocuments
         transfer: "Did this move between your own accounts?",
         card_payment: "Is this a payment on your own card or loan?",
         refund: "Is this a refund?",
+        # A refund goes back to the category of the purchase it refunds. When no purchase can be found she is asked.
+        refund_category: "Which category does this refund go back to?",
         no_category: "What was this for?",
         # Asked with her own earlier category for the same merchant: "Still Dining out?"
         suggested_category: nil,
@@ -31,6 +34,7 @@ module FinancialDocuments
         transfer: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         card_payment: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         refund: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
+        refund_category: [ { id: "edit", label: "Choose one" }, { id: "leave_out", label: "Leave it out" } ],
         no_category: [ { id: "edit", label: "Choose one" }, { id: "leave_out", label: "Leave it out" } ],
         suggested_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ],
         still_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ]
@@ -64,7 +68,8 @@ module FinancialDocuments
           posted_on: event.posted_on&.iso8601,
           authorized_on: event.authorized_on&.iso8601,
           merchant: merchant,
-          budget_category_id: expense ? category_id : nil,
+          # A refund keeps a category only when she was asked which one it goes back to.
+          budget_category_id: expense || refund?(event) ? category_id : nil,
           overlap_disposition: informational ? "excluded" : "new",
           external_reference: nil
         }
@@ -72,6 +77,10 @@ module FinancialDocuments
 
       def self.expense?(event)
         event.row_kind == "posted" && event.event_type.in?(EXPENSE_TYPES) && event.signed_amount_cents.to_i.negative?
+      end
+
+      def self.refund?(event)
+        event.row_kind == "posted" && event.event_type == "refund" && event.signed_amount_cents.to_i.positive?
       end
 
       # The words she sees and approves. Long account numbers show as ····1234; the statement's own text stays stored as read.
@@ -132,8 +141,50 @@ module FinancialDocuments
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
             done: done?(heads[event.id]&.approved_version), without_category: without_category, saved: (heads[event.id].approved_version if without_category))
+        end.tap { |lines| refund_lines!(lines, heads, earlier, categories) }
+      end
+
+      # A refund goes back to the category of the purchase it refunds (HouseholdFinance::RefundCredits). Before it is saved,
+      # "Is this a refund?" names that category when the purchase can be found. Otherwise she is asked which category it goes
+      # back to, with a category that came from her filled in for her tap: an earlier purchase from the same store on this
+      # statement, else what she chose for this store before. A saved refund that counts nowhere stays on her list, like a
+      # saved purchase with no category.
+      def refund_lines!(lines, heads, earlier, categories)
+        lines.each do |line|
+          version = heads[line.event.id]&.approved_version
+          if done?(version) && version.disposition == "include" && version.event_type == "refund"
+            next if refund_credits.for_version(version).counted?
+            prefill = refund_prefill(line, lines, heads, earlier, categories, saved: version)
+            line.kind, line.category_id, line.as_before, line.without_category, line.saved = :refund_category, prefill, prefill.present?, true, version
+          elsif !line.done && line.kind == :refund
+            original = refund_credits.same_store_original(line.merchant, line.event.posted_on)
+            if original
+              line.refund_to = refund_credits.counted_parts(original).pluck(:category_id).uniq
+            else
+              prefill = refund_prefill(line, lines, heads, earlier, categories)
+              line.kind, line.category_id, line.as_before = :refund_category, prefill, prefill.present?
+            end
+          end
         end
       end
+
+      def refund_prefill(line, lines, heads, earlier, categories, saved: nil)
+        merchant = saved&.merchant.presence || line.merchant
+        posted_on = saved&.posted_on || line.event.posted_on
+        key = HouseholdFinance::RefundCredits.merchant_key(merchant)
+        return unless key && posted_on
+        # A line she already saved counts with the category she saved; one not saved yet with the category she is shown.
+        category = lambda do |other|
+          kept = heads[other.event.id]&.approved_version
+          other.done && kept ? (kept.budget_category_id if kept.disposition == "include") : other.category_id
+        end
+        here = lines.select { |other| other.event.posted_on && other.event.posted_on <= posted_on && self.class.expense?(other.event) && category.call(other) && HouseholdFinance::RefundCredits.merchant_key(other.merchant) == key }
+          .max_by { |other| [ other.event.posted_on, other.event.position.to_i ] }&.then(&category)
+        id = here || (earlier[line.event.id] if merchant == line.merchant) || previous_choices([ merchant ])[merchant_key(merchant)]
+        id if categories.include?(id)
+      end
+
+      def refund_credits = @refund_credits ||= HouseholdFinance::RefundCredits.new(household)
 
       # A row only counts as finished while its account is still the one it was approved against.
       def done?(version)

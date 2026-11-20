@@ -154,7 +154,8 @@ module Scorecard
       unless answer
         # An unmapped proposal must remain visible in the question-only output
         # when the app accepts it; the answer key cannot silently remove it.
-        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate])
+        # A refund with no category to go back to can't be answered "Yes", like a line with no category.
+        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate]) && !(line.kind == :refund_category && line.category_id.nil?)
           return base.merge(decision: "as_read")
         end
         quality[month]["manual_exclusion"] += 1 if @correct_proposals
@@ -187,11 +188,12 @@ module Scorecard
       fields << "amount" if proposed_amount != signed.abs
       fields << "direction" if row.signed_amount_cents.nil? || row.signed_amount_cents.positive? != signed.positive?
       fields << "date" if row.posted_on&.iso8601 != answer.fetch("date")
-      fields << "category" if kind == "spending" && line.category_id != category
+      # A refund whose purchase the app can't find asks which category it goes back to, like a purchase's category.
+      fields << "category" if (kind == "spending" || (kind == "refund" && line.kind == :refund_category)) && line.category_id != category
       quality[month]["accepted_as_proposed"] += 1 if fields.empty? && !excluded
       allowed = case line.kind
       when :direction then %w[type direction category]
-      when :transfer, :card_payment, :refund then %w[type direction category]
+      when :transfer, :card_payment, :refund, :refund_category then %w[type direction category]
       when :no_category, :suggested_category, :still_category then %w[category]
       else []
       end

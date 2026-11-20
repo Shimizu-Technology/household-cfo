@@ -600,6 +600,8 @@ export type SpendingReportCategory = {
   pending: number
   remaining: number
   active?: boolean
+  /** A confirmed purchase or counted refund landed in this category this period, even when they net to $0. */
+  has_activity?: boolean
 }
 
 export type ArchivedBudgetCategory = {
@@ -609,6 +611,8 @@ export type ArchivedBudgetCategory = {
   stack_label: string
   active: boolean
 }
+
+export type SpendingReportRefund = { id: number; occurred_on: string; merchant: string; amount: number; counted: boolean; categories: string[] }
 
 export type SpendingReport = {
   period_label: string
@@ -620,8 +624,12 @@ export type SpendingReport = {
     pending: number
     remaining: number
   }
+  /** Whether any approved purchase or counted refund falls in the period; refunds can bring a known month to $0. */
+  actual_known?: boolean
   categories: SpendingReportCategory[]
   transactions: RecentTransaction[]
+  /** Refunds she approved in this period. A counted one lowers the categories it went back to; one not counted still needs a category. */
+  refunds?: SpendingReportRefund[]
   pending_drafts: Array<{
     id: number
     occurred_on: string

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
-import { CategoryPressureList, ExpenseStackOverview } from './BudgetVisuals'
+import { CategoryPressureList, ExpenseStackOverview, MonthPlanSummary } from './BudgetVisuals'
 
 afterEach(cleanup)
 
@@ -51,4 +51,44 @@ it('preserves deliberate zero months and unknown spending before the plan starts
   view.rerender(<CategoryPressureList positions={[position]} planKnown={false} />)
   expect(view.container.textContent).toContain('Approved spending not known yet')
   expect(view.container.textContent).not.toContain('$0 actual')
+})
+
+it('shows a category month that refunds brought below zero as it is, never as $0 or unknown', () => {
+  const position = { id: 5, name: 'Clothing', stackKey: 'discretionary' as const, stackLabel: 'Flexible spending', planned: 100, actual: -110, pending: 0, remaining: 210, active: true }
+  const view = render(<CategoryPressureList positions={[position]} />)
+  expect(view.container.textContent).toContain('-$110 actual')
+  expect(view.container.textContent).toContain('$210 remaining now')
+  expect(view.container.textContent).toContain('More came back in refunds this month than was spent.')
+  view.rerender(<CategoryPressureList positions={[position]} planKnown={false} />)
+  expect(view.container.textContent).toContain('-$110 actual')
+  expect(view.container.textContent).not.toContain('Approved spending not known yet')
+  view.rerender(<ExpenseStackOverview positions={[{ ...position, active: false }]} />)
+  const flexible = view.container.querySelector('.stack-discretionary')!.textContent
+  expect(flexible).toContain('-$110 after refunds')
+  expect(flexible).toContain('-$110 after refunds · archived')
+  expect(flexible).not.toContain('No confirmed transactions yet')
+})
+
+it('shows a month whose refunds outweigh its spending as a known negative amount', () => {
+  const view = render(<MonthPlanSummary label="March 2026" income={5000} planned={1000} actual={-29.99} pending={0} />)
+  expect(view.container.textContent).toContain('-$29.99')
+  expect(view.container.textContent).not.toContain('No confirmed transactions yet')
+  expect(view.container.textContent).toContain('More came back in refunds this month than was spent.')
+})
+
+it('a group or category whose purchases and refunds cancel out is a known $0, not "no transactions"', () => {
+  const position = { id: 7, name: 'Clothing', stackKey: 'discretionary' as const, stackLabel: 'Flexible spending', planned: 100, actual: 0, pending: 0, remaining: 100, active: true, hasActivity: true }
+  const group = render(<ExpenseStackOverview positions={[position]} />)
+  const flexible = group.container.querySelector('.stack-discretionary') as HTMLElement
+  expect(flexible.textContent).toContain('$0 spent after refunds')
+  expect(flexible.textContent).toContain('$100 left in this group.')
+  expect(flexible.textContent).not.toContain('No confirmed transactions yet')
+  expect(flexible.textContent).not.toContain('Nothing spent against this plan yet.')
+  group.unmount()
+  const noPlan = render(<CategoryPressureList positions={[position]} planKnown={false} />)
+  expect(noPlan.container.textContent).toContain('$0 actual')
+  expect(noPlan.container.textContent).not.toContain('Approved spending not known yet')
+  noPlan.unmount()
+  const quiet = render(<ExpenseStackOverview positions={[{ ...position, hasActivity: false }]} />)
+  expect((quiet.container.querySelector('.stack-discretionary') as HTMLElement).textContent).toContain('No confirmed transactions yet')
 })

@@ -71,7 +71,8 @@ module FinancialDocuments
       def check_shown!(line, entry)
         shown = entry[:shown]
         looked = shown.is_a?(Hash) && shown.key?(:category_id) && shown.key?(:event_type) &&
-          shown[:event_type].to_s == line.event.event_type && shown[:category_id]&.to_i == line.category_id
+          # A saved line is shown as she saved it (ParticipantPresenter), so compare with what she saved.
+          shown[:event_type].to_s == (line.saved&.event_type || line.event.event_type) && shown[:category_id]&.to_i == line.category_id
         raise Domain::StaleReview, "This line changed while you were looking at it. Nothing was saved. Please look again." unless looked
       end
 
@@ -195,7 +196,9 @@ module FinancialDocuments
         stale = Domain::StaleReview.new("This line changed while you were reviewing it. Nothing was saved. Refresh and try again.")
         case decision
         when "as_read"
-          raise stale unless !line.done && (line.ready? || line.kind.in?(%i[transfer card_payment refund still_category suggested_category]))
+          # "Yes" to "Does this refund go back to Clothing?" saves that category, also for a saved refund that counted nowhere.
+          refund_answer = line.kind == :refund_category && line.category_id.present? && (!line.done || line.without_category)
+          raise stale unless refund_answer || (!line.done && (line.ready? || line.kind.in?(%i[transfer card_payment refund still_category suggested_category])))
           # "Yes" to "Still Dining out?" confirms the category she was asked about and nothing else: the line keeps its kind.
           check_shown!(line, entry)
         when "different"
@@ -213,7 +216,7 @@ module FinancialDocuments
           base = base.merge(saved.reviewed_facts.slice(:event_type, :signed_amount_cents, :purchase_amount_cents, :posted_on, :authorized_on, :merchant, :overlap_disposition))
         end
         case decision
-        when "as_read" then base
+        when "as_read" then line.kind == :refund_category ? base.merge(budget_category_id: line.category_id) : base
         when "different" then base.merge(overlap_disposition: "distinct")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
         else edited_facts(base, edit, saved: saved&.disposition == "include")
@@ -249,8 +252,10 @@ module FinancialDocuments
         same_charge = signed == base[:signed_amount_cents] && posted_on.to_s == base[:posted_on].to_s && base[:overlap_disposition] == "distinct"
         # A saved purchase whose total differs from the money that moved (part paid another way) keeps that total when only its category changes.
         purchase = saved && signed == base[:signed_amount_cents] && base[:purchase_amount_cents].present? ? base[:purchase_amount_cents] : cents
+        # A refund carries a category only when she says which one it goes back to; otherwise it follows the purchase it refunds.
+        refund = type == "refund" && signed.positive?
         base.merge(disposition: "include", event_type: type, signed_amount_cents: signed, posted_on: posted_on, merchant: merchant,
-          purchase_amount_cents: expense ? purchase : nil, budget_category_id: expense ? edit[:category_id].presence&.to_i : nil, overlap_disposition: same_charge ? "distinct" : "new")
+          purchase_amount_cents: expense ? purchase : nil, budget_category_id: expense || refund ? edit[:category_id].presence&.to_i : nil, overlap_disposition: same_charge ? "distinct" : "new")
       end
 
       def same_facts?(version, facts)

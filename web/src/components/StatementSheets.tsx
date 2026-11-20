@@ -33,7 +33,7 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
     if (!postedOn) return setProblem('Choose the date.')
     if ((kind === 'spending' || kind === 'cash') && !merchant.trim()) return setProblem('Add where the money went.')
     setProblem(null)
-    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: (kind === 'spending' || kind === 'cash') && categoryId ? Number(categoryId) : null })
+    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: (kind === 'spending' || kind === 'cash' || kind === 'refund') && categoryId ? Number(categoryId) : null })
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
@@ -62,6 +62,13 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
           {!categoryId && <small>Without a category, this won’t count toward your spending.</small>}
+        </label>}
+        {kind === 'refund' && <label>Goes back to
+          <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+            <option value="">The purchase’s category</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <small>A refund lowers the category of what you bought, in the month the money came back. If we can’t find the purchase, we’ll ask.</small>
         </label>}
         {(problem || error) && <p role="alert" className="statement-sheet-error">{problem ?? error}</p>}
         {busy && canClose && <p>Close this window to check whether your change saved or try it again.</p>}

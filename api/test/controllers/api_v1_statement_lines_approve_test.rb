@@ -41,7 +41,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert version.expense?
     assert_equal 32_000, version.purchase_amount_cents
     assert_equal cash.id, version.budget_category_id
-    assert_equal({ "read_count" => 1, "read_cents" => 32_000, "counted_count" => 1, "counted_cents" => 32_000 }, review_plan.fetch("spending"))
+    assert_equal({ "read_count" => 1, "read_cents" => 32_000, "counted_count" => 1, "counted_cents" => 32_000, "refund_count" => 0, "refund_cents" => 0 }, review_plan.fetch("spending"))
     assert_equal 1, @household.household_transactions.count
     budget = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).plan_data
     budget_cents = HouseholdFinance::Money.cents(budget.fetch(:rows).find { |category| category[:id] == cash.id }.fetch(:actual_total))
@@ -300,12 +300,12 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "the plan and the upload progress say what was read and what now counts as spending" do
     # Two purchases are on the statement (one is a transfer, one has no amount); nothing counts until she approves it.
-    assert_equal({ "read_count" => 2, "read_cents" => 1_500, "counted_count" => 0, "counted_cents" => 0 }, review_plan.fetch("spending"))
+    assert_equal({ "read_count" => 2, "read_cents" => 1_500, "counted_count" => 0, "counted_cents" => 0, "refund_count" => 0, "refund_cents" => 0 }, review_plan.fetch("spending"))
     assert_equal review_plan.fetch("spending"), upload_progress.fetch("spending")
     ready = review_plan.fetch("ready_event_ids")
     approve_lines({ expect_ready_ids: ready, lines: as_read(ready) })
     assert_response :success
-    counted = { "read_count" => 2, "read_cents" => 1_500, "counted_count" => 1, "counted_cents" => 1_000 }
+    counted = { "read_count" => 2, "read_cents" => 1_500, "counted_count" => 1, "counted_cents" => 1_000, "refund_count" => 0, "refund_cents" => 0 }
     assert_equal counted, review_plan.fetch("spending")
     assert_equal counted, upload_progress.fetch("spending")
     # A purchase she leaves out is saved but never counted; one she gives a category counts at the amount she approved.
@@ -1364,8 +1364,11 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       end
       analyze = -> { SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call }
       assert_equal [ "Ross", "Amazon Marketplace", "Kmart" ], analyze.call[:discretionary_merchants].pluck(:label)
-      row = rows.fetch("Amazon refund order DEMO-8001")
+      # Before the Amazon purchase was saved the refund asked which category it goes back to; now it names the purchase's.
+      assert_equal "refund_category", rows.fetch("Amazon refund order DEMO-8001").fetch("kind")
+      row = review_plan.fetch("attention").find { |item| item["merchant"] == "Amazon refund order DEMO-8001" }
       assert_equal "refund", row.fetch("kind")
+      assert_equal "Is this a refund? It goes back to Everyday spending.", row.fetch("question")
       approve_lines({ lines: [ { event_id: row.fetch("event_id"), decision: "as_read", shown: row.slice("event_type", "category_id") } ] })
       assert_response :success, response.body
       assert_equal [ "Ross", "Kmart", "Amazon Marketplace" ], analyze.call[:discretionary_merchants].pluck(:label)
