@@ -58,7 +58,7 @@ jobs:
   live:
     needs: check-key
     if: needs.check-key.outputs.present == 'true'
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
@@ -99,7 +99,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
+        uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
         with:
           bundler-cache: true
           working-directory: api

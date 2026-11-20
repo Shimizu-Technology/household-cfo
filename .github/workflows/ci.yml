@@ -37,7 +37,7 @@ jobs:
         run: python -m unittest discover -s scripts/synthetic-documents/tests -v
 
   rails_security:
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -59,7 +59,7 @@ jobs:
         run: bin/bundler-audit check --update
 
   rails_lint:
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -166,7 +166,7 @@ jobs:
   # is deterministic (api/lib/ci_test_shards.rb), so every test file runs in exactly one shard.
   rails_test_shard:
     name: rails_test_shard (${{ matrix.shard }}/3)
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

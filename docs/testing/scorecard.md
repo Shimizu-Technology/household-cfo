@@ -12,7 +12,7 @@ Acceptance for this backend task is agent-executed: replay all 79 fictional docu
 
 ## Run it
 
-From `api/`, with Ruby 3.3.7, the installed bundle, local PostgreSQL, and Poppler available:
+From `api/`, with the Ruby in `api/.ruby-version`, the installed bundle, local PostgreSQL, and Poppler available:
 
 ```sh
 RAILS_ENV=test DATABASE_TEST_NAME=household_cfo_test_t4b bin/rails db:prepare
