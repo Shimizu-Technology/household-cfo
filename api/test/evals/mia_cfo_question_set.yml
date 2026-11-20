@@ -79,18 +79,11 @@ cases:
     expected_amounts:
       - { ledger: month_spending, month: "2026-06" }
       - { ledger: month_planned, month: "2026-06" }
-    known_gap:
-      checks: [expected_amounts]
-      reason: Routed to the readiness plan ("let's make the plan from approved household numbers"); it never compares June's spending with June's plan.
 
   - id: cfo_where_most_money_goes
     route: controller
     prompt: Where does most of our money go?
     expected_phrases: [Rent]
-    known_gap:
-      checks: [expected_phrases]
-      modes: [deterministic]
-      reason: Without the model reader Mia deflects ("Let's take this one step at a time"); no deterministic route reads where money goes.
 
   # What to cut first
   - id: cfo_spending_patterns_three_months
@@ -111,10 +104,13 @@ cases:
     prompt: What should we cut first?
     expected_phrases: [[Jamaican Grill, Reef Coffee Co, Ross, Dining Out, Shopping]]
     live_expected: [[Jamaican Grill, Reef Coffee Co, Ross, Dining Out, Shopping, dining, takeout]]
-    known_gap:
-      checks: [expected_phrases]
-      modes: [deterministic]
-      reason: Without the model reader Mia deflects ("Let's take this one step at a time"); the read-only floor doesn't recognize "cut first".
+    forbidden_phrases: [Island Prenatal Clinic, Auntie Lina, IslandNursery]
+
+  - id: cfo_cut_first_differs_from_where_it_goes
+    route: controller
+    prompt: Where is my money going?
+    expected_phrases: [Rent, Groceries]
+    forbidden_phrases: [could free, biggest flexible spending stops]
 
   - id: cfo_cut_prenatal_clinic
     route: controller

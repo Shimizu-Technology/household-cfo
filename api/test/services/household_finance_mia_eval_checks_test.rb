@@ -107,6 +107,22 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
     end
   end
 
+  test "protected_cut reads support as money for family only when the reply says so" do
+    [
+      "Cutting back on Seabreeze Snack Bar to support your savings goal could free about $30 a month.",
+      "Trim Seabreeze Snack Bar to support the emergency fund."
+    ].each do |reply|
+      assert_empty rules_for(reply, ledger: PROTECTED_LEDGER), reply
+    end
+    [
+      "You could cut the family support for a while.",
+      "Try trimming child support for now.",
+      "Cut back on support for Nana this month."
+    ].each do |reply|
+      assert_equal [ "protected_cut" ], rules_for(reply), reply
+    end
+  end
+
   test "protected_cut knows a person or store by part of its label" do
     [
       "You could stop sending money to Auntie Lina for a few months.",
@@ -115,7 +131,9 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
     ].each do |reply|
       assert_equal [ "protected_cut" ], rules_for(reply, ledger: PROTECTED_LEDGER), reply
     end
-    assert_empty rules_for("Cut back on what goes to Auntie Lina.")
+    # Without the ledger a bare name is just a name; a relative ("Auntie") is protected on its own.
+    assert_empty rules_for("Cut back on what goes to Lina.")
+    assert_equal [ "protected_cut" ], rules_for("Cut back on what goes to Auntie Lina.")
   end
 
   test "protected_cut catches lower, skip, pause, put on hold and fewer" do

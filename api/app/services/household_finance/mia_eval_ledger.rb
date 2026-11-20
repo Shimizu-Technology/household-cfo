@@ -126,19 +126,21 @@ module HouseholdFinance
 
     def month_date(month) = Date.new(@today.year, month, 1)
 
-    # Category names the method never cuts, the stores paid from them, and money sent to a person.
+    # Category names the method never cuts, the stores paid from them, stores that are care or a bill,
+    # and money sent to a person.
     def protected_names
       categories = @household.budget_categories.select { |category| SpendingPatterns::Analyzer.protected_category?(category.name) }
       merchants = @household.household_transactions.where(status: %w[confirmed reconciled])
         .joins(:transaction_splits).where(transaction_splits: { budget_category_id: categories.map(&:id) })
         .distinct.pluck(:merchant).map { |merchant| SpendingPatterns::MerchantName.call(merchant) }
-      transfers = patterns[:merchants].select { |row| row[:transfer_to_person] }.pluck(:label)
-      (categories.map(&:name) + merchants + transfers).compact_blank.uniq
+      never_cut = patterns[:merchants].select { |row| row[:transfer_to_person] || SpendingPatterns::Analyzer.protected_merchant?(row[:label]) }.pluck(:label)
+      (categories.map(&:name) + merchants + never_cut).compact_blank.uniq
     end
 
-    # Store labels seen in fewer months than a monthly cut needs, with what was paid there.
+    # Stores that aren't a monthly habit once one-off payments are left out (SpendingPatterns::Analyzer),
+    # with what was paid there: no monthly saving can come from them.
     def one_month_merchants
-      patterns[:merchants].select { |row| row[:observed_months].length < SpendingPatterns::Analyzer::MIN_MONTHS_FOR_A_CUT }
+      patterns[:merchants].reject { |row| row[:monthly_habit] }
         .map { |row| { "label" => row[:label], "total_cents" => row[:total_cents], "months" => row[:observed_months].length } }
     end
 

@@ -30,6 +30,40 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     assert_includes answer, "1 bank-pending Amazon transaction totaling $5"
   end
 
+  test "category and merchant answers name stores without the bank's wording" do
+    [ 3, 10 ].each do |day|
+      period = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 8, 1))
+      row = @household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 8, day), merchant: "Purchase authorized on 08/#{day.to_s.rjust(2, '0')} Coral Market Tamuning GU S····5237 Card 5237",
+        total_amount_cents: 4_000, source_type: "statement", status: "confirmed")
+      row.transaction_splits.create!(budget_category: @category, amount_cents: 4_000)
+    end
+
+    category = HouseholdFinance::TransactionLookupAnswerer.new(@household, "How much did I spend on Shopping this month?", today: Date.new(2026, 8, 16)).call
+    assert_includes category, "Top merchants: Coral Market $80 (2 times)."
+    kmart = @household.household_transactions.create!(budget_period: @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 8, 1)),
+      occurred_on: Date.new(2026, 8, 12), merchant: "Kmart", total_amount_cents: 5_000, source_type: "statement", status: "confirmed")
+    kmart.transaction_splits.create!(budget_category: @category, amount_cents: 5_000)
+    comparison = HouseholdFinance::TransactionLookupAnswerer.new(@household,
+      "Did I spend more at purchase authorized on 08/03 coral market tamuning gu s····5237 card 5237, purchase authorized on 08/10 coral market tamuning gu s····5237 card 5237 or kmart?", today: Date.new(2026, 8, 16)).call
+    # Both bank spellings are one store, totalled together.
+    assert_includes comparison, "Coral Market is higher at $80."
+    assert_includes comparison, "Coral Market $80 confirmed / $0 bank-observed"
+    assert_includes comparison, "Kmart $50 confirmed / $0 bank-observed"
+    refute_match(/Purchase authorized|S····|Card 5237/i, comparison)
+  end
+
+  test "a store named in full is matched on its own name, never the shorter name it reads as" do
+    period = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 8, 1))
+    { "ROSS DRESS FOR LESS" => 6_000, "Crossroads Cafe" => 5_000, "Kmart Snack Bar Grossmans" => 7_000 }.each do |merchant, cents|
+      row = @household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 8, 5), merchant: merchant, total_amount_cents: cents, source_type: "statement", status: "confirmed")
+      row.transaction_splits.create!(budget_category: @category, amount_cents: cents)
+    end
+
+    answer = HouseholdFinance::TransactionLookupAnswerer.new(@household, "How much did I spend at Ross Dress for Less this month?", today: Date.new(2026, 8, 16)).call
+    assert_includes answer, "1 confirmed Ross transaction totaling $60"
+    refute_includes answer, "$180"
+  end
+
   test "bank summary leaves transfers and card payments out of outflows and review counts" do
     plaid_transaction("purchase-shop", 1_000, merchant: "Island Market")
     plaid_transaction("card-payment", 207_850, merchant: "Card Payment", primary: "LOAN_PAYMENTS", detailed: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
