@@ -10,7 +10,7 @@ const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn()
 vi.mock('../api',()=>api)
 vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:auth.workspaceId,selectCoachWorkspace:vi.fn()})}))
 vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:function Advanced({onDirtyChange}:{onDirtyChange:(dirty:boolean)=>void}){useLayoutEffect(()=>{if(auth.initialAdvancedDirty)onDirtyChange(true)},[onDirtyChange]);return <p>History editor</p>}}))
-vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:({onPreviewAnswers,autoPreview}:{onPreviewAnswers:(answers:unknown[],revision:number)=>void;autoPreview?:boolean})=> <><p>Review saved answers and groups</p><output aria-label="Starts a preview">{String(Boolean(autoPreview))}</output><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'New revision sample'}],2)}>Return newer sample</button><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'Matching sample'}],1)}>Return matching sample</button></>}))
+vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:({onPreviewAnswers,autoPreview,canManageGroups}:{onPreviewAnswers:(answers:unknown[],revision:number)=>void;autoPreview?:boolean;canManageGroups?:boolean})=> <><p>Review saved answers and groups</p><output aria-label="Starts a preview">{String(Boolean(autoPreview))}</output><output aria-label="Can manage groups">{String(Boolean(canManageGroups))}</output><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'New revision sample'}],2)}>Return newer sample</button><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'Matching sample'}],1)}>Return matching sample</button></>}))
 const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
 const steps=()=>screen.getByRole('navigation',{name:'Coaching steps'})
 const current=()=>steps().querySelector('[aria-current=page]')?.textContent
@@ -42,6 +42,16 @@ it('creates the assistant then makes describe and preview reachable',async()=>{
  expect(screen.getByLabelText('Starts a preview').textContent).toBe('true')
  fireEvent.click(screen.getByRole('button',{name:'1 · Your coach’s voice'}));fireEvent.click(screen.getByRole('button',{name:'3 · Preview and go live'}))
  expect(screen.getByLabelText('Starts a preview').textContent).toBe('false')
+})
+it('tells Go live whether she can open Groups from her admin sections',async()=>{
+ api.createAdminPersona.mockResolvedValue({id:8,name:'Lina',draft_revision:1,permissions:{edit:true,publish:true}})
+ const withGroups={...user,admin_sections:[{key:'groups',label:'Groups',access:'full'}]} as CurrentUser
+ for (const [currentUser,expected] of [[user,'false'],[withGroups,'true']] as const) {
+  render(<CoachStudio currentUser={currentUser} onDirtyChange={vi.fn()}/>)
+  fireEvent.change(await screen.findByLabelText('Assistant name'),{target:{value:'Lina'}});fireEvent.click(screen.getByRole('button',{name:'Describe this assistant'}))
+  expect((await screen.findByLabelText('Can manage groups')).textContent).toBe(expected)
+  cleanup();window.sessionStorage.clear()
+ }
 })
 it('opens History in place and comes back to Coaching, asking first when changes are unsaved',async()=>{
  const dirty=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);auth.initialAdvancedDirty=true
