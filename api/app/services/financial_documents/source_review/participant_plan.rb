@@ -215,10 +215,9 @@ module FinancialDocuments
         words.all? ? words.uniq.map { |word| "%#{word}%" } : nil
       end
 
-      # Cheap pre-filter: only lines that share an amount and date with something outside this statement can overlap, so only
-      # those pay for the full check. OverlapDetector compares against what an earlier line is now (her approved version, else
-      # a pending edit, else the statement as read), so the keys here come from all three; a missed key would show a copy as
-      # "looks right" and then refuse it when she approves. Extra keys only cost a full check.
+      # A matching amount within the cross-file date window is enough to run
+      # the full overlap check. Include dates from approved, pending and source
+      # rows so the plan never offers a copy in "Approve the rest" by mistake.
       def overlap_candidates(events)
         amounts = events.filter_map(&:signed_amount_cents).uniq
         return Set.new if amounts.empty?
@@ -229,7 +228,13 @@ module FinancialDocuments
         SourceReviewDraft.where(household: household, source_review_head_id: heads.select(:id)).pending.pluck(:facts).each do |facts|
           keys << [ facts["signed_amount_cents"], facts["posted_on"].to_s ] if amounts.include?(facts["signed_amount_cents"])
         end
-        by_amount = events.select { |event| keys.include?([ event.signed_amount_cents, event.posted_on.to_s ]) }.map(&:id).to_set
+        window = OverlapDetector::CROSS_FILE_DAYS
+        by_amount = events.filter_map do |event|
+          amount, day = event.signed_amount_cents, event.posted_on
+          next unless amount && day
+
+          event.id if (-window..window).any? { |offset| keys.include?([ amount, (day + offset).iso8601 ]) }
+        end.to_set
         by_amount | same_physical_rows(events, others, heads)
       end
 

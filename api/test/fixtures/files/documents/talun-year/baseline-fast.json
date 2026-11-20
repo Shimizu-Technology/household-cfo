@@ -1833,10 +1833,10 @@
     "months": {
       "2026-01": {
         "total_spending": {
-          "actual_cents": 309799,
+          "actual_cents": 304121,
           "expected_cents": 277932,
-          "error_cents": 31867,
-          "absolute_error_percent": 11.4658
+          "error_cents": 26189,
+          "absolute_error_percent": 9.4228
         },
         "spending_by_category": {
           "Housing": {
@@ -1864,10 +1864,10 @@
             "absolute_error_percent": 75.623
           },
           "Utilities": {
-            "actual_cents": 155001,
+            "actual_cents": 149323,
             "expected_cents": 24323,
-            "error_cents": 130678,
-            "absolute_error_percent": 537.261
+            "error_cents": 125000,
+            "absolute_error_percent": 513.9169
           },
           "Phone": {
             "actual_cents": 13000,
@@ -1931,23 +1931,23 @@
           }
         },
         "income": {
-          "actual_cents": 795000,
+          "actual_cents": 585000,
           "expected_cents": 585000,
-          "error_cents": 210000,
-          "absolute_error_percent": 35.8974
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 309799,
+          "actual_cents": 304121,
           "expected_cents": 277932,
-          "error_cents": 31867,
-          "absolute_error_percent": 11.4658
+          "error_cents": 26189,
+          "absolute_error_percent": 9.4228
         },
-        "double_counts": 5,
+        "double_counts": 3,
         "transfer_leakage_cents": 0,
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 60,
+        "decisions": 62,
         "decisions_by_kind": {
           "account_identity": 4,
           "approve_page": 3,
@@ -1955,7 +1955,7 @@
           "transfer": 7,
           "card_payment": 1,
           "direction": 24,
-          "duplicate_guard": 12,
+          "duplicate_guard": 14,
           "coverage": 1
         },
         "manual_correction": 33,
@@ -3481,22 +3481,22 @@
     },
     "annual": {
       "total_spending": {
-        "actual_cents": 693977,
+        "actual_cents": 688299,
         "expected_cents": 640623,
-        "error_cents": 53354,
-        "absolute_error_percent": 8.3285
+        "error_cents": 47676,
+        "absolute_error_percent": 7.4421
       },
       "income": {
-        "actual_cents": 1566300,
+        "actual_cents": 1356300,
         "expected_cents": 1356300,
-        "error_cents": 210000,
-        "absolute_error_percent": 15.4833
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 693977,
+        "actual_cents": 688299,
         "expected_cents": 640623,
-        "error_cents": 53354,
-        "absolute_error_percent": 8.3285
+        "error_cents": 47676,
+        "absolute_error_percent": 7.4421
       },
       "spending_by_category": {
         "Housing": {
@@ -3524,10 +3524,10 @@
           "absolute_error_percent": 29.4302
         },
         "Utilities": {
-          "actual_cents": 312824,
+          "actual_cents": 307146,
           "expected_cents": 57146,
-          "error_cents": 255678,
-          "absolute_error_percent": 447.4119
+          "error_cents": 250000,
+          "absolute_error_percent": 437.4759
         },
         "Phone": {
           "actual_cents": 19500,
@@ -3590,11 +3590,11 @@
           "absolute_error_percent": 0.0
         }
       },
-      "double_counts": 6,
+      "double_counts": 4,
       "transfer_leakage_cents": 0,
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
-      "decisions": 92,
+      "decisions": 94,
       "manual_correction": 40,
       "manual_exclusion": 0,
       "accepted_as_proposed": 55,
@@ -3607,7 +3607,7 @@
         "coverage": 4,
         "direction": 24,
         "duplicate": 3,
-        "duplicate_guard": 12,
+        "duplicate_guard": 14,
         "no_category": 15,
         "receipt_confirmation": 1,
         "refund": 1,
