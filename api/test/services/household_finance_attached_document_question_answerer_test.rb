@@ -28,6 +28,25 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert_not_includes answer, "Nothing from this message was saved"
   end
 
+  test "a receipt sent with how she paid gets a reply about its draft, never a missing row" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    [ "The Ross receipt, paid at Ross with a voucher $150 plus debit $34.88", "voucher $150 plus debit $34.88" ].each do |message|
+      answer = answer_for(message)
+      assert_includes answer, "Your receipt from Ross reads $184.88, dated Nov 14, 2026."
+      assert_includes answer, "isn’t new money"
+      assert_includes answer, "until you approve the card below"
+      refute_includes answer, "no attached transaction row"
+      refute_includes answer, "$34.88"
+    end
+    # A store she names the way she reads it still finds the receipt's row.
+    assert_includes answer_for("How much did I spend at Ross?"), "totaling $184.88"
+    # Another store's name: talk about this receipt, not a missing row.
+    other = answer_for("How much did I spend at Kmart?")
+    assert_includes other, "Your receipt from Ross reads $184.88"
+    refute_includes other, "no attached transaction row"
+  end
+
   test "structured lists take priority over receipt acknowledgements" do
     @document_import.update!(document_kind: "receipt")
     create_draft!(merchant: "Pay-Less", amount_cents: 6951, occurred_on: Date.new(2026, 11, 14))
