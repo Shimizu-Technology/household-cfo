@@ -87,6 +87,12 @@ it('does not send a launch if recovery cannot be saved',async()=>{
  vi.spyOn(Storage.prototype,'setItem').mockImplementationOnce(()=>{throw new Error('Storage full')})
  render(<Harness/>);await approve();await screen.findByRole('alert');expect(api.postCoachLaunch).not.toHaveBeenCalled();vi.restoreAllMocks()
 })
+it('sends a program with no groups to the Groups section',()=>{
+ function NoGroups(){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[]} lifecycle={lifecycle} onPersonaChange={vi.fn()}/>}
+ render(<NoGroups/>)
+ expect(screen.getByText('Create a group in Groups first.')).toBeTruthy()
+ expect(screen.queryByText(/Group invitations/)).toBeNull()
+})
 it('does not claim there are changes to review when nothing is unpublished',()=>{
  function Unchanged(){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={published} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()}/>}
  render(<Unchanged/>)
