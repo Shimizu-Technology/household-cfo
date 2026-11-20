@@ -1,3 +1,4 @@
+import { localTestAuth } from '../lib/localTestAuth'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { WorkosSignInDialog } from '../components/WorkosSignInDialog'
@@ -325,7 +326,7 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
     [includeCoachWorkspaces, pilotE2ERole],
   )
 
-  const liveApi = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && new URLSearchParams(window.location.search).get('pilot_e2e_live_api') === 'true'
+  const liveApi = localTestAuth() && new URLSearchParams(window.location.search).get('pilot_e2e_live_api') === 'true'
   const liveRequest = useRef(0)
   const liveMounted = useRef(true)
   const [apiUser, setApiUser] = useState<CurrentUser | null>(null)
@@ -445,14 +446,13 @@ function DelayedParticipantE2EAuthBridge({ children }: { children: ReactNode }) 
 }
 
 function e2eAuthRole() {
-  return import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true'
+  return localTestAuth()
     ? new URLSearchParams(window.location.search).get('pilot_e2e_role')
     : null
 }
 
 function e2eCoachWorkspacesEnabled() {
-  return import.meta.env.DEV
-    && import.meta.env.VITE_E2E_AUTH === 'true'
+  return localTestAuth()
     && new URLSearchParams(window.location.search).get('pilot_e2e_coach_workspaces') === 'true'
 }
 

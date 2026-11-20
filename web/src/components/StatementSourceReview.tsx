@@ -32,6 +32,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 }) {
   const [page, setPage] = useState(1)
   const [sheet, setSheet] = useState<Sheet>(null)
+  const [reviewRepeats, setReviewRepeats] = useState(false)
   const [listOpen, setListOpen] = useState(false)
   const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -68,9 +69,15 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   const suggested = review?.accounts.some(account => account.suggested) ?? false
   const matchNote = review ? accountMatchNote(review.accounts) : ''
+  const storeGroups = plan?.store_groups ?? []
+  const crossGroupedIds = new Set(storeGroups.flatMap(group => group.slice(1).map(line => line.event_id)))
   const groupedIds = new Set((plan?.category_groups ?? []).flatMap(group => group.slice(1)))
-  const questions = plan?.attention.filter(item => !groupedIds.has(item.event_id)) ?? []
+  const repeats = plan?.repeated_line_ids ?? []
+  const repeatQuestion = !reviewRepeats && repeats.length > 1
+  const questions = plan?.attention.filter(item => !groupedIds.has(item.event_id) && !crossGroupedIds.has(item.event_id) && !(repeatQuestion && repeats.includes(item.event_id))) ?? []
   const groupFor = (item: PlanAttention) => {
+    const store = storeGroups.find(group => group.some(line => line.event_id === item.event_id))
+    if (store) return store
     const ids = plan?.category_groups?.find(group => group[0] === item.event_id) ?? [item.event_id]
     return (plan?.attention ?? []).filter(line => ids.includes(line.event_id))
   }
@@ -81,6 +88,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: lineSheetForAnswer(item) })
     const group = groupFor(item)
     if (group.length > 1 && (id === 'keep' || (id === 'edit' && categoryId != null))) {
+      const store = storeGroups.find(rows => rows.some(line => line.event_id === item.event_id))
+      if (store && categoryId != null) {
+        void save({ lines: [], store_lines: store.map(line => ({ event_id: line.event_id, revision_id: line.revision_id, expected_head: line.expected_head, decision: 'edited', edit: { category_id: categoryId } as LineEdit })) }, index)
+        return
+      }
       void save({ lines: group.flatMap(line => answerInput(line, id, categoryId).lines) }, index)
     } else state.answer(item, index, id, categoryId)
   }
@@ -155,6 +167,14 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             </div>
           </div>}
           <StatementSignQuestion state={state} />
+          {!needsAccount && !plan.signed_amount_question && repeatQuestion && <div className="statement-question-row">
+            <p className="statement-question">{repeats.length} lines in this file repeat statements you already approved. Leave them all out?</p>
+            <div className="statement-answers">
+              <Button disabled={busy} onClick={() => { void save({ leave_repeats_out: true, lines: plan.attention.filter(line => repeats.includes(line.event_id)).flatMap(line => answerInput(line, 'leave_out').lines) }) }}>Leave them out</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => setReviewRepeats(true)}>Review them one by one</Button>
+            </div>
+            <p className="statement-muted">They won’t count again. You can reopen any line below to change your answer.</p>
+          </div>}
           {!needsAccountChoice && needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
           {!needsAccount && !plan.signed_amount_question && counts.action && <>
             <ul className="statement-ready" aria-label="Lines to approve together">
@@ -175,11 +195,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
               <span className="statement-line-amount">{groupFor(item).length > 1 ? `${groupFor(item).length} lines` : money(item.signed_amount_cents ?? item.amount_cents ?? null)}</span>
               <span className="statement-line-meta">{[formatMonthDay(item.posted_on, { year: spansYears(plan) }) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
             </button>
-            <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{groupFor(item).length > 1 ? `${groupFor(item).length} lines. What are these for?` : item.question}</p>
+            <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{groupFor(item).length > 1 ? `${groupFor(item).length} lines${storeGroups.find(group => group.some(line => line.event_id === item.event_id))?.some(line => line.revision_id !== revisionId) ? " across your statements" : ""}. What are these for?` : item.question}</p>
             {groupFor(item).length > 1 && <details><summary>Review these lines separately</summary>
               {groupFor(item).map(line => <div key={line.event_id}>
-                <p>{formatMonthDay(line.posted_on)} · <span className="statement-num">{money(line.signed_amount_cents)}</span></p>
-                <Button variant="secondary" disabled={busy || needsAccount} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(line) })}>Change this line</Button>
+                <p>{"statement_name" in line ? String(line.statement_name) + " · " : ""}{formatMonthDay(line.posted_on)} · <span className="statement-num">{money(line.signed_amount_cents)}</span></p>
+                {plan.attention.some(local => local.event_id === line.event_id) ? <Button variant="secondary" disabled={busy || needsAccount} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(line) })}>Change this line</Button> : <p>Open this statement to change this line separately.</p>}
               </div>)}
             </details>}
             <StatementAnswers item={groupFor(item).length > 1 ? { ...item, kind: 'no_category', category_id: null, answers: [{ id: 'edit', label: 'Choose one' }] } : item} categories={categories} disabled={busy || needsAccount} unsaved={unsavedAnswer} onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />

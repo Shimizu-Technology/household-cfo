@@ -1,3 +1,4 @@
+import { isolatedLoopbackBuild } from './localTestAuth'
 export type AuthProviderName = 'workos'
 export type AuthConfiguration = { provider: AuthProviderName | 'preview'; error: string | null; clientId?: string; devMode: boolean }
 
@@ -7,7 +8,7 @@ const unavailable = 'Secure sign-in is unavailable. Please contact your program 
 // falls back to the sample-data preview; every other incomplete setup fails closed.
 export function authConfiguration(env: Record<string, unknown>, hostname: string): AuthConfiguration {
   const selected = env.VITE_AUTH_PROVIDER
-  const localDevelopment = env.DEV === true && ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
+  const localDevelopment = (env.DEV === true && ['localhost', '127.0.0.1', '[::1]'].includes(hostname)) || isolatedLoopbackBuild(env, hostname)
   if (selected && selected !== 'workos') return { provider: 'workos', error: unavailable, devMode: false }
   const clientId = String(env.VITE_WORKOS_CLIENT_ID || '').trim()
   if (/^client_[A-Za-z0-9]+$/.test(clientId)) {

@@ -46,10 +46,12 @@ test('a fictional statement, reviewed by hand, saves exactly its posted spending
 })
 
 test('Budget shows the same August spending at phone width, with the year arrows beside the month @reads', async ({ page }) => {
+  const ledger = await api<{ spending_report: { totals: { actual: number } } }>('participant', '/api/v1/spending_report?start_on=2026-08-01&end_on=2026-08-31')
+  const expected = ledger.spending_report.totals.actual.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
   await signIn(page, 'participant')
   await openSection(page, 'Budget')
   await showBudgetMonth(page, 2026, 'Aug')
-  await expect(page.getByText(/Approved spending:/)).toContainText('$2,326.66')
+  await expect(page.getByText(/Approved spending:/)).toContainText(expected)
   const month = await page.getByLabel('Report month').boundingBox()
   const next = await page.getByRole('button', { name: 'Next year' }).boundingBox()
   expect(Math.abs((next?.y ?? 0) - (month?.y ?? 999)), 'the next-year arrow stays on the month row').toBeLessThan(month?.height ?? 40)
@@ -59,6 +61,8 @@ test('Budget shows the same August spending at phone width, with the year arrows
 test('Statements shows the saved statement at phone width @reads', async ({ page }) => {
   await signIn(page, 'participant')
   await openSection(page, 'Statements')
+  await page.getByText('Find an upload', { exact: true }).click()
+  await page.getByRole('textbox', { name: 'Search imports', exact: true }).fill('bank-of-guam-2026-08.csv')
   await page.getByRole('button', { name: /^bank-of-guam-2026-08.csv Statement/ }).click()
   await expect(page.getByText('All 27 lines are saved.')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

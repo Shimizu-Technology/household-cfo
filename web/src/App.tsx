@@ -1,3 +1,4 @@
+import { localTestAuth } from './lib/localTestAuth'
 import { cashCoverage } from './lib/cashCoverage'
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import { plannedOutForMonth } from './lib/plannedOutForMonth'
@@ -932,7 +933,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const miaCharactersRemaining = MIA_MESSAGE_MAX_LENGTH - question.length
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
-  const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
+  const e2eRealWorkspace = localTestAuth() && Boolean(auth.currentUser)
   const shouldUseRealWorkspace = auth.isAuthEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const isSavingsExperience = data?.workspace.experience_mode === 'savings_challenge'
@@ -4927,7 +4928,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
-            onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
             onStatementProgress={(importId, progress) => setDocumentImports(current => current.map(row => row.id === importId && row.statement_review ? { ...row, statement_review: progress } : row))}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -4973,7 +4974,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
-            onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
             onStatementProgress={(importId, progress) => setDocumentImports(current => current.map(row => row.id === importId && row.statement_review ? { ...row, statement_review: progress } : row))}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}

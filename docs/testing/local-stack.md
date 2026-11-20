@@ -68,3 +68,5 @@ The launcher uses it only when the key is different from the one in `api/.env` (
 
 - Signing in through WorkOS's staging environment (human mode). The stack signs in with test identities only.
 - Safari on a real iPhone. Use Playwright's WebKit engine locally, and a real phone for camera, HEIC and keyboard checks.
+
+For browser acceptance against a local production build, set `LOCAL_STACK_WEB_BUILD=1` before `up`. The launcher builds with the same isolated API and test sign-in settings, then serves `vite preview` on the selected web port. This does not publish a deploy. Restore `web/public/sitemap.xml` after the build.

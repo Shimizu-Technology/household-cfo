@@ -65,6 +65,17 @@ module Scorecard
       # A page is reviewed as displayed; answers on that page do not magically
       # teach the earlier questions on the same page a new category.
       initial = REVIEW::ParticipantPlan.new(@household, revision)
+      repeats = initial.repeated_lines
+      if repeats.length > 1
+        count(doc, :repeated_file)
+        entries = repeats.map do |line|
+          quality[doc.fetch("period").fetch("start_on")[0, 7]]["questions_by_kind"]["repeated_file"] += 1 if line == repeats.first
+          { event_id: line.event.id, expected_head: line.expected_head, decision: "leave_out" }
+        end
+        approve(revision, leave_repeats_out: true, lines: entries)
+        rows = rows.reject { |row| repeats.any? { |line| line.event.id == row.id } }
+        initial = REVIEW::ParticipantPlan.new(@household, revision)
+      end
       groups = initial.category_groups.flat_map { |group| group.each_slice(REVIEW::LineApprover::MAX_LINES).to_a }
       grouped = groups.flatten.map { |line| line.event.id }.to_set
       pages = groups.map { |group| group.map(&:event) } + rows.reject { |row| grouped.include?(row.id) }.each_slice(50).to_a

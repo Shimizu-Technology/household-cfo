@@ -74,6 +74,31 @@ module FinancialDocuments
           .group_by { |line| merchant_key(line.merchant) }.values.flat_map { |group| group.each_slice(100).to_a }.select { |group| group.length > 1 }
       end
 
+      # Only an unambiguous approved statement copy can share this answer.
+      # Other guards take precedence even when overlap classification hid them.
+      def repeated_lines
+        return [] unless revision.financial_document_import&.document_kind == "statement"
+        lines
+        versions = (overlap_context.heads || {}).values.filter_map(&:approved_version)
+        ActiveRecord::Associations::Preloader.new(records: versions, associations: [ { source_account_identity_version: :source_account_review_head }, { source_review_head: { financial_source_event: { financial_extraction_revision: :financial_document_import } } } ]).call
+        lines.select do |line|
+          next false if line.done || line.kind != :duplicate || line.purchase_match
+          next false if TransferPairs.person_payment?(line.event, line.merchant)
+          next false if line.event.event_type.in?(%w[transfer debt_payment]) && transfer_pairs.candidate(line.event)
+          approved = line.overlaps.select { |row| row[:approved_version_id] }
+          next false unless approved.one? && approved.first[:pending_draft_id].nil?
+          match = overlap_context.heads[approved.first[:event_id]]&.approved_version
+          own = overlap_context.accounts[line.event.financial_source_account_id]&.approved_version
+          next false unless match && own && match.disposition == "include"
+          next false unless match.financial_source_event.financial_extraction_revision.financial_document_import&.document_kind == "statement"
+          next false unless match.source_account_identity_version.source_account_review_head.approved_version_id == match.source_account_identity_version_id
+          match.source_account_identity_version.source_tracked_account_id == own.source_tracked_account_id &&
+            match.signed_amount_cents == line.event.signed_amount_cents &&
+            match.posted_on && line.event.posted_on && (match.posted_on - line.event.posted_on).abs <= OverlapDetector::CROSS_FILE_DAYS &&
+            merchant_key(line.merchant).present? && merchant_key(line.merchant) == merchant_key(match.merchant)
+        end
+      end
+
       def line_for(event_id) = lines.find { |line| line.event.id == event_id }
 
       # Facts exactly as read from the statement. Participant answers change these

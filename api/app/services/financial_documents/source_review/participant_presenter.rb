@@ -70,8 +70,30 @@ module FinancialDocuments
             merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
           coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision), version_id: CoverageQuestion.latest(revision)&.id },
           first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,
+          store_groups: store_groups(plan, names),
+          repeated_line_ids: plan.repeated_lines.map { |line| line.event.id },
           category_groups: plan.category_groups.map { |group| group.map { |line| line.event.id } },
           attention: plan.attention.map { |line| attention_row(line, names) } }
+      end
+
+      def store_groups(plan, names)
+        local = plan.attention.select { |line| !line.done && line.kind.in?(%i[no_category suggested_category still_category]) && line.merchant.present? }
+        return [] if local.empty?
+        keys = local.map { |line| line.merchant.downcase.squish }.to_set
+        rows = local.map { |line| attention_row(line, names).merge(revision_id: revision.id, statement_name: revision.financial_document_import&.filename) }
+        household.financial_document_imports.find_each do |document|
+          next if document.id == revision.financial_document_import_id
+          next unless document.financial_generation == household.financial_generation
+          other = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
+          next unless other
+          other_plan = ParticipantPlan.new(household, other)
+          other_plan.attention.each do |line|
+            next if line.done || !line.kind.in?(%i[no_category suggested_category still_category]) || !keys.include?(line.merchant.to_s.downcase.squish)
+            next unless line.expected_head[:account_version_id]
+            rows << attention_row(line, names).merge(revision_id: other.id, statement_name: document.filename)
+          end
+        end
+        rows.group_by { |row| row[:merchant].downcase.squish }.values.select { |group| group.length > 1 }.map { |group| group.first(1000) }
       end
 
       def sign_effect(plan)

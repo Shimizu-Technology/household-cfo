@@ -63,7 +63,11 @@ module Api
         input = body.fetch(:input).to_h.deep_symbolize_keys
         raise ArgumentError, "Idempotency-Key is required" if request.headers["Idempotency-Key"].to_s.strip.empty?
         result = with_locked_revision(body, bounded_wait: true) do |revision|
-          FinancialDocuments::SourceReview::LineApprover.new(domain, revision, input, cohort_membership: current_cohort_membership).call
+          if input[:store_lines]
+            FinancialDocuments::SourceReview::StoreCategoryApprover.call(domain, revision, input, membership: current_cohort_membership)
+          else
+            FinancialDocuments::SourceReview::LineApprover.new(domain, revision, input, cohort_membership: current_cohort_membership).call
+          end
         end
         response.set_header("Cache-Control", "no-store")
         render json: { result: result }

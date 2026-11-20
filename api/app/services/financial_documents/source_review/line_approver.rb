@@ -33,12 +33,18 @@ module FinancialDocuments
           raise Domain::StaleReview, "The coverage answer was changed in another window. Nothing was saved. Refresh to review the latest answer."
         end
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
-        raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
+        raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > (input[:leave_repeats_out] == true ? 1000 : MAX_LINES)
         domain.projection_periods = {}
         domain.overlap_context = OverlapDetector::Context.new(household, excluded_revision_id: revision.id)
         check_account_heads!(entries)
         link_accounts!
         plan = ParticipantPlan.new(household, revision, unlinked_account_ids: @linked_now, overlap_context: domain.overlap_context, accounts: @source_accounts)
+        if input[:leave_repeats_out] == true
+          eligible = plan.repeated_lines.map { |line| line.event.id }
+          unless entries.all? { |entry| entry[:decision] == "leave_out" && entry[:expected_head].present? && (eligible.include?(entry[:event_id].to_i) || (plan.line_for(entry[:event_id].to_i)&.done && plan.review_heads[entry[:event_id].to_i]&.approved_version&.disposition == "exclude")) }
+            raise Domain::StaleReview, "These lines changed. Please review them one by one."
+          end
+        end
         check_expected!(plan, entries)
         domain.begin_line_batch!(plan.lines.map(&:event), revision: revision, plan: plan)
         counts = Hash.new(0)
@@ -276,7 +282,7 @@ module FinancialDocuments
           # "Yes" to "Still Dining out?" confirms the category she was asked about and nothing else: the line keeps its kind.
           check_shown!(line, entry)
         when "different"
-          raise stale unless line.kind.in?(%i[duplicate same_purchase])
+          raise stale unless line.kind.in?(%i[duplicate same_purchase]) || (line.done && domain.line_head(line.event)&.approved_version&.matched_transaction_id)
           raise ArgumentError, "That line is already in your numbers, so it can only be left out." if line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] }
           check_shown!(line, entry)
         when "same_purchase"

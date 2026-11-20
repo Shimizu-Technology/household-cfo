@@ -53,6 +53,8 @@ export type StatementPlan = {
   totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
+  store_groups?: Array<Array<PlanAttention & { revision_id: number; statement_name?: string }>>
+  repeated_line_ids?: number[]
   category_groups?: number[][]
   attention: PlanAttention[]
 }
@@ -63,7 +65,7 @@ export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchan
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edited' | 'own_account' | 'someone_else' | 'pair_transfer' | 'unpair_transfer'; transfer_pair?: PlanAttention['transfer_pair']; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead; match_transaction_id?: number }
 export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; expected_tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
-export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
+export type ApproveLinesInput = { store_lines?: Array<LineDecision & { revision_id: number }>; leave_repeats_out?: boolean; expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
 
