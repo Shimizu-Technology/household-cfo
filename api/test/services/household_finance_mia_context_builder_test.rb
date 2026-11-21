@@ -249,6 +249,21 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_not_includes debt_context.fetch("unavailable_fields"), "apr"
   end
 
+  test "a card balance from an approved statement carries its date into Mia's context until she edits it" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "card-date-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Card date household")
+    household.household_memberships.create!(user: user, role: "owner")
+    visa = household.debts.create!(label: "Mainland Visa", debt_type: "credit_card", balance_cents: 448_391, minimum_payment_cents: 9_000, source_type: "document_import",
+      source_metadata: { "statement_balance" => { "tracked_account_id" => 1, "period_end_on" => "2026-12-31", "closing_balance_cents" => 448_391 } })
+
+    debt_context = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household).call).fetch("debts")
+    assert_equal "2026-12-31", debt_context.dig("records", 0, "balance_as_of_on")
+
+    visa.update!(balance_cents: 400_000)
+    debt_context = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household.reload).call).fetch("debts")
+    assert_nil debt_context.dig("records", 0, "balance_as_of_on")
+  end
+
   test "includes document freshness without raw source details" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

@@ -307,14 +307,10 @@ module HouseholdFinance
       inventory_result(:accounts, scope.count, rows, "Balances are approved household snapshots, not verified live bank balances. Account savings balances do not automatically count toward challenge savings.")
     end
 
-    # A card balance has no date of its own; it is dated only while it is still the statement's amount.
+    # A card or loan balance has no date of its own; it is dated only while it is still the statement's amount.
     def statement_date(debt)
-      applied = debt.source_metadata.is_a?(Hash) ? debt.source_metadata["statement_balance"] : nil
-      return "" unless debt.balance_known? && debt.source_type == "document_import" && applied.is_a?(Hash) && applied["closing_balance_cents"] == debt.balance_cents
-
-      " as of #{BalanceDate.label(Date.iso8601(applied['period_end_on'].to_s))} from your approved statement"
-    rescue Date::Error
-      ""
+      on = StatementBalanceOffers.statement_balance_on(debt)
+      on ? " as of #{BalanceDate.label(on)} from your approved statement" : ""
     end
 
     def balance_date(account)

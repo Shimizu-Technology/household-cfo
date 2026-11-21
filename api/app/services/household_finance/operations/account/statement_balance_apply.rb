@@ -25,7 +25,7 @@ module HouseholdFinance
         def canonical_snapshot(subject, input, lock:)
           offer = current_offer(input)
           conflicts = if input[:new_account] && offer&.fetch("new_label", nil)
-            conflict_ids(label: offer.fetch("new_label"), account_type: offer.fetch("new_account_type"), lock: lock)
+            conflict_ids(label: offer.fetch("new_label"), account_type: new_type(offer, input), lock: lock)
           else
             []
           end
@@ -34,7 +34,7 @@ module HouseholdFinance
 
         def predicted_after(before, input)
           offer = reviewed_offer!(before, input, "account")
-          base = before["account"] || { "label" => offer["new_label"], "account_type" => offer["new_account_type"], "active" => true,
+          base = before["account"] || { "label" => offer["new_label"], "account_type" => new_type(offer, input), "active" => true,
             "archived_at" => nil, "plaid_account_id" => nil, "plaid_reconciled_at" => nil }
           account = base.merge("balance_cents" => offer.fetch("balance_cents"), "balance_known" => true, "balance_as_of_on" => offer.fetch("as_of_on"),
             "source_type" => "document_import", "source_metadata" => statement_metadata(base["source_metadata"], offer))
@@ -50,6 +50,7 @@ module HouseholdFinance
             raise Operations::Base::StaleOperation, stale_message unless offer["can_add_new"] && offer["new_label"].present?
             raise ArgumentError, "An active account already uses that name and type. Nothing changed." if prepared.before_snapshot.fetch("conflicting_account_ids").any?
           end
+          validate_balance_type!(prepared.predicted_after_snapshot.fetch("account").symbolize_keys)
         end
 
         def mutate!(subject, input, prepared:)

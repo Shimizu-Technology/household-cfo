@@ -18,6 +18,7 @@ module Api
         input = { tracked_account_id: params.require(:tracked_account_id), offer_key: params.require(:offer_key).to_s }
         if target == "new"
           input[kind == "debt" ? :new_debt : :new_account] = true
+          input[:new_type] = params[:new_type].to_s if params[:new_type].present?
         else
           input[kind == "debt" ? :debt_id : :account_id] = Integer(target, exception: false) || raise(ArgumentError, "Choose which account this statement belongs to")
         end
@@ -50,7 +51,7 @@ module Api
 
       def present(offer)
         row = ->(target) { target && target.merge(balance: target[:balance_cents]&.then { |cents| HouseholdFinance::Money.dollars(cents) }) }
-        offer.slice(:key, :tracked_account_id, :kind, :statement_label, :as_of_on, :can_add_new, :new_label)
+        offer.slice(:key, :tracked_account_id, :kind, :statement_label, :as_of_on, :can_add_new, :new_label, :new_account_type, :new_type_options)
           .merge(balance: HouseholdFinance::Money.dollars(offer[:balance_cents]), balance_cents: offer[:balance_cents],
             target: row.call(offer[:target]), choices: offer[:choices].map(&row))
       end

@@ -295,6 +295,8 @@ module HouseholdFinance
             label: sanitized_text(debt.label, max_length: 120),
             debt_type: debt.debt_type,
             balance: debt.balance_known? ? money(debt.balance_cents) : nil,
+            # Set only while the balance is still an approved statement's amount.
+            balance_as_of_on: StatementBalanceOffers.statement_balance_on(debt)&.iso8601,
             minimum_payment: debt.minimum_payment_known? ? money(debt.minimum_payment_cents) : nil,
             apr_percent: debt.interest_rate_percent&.to_f,
             updated_at: debt.updated_at.iso8601

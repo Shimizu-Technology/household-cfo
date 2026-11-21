@@ -12,12 +12,23 @@ module HouseholdFinance
   # - A balance that already came from this statement or a newer one, or a
   #   balance she saved as of the statement date or later, is never replaced.
   #   A manual edit after a statement therefore wins until a newer statement.
-  # - A card's closing balance is what she owes. A credit balance (negative) is
-  #   not offered as a debt.
+  #   A balance with no date counts from the day it last changed, so a balance
+  #   she typed after the statement's end keeps winning too.
+  # - A card or loan's closing balance is what she owes. A credit balance
+  #   (negative) is not offered as a debt.
+  # - The app never guesses what kind of account a new record is: she chooses,
+  #   unless the statement's name says it outright ("Checking", "Visa").
   class StatementBalanceOffers
-    ASSET_ACCOUNT_TYPES = %w[checking savings emergency_fund other].freeze
-    CARD_DEBT_TYPES = %w[credit_card other].freeze
+    # Every kind of asset a statement can show; a house is not a statement account.
+    ASSET_ACCOUNT_TYPES = (::Account::ACCOUNT_TYPES - %w[property]).freeze
+    DEBT_TYPES = ::Debt::DEBT_TYPES
     METADATA_KEY = "statement_balance".freeze
+    NAMED_TYPES = {
+      "account" => [ [ /\bchecking\b/i, "checking" ], [ /\bsavings?\b/i, "savings" ], [ /\b(?:401\s*\(?k\)?|403\s*\(?b\)?|ira|roth|retirement|pension)\b/i, "retirement" ],
+        [ /\b(?:brokerage|investments?)\b/i, "investment" ] ],
+      "debt" => [ [ /\b(?:credit card|visa|mastercard|amex|american express|discover)\b/i, "credit_card" ], [ /\bmortgage\b/i, "mortgage" ],
+        [ /\b(?:auto|car|vehicle) loan\b/i, "auto_loan" ], [ /\bstudent loan\b/i, "student_loan" ] ]
+    }.freeze
 
     def initialize(household)
       @household = household
@@ -42,6 +53,24 @@ module HouseholdFinance
 
     def self.linked_tracked_account_id(record)
       record.source_metadata.is_a?(Hash) ? record.source_metadata.dig(METADATA_KEY, "tracked_account_id") : nil
+    end
+
+    # The statement end date while the saved balance is still that statement's amount.
+    def self.statement_balance_on(record)
+      applied = record.source_metadata.is_a?(Hash) ? record.source_metadata[METADATA_KEY] : nil
+      return unless record.balance_known? && record.source_type == "document_import" && applied.is_a?(Hash) && applied["closing_balance_cents"] == record.balance_cents
+
+      Date.iso8601(applied["period_end_on"].to_s)
+    rescue Date::Error
+      nil
+    end
+
+    # The type to save a new account or debt as: hers, or one the statement names outright.
+    def self.new_record_type(offer, chosen)
+      options = offer.fetch(:kind) == "debt" ? DEBT_TYPES : ASSET_ACCOUNT_TYPES
+      type = chosen.to_s.presence || offer[:new_account_type]
+      raise ArgumentError, "Choose what kind of #{offer.fetch(:kind) == 'debt' ? 'debt' : 'account'} this is" unless type.in?(options)
+      type
     end
 
     private
@@ -71,7 +100,7 @@ module HouseholdFinance
       if linked
         return unless replaceable?(linked, offer)
 
-        offer.merge!(target: target_row(linked), choices: [], can_add_new: false, new_label: nil)
+        offer.merge!(target: target_row(linked), choices: [], can_add_new: false, new_label: nil, new_account_type: nil, new_type_options: [])
       else
         compatible = (liability ? debt_choices(tracked) : account_choices(tracked)).select { |record| compatible?(record, offer) }
         suggested = suggestion(tracked, compatible)
@@ -85,7 +114,8 @@ module HouseholdFinance
         return if choices.empty? && !can_add_new
 
         offer.merge!(target: suggested && target_row(suggested), choices: choices.map { |record| target_row(record) },
-          can_add_new: can_add_new, new_label: can_add_new ? new_label : nil, new_account_type: liability ? "credit_card" : new_account_type(tracked))
+          can_add_new: can_add_new, new_label: can_add_new ? new_label : nil, new_account_type: can_add_new ? named_type(tracked, offer[:kind]) : nil,
+          new_type_options: can_add_new ? (liability ? DEBT_TYPES : ASSET_ACCOUNT_TYPES) : [])
       end
       offer.merge(key: key_for(offer))
     end
@@ -143,7 +173,7 @@ module HouseholdFinance
 
     # The account or card this statement already belongs to, archived ones included.
     def linked_account(tracked)
-      return household.accounts.find_by(id: tracked.account_id) if tracked.account_id
+      return all_accounts.find { |account| account.id == tracked.account_id } if tracked.account_id
 
       all_accounts.find { |account| self.class.linked_tracked_account_id(account) == tracked.id }
     end
@@ -157,7 +187,7 @@ module HouseholdFinance
     end
 
     def debt_choices(tracked)
-      active_debts.select { |debt| debt.debt_type.in?(CARD_DEBT_TYPES) && unlinked?(debt, tracked) }
+      active_debts.select { |debt| debt.debt_type.in?(DEBT_TYPES) && unlinked?(debt, tracked) }
     end
 
     def unlinked?(record, tracked)
@@ -192,20 +222,48 @@ module HouseholdFinance
       applied = record.source_metadata.is_a?(Hash) ? record.source_metadata[METADATA_KEY] : nil
       return false if applied.is_a?(Hash) && applied["period_end_on"].to_s >= offer[:as_of_on]
       return true unless record.balance_known?
-      return false if record.is_a?(::Account) && record.balance_as_of_on && record.balance_as_of_on.iso8601 >= offer[:as_of_on]
+
+      dated = balance_on(record)
+      return false if dated && dated.iso8601 >= offer[:as_of_on]
 
       record.balance_cents != offer[:balance_cents]
     end
 
+    # The day a saved balance is from: its own date, its statement's end, or
+    # else the day it last changed (debts have no date of their own).
+    def balance_on(record)
+      return record.balance_as_of_on if record.is_a?(::Account) && record.balance_as_of_on
+
+      self.class.statement_balance_on(record) || balance_changed_on(record)
+    end
+
+    # Audited edits say whether they changed the balance; a rename does not
+    # count. A change made outside the audit (setup, a reviewed Mia draft) shows
+    # only in updated_at, so that is used whenever it is newer than the audit.
+    def balance_changed_on(record)
+      key = record.is_a?(::Account) ? "account" : "debt"
+      events = household.household_audit_events.where(event_type: "household_operation.executed", auditable_type: record.class.name, auditable_id: record.id)
+        .order(occurred_at: :desc, id: :desc).limit(25).to_a
+      return record.updated_at.to_date if events.empty? || events.first.occurred_at < record.updated_at - 1.second
+
+      changed = events.find do |event|
+        before, after = event.metadata.dig("before_snapshot", key), event.metadata.dig("after_snapshot", key)
+        after.is_a?(Hash) && (!before.is_a?(Hash) || before.values_at("balance_cents", "balance_known") != after.values_at("balance_cents", "balance_known"))
+      end
+      (changed&.occurred_at || record.created_at).to_date
+    end
+
     def label_taken?(label, liability)
       if liability
-        active_debts.any? { |debt| debt.debt_type == "credit_card" && debt.label.casecmp?(label) }
+        active_debts.any? { |debt| debt.label.casecmp?(label) }
       else
         active_accounts.any? { |account| account.label.casecmp?(label) }
       end
     end
 
-    def new_account_type(tracked) = tracked.label.to_s.match?(/sav/i) ? "savings" : "checking"
+    def named_type(tracked, kind)
+      NAMED_TYPES.fetch(kind).find { |pattern, _type| tracked.label.to_s.match?(pattern) }&.last
+    end
 
     def target_row(record)
       if record.is_a?(::Account)
@@ -213,21 +271,15 @@ module HouseholdFinance
           balance_cents: record.balance_known? ? record.balance_cents : nil, balance_as_of_on: record.balance_as_of_on&.iso8601 }
       else
         { kind: "debt", id: record.id, label: record.label, type: record.debt_type,
-          balance_cents: record.balance_known? ? record.balance_cents : nil, balance_as_of_on: debt_balance_date(record) }
+          balance_cents: record.balance_known? ? record.balance_cents : nil, balance_as_of_on: self.class.statement_balance_on(record)&.iso8601 }
       end
-    end
-
-    # A card's balance is dated only while it is still the statement's amount; a manual edit has no date.
-    def debt_balance_date(debt)
-      applied = debt.source_metadata.is_a?(Hash) ? debt.source_metadata[METADATA_KEY] : nil
-      applied["period_end_on"] if debt.balance_known? && applied.is_a?(Hash) && applied["closing_balance_cents"] == debt.balance_cents
     end
 
     # The key covers everything she was shown, including each account's current
     # balance, so an edit elsewhere between showing and approving is refused.
     def key_for(offer)
       Operations::PreparedOperation.fingerprint(offer.slice(:tracked_account_id, :kind, :identity_version_id, :revision_approval_id, :balance_cents, :as_of_on,
-        :target, :choices, :can_add_new, :new_label, :new_account_type))
+        :target, :choices, :can_add_new, :new_label, :new_account_type, :new_type_options))
     end
 
     def all_accounts = @all_accounts ||= household.accounts.order(:id).to_a

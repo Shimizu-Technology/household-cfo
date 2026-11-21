@@ -18,6 +18,7 @@ module HouseholdFinance
           values[id_key] = Integer(input[id_key])
         elsif input[new_key] == true
           values[new_key] = true
+          values[:new_type] = input[:new_type].to_s if input[:new_type].present?
         else
           raise ArgumentError, "Choose which account this statement belongs to"
         end
@@ -47,6 +48,8 @@ module HouseholdFinance
       def statement_metadata(existing, offer)
         (existing.is_a?(Hash) ? existing : {}).merge(StatementBalanceOffers::METADATA_KEY => StatementBalanceOffers.provenance(offer.deep_symbolize_keys))
       end
+
+      def new_type(offer, input) = StatementBalanceOffers.new_record_type(offer.deep_symbolize_keys, input[:new_type])
 
       def stale_message = STALE
     end

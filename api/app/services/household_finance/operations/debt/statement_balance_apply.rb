@@ -3,9 +3,9 @@ require_relative "base"
 module HouseholdFinance
   module Operations
     module Debt
-      # Sets a card's balance owed to the closing balance on its latest approved
-      # statement. With new_debt, adds the card to her debts with that balance;
-      # its minimum payment stays unknown until she enters it.
+      # Sets a card or loan's balance owed to the closing balance on its latest
+      # approved statement. With new_debt, adds it to her debts as the kind she
+      # chose; its minimum payment stays unknown until she enters it.
       class StatementBalanceApply < Base
         include Operations::StatementBalance
 
@@ -24,13 +24,13 @@ module HouseholdFinance
 
         def canonical_snapshot(subject, input, lock:)
           offer = current_offer(input)
-          conflicts = input[:new_debt] && offer&.fetch("new_label", nil) ? conflict_ids(label: offer.fetch("new_label"), debt_type: "credit_card", lock: lock) : []
+          conflicts = input[:new_debt] && offer&.fetch("new_label", nil) ? conflict_ids(label: offer.fetch("new_label"), debt_type: new_type(offer, input), lock: lock) : []
           { debt: subject.is_a?(::Debt) ? debt_snapshot(subject).fetch(:debt) : nil, offer: offer, conflicting_debt_ids: conflicts }
         end
 
         def predicted_after(before, input)
           offer = reviewed_offer!(before, input, "debt")
-          base = before["debt"] || { "label" => offer["new_label"], "debt_type" => "credit_card", "minimum_payment_cents" => 0,
+          base = before["debt"] || { "label" => offer["new_label"], "debt_type" => new_type(offer, input), "minimum_payment_cents" => 0,
             "minimum_payment_known" => false, "interest_rate_percent" => nil, "active" => true, "archived_at" => nil }
           debt = base.merge("balance_cents" => offer.fetch("balance_cents"), "balance_known" => true,
             "source_type" => "document_import", "source_metadata" => statement_metadata(base["source_metadata"], offer))
@@ -53,7 +53,7 @@ module HouseholdFinance
           attrs = { balance_cents: after.fetch("balance_cents"), balance_known: true, source_type: "document_import", source_metadata: after.fetch("source_metadata") }
           return subject.tap { |debt| debt.update!(attrs) } if input[:debt_id]
 
-          household.debts.create!(attrs.merge(label: after.fetch("label"), debt_type: "credit_card", minimum_payment_cents: 0,
+          household.debts.create!(attrs.merge(label: after.fetch("label"), debt_type: after.fetch("debt_type"), minimum_payment_cents: 0,
             minimum_payment_known: false, active: true, archived_at: nil))
         end
 

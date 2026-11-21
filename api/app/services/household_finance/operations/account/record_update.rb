@@ -37,6 +37,11 @@ module HouseholdFinance
 
         def predicted_after(before, input)
           account = before.fetch("account").merge(input.except(:account_id).stringify_keys)
+          # A new amount without a date is from today, not from the date of the amount it replaces.
+          if input[:balance_known] && !input.key?(:balance_as_of_on) &&
+              before.fetch("account").values_at("balance_cents", "balance_known") != [ input[:balance_cents], true ]
+            account["balance_as_of_on"] = Date.current.iso8601
+          end
           account["source_type"] = "mia" if input[:source_type] == "mia"
           { account: account, conflicting_account_ids: before.fetch("conflicting_account_ids") }
         end
@@ -56,6 +61,8 @@ module HouseholdFinance
 
         def mutate!(account, input, prepared:)
           attrs = input.except(:account_id, :source_type)
+          predicted_on = prepared.predicted_after_snapshot.fetch("account")["balance_as_of_on"]
+          attrs[:balance_as_of_on] = Date.iso8601(predicted_on) if input[:balance_known] && !input.key?(:balance_as_of_on) && predicted_on
           attrs[:source_type] = "mia" if input[:source_type] == "mia"
           account.update!(attrs)
           account
