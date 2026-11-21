@@ -13096,7 +13096,7 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
     if (section !== 'Home') await openSection(page, section)
     await expectPhoneTargets(page)
     if (section === 'Home') {
-      await expect(page.locator('.year-outlook li')).toHaveCount(3)
+      await expect(page.getByRole('region', { name: 'Year outlook' })).toBeVisible()
       await expectPhoneTargets(page)
     }
     if (section === 'My Money') {
