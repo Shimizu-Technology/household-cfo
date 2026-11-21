@@ -10,6 +10,30 @@ class ApiV1MiaQaChatRegressionsTest < ActionDispatch::IntegrationTest
   setup { travel_to Time.zone.local(2026, 10, 16, 12) }
   teardown { travel_back }
 
+  test "checking and readiness answers use the approved statement balance and say its date" do
+    user, household = participant
+    complete_setup(household)
+    household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 0, debt_summary_balance_known: true,
+      debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: true)
+    household.accounts.active.where(account_type: %w[checking savings emergency_fund]).find_each { |account| account.update!(balance_as_of_on: Date.new(2026, 9, 30)) }
+    checking = household.accounts.create!(label: "Checking ····6824", account_type: "checking", balance_cents: 241_307, balance_as_of_on: Date.new(2026, 9, 30),
+      source_type: "document_import", source_metadata: { "statement_balance" => { "tracked_account_id" => 1, "period_end_on" => "2026-09-30", "closing_balance_cents" => 241_307 } })
+
+    post_message(user, "What's in my checking?")
+    assert_response :success
+    assert_includes reply, "Checking ····6824 (Checking): balance $2,413.07 as of Sep 30 from your approved statement."
+
+    post_message(user, "What is my readiness status?")
+    assert_response :success
+    assert_includes reply, "Your account balances are as of Sep 30."
+
+    checking.update!(balance_known: false, balance_cents: 0, balance_as_of_on: nil)
+    post_message(user, "What's in my checking?")
+    assert_includes reply, "Checking ····6824 (Checking): balance unknown"
+    post_message(user, "What is my readiness status?")
+    refute_includes reply, "as of Sep 30"
+  end
+
   # F6
   # F8
   # F7

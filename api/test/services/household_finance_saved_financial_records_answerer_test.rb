@@ -218,10 +218,44 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
   test "account inventory is saved not live and preserves negative and unknown balances" do
     @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: -1000, balance_as_of_on: "2026-10-03")
     @household.accounts.create!(label: "Unknown savings", account_type: "savings", balance_cents: 0, balance_known: false)
-    response = answer("List my accounts")
-    assert_includes response.answer, "Checking (Checking): balance -$10 as of 2026-10-03"
+    response = travel_to(Time.zone.local(2026, 11, 21)) { answer("List my accounts") }
+    assert_includes response.answer, "Checking (Checking): balance -$10 as of Oct 3."
     assert_includes response.answer, "Unknown savings (Savings): balance unknown"
     assert_includes response.answer, "not verified live bank balances"
+  end
+
+  test "a card balance from her approved statement says its date until she edits it" do
+    debt = @household.debts.create!(label: "Mainland Visa ····6074", debt_type: "credit_card", balance_cents: 448_391, minimum_payment_cents: 9_000, source_type: "document_import",
+      source_metadata: { "statement_balance" => { "tracked_account_id" => 4, "period_end_on" => "2026-12-31", "closing_balance_cents" => 448_391 } })
+    response = travel_to(Time.zone.local(2026, 12, 31, 12)) { answer("What debts do I have saved?") }
+    assert_includes response.answer, "Mainland Visa ····6074 (Credit card): balance $4,483.91 as of Dec 31 from your approved statement, monthly minimum $90"
+    debt.update!(balance_cents: 400_000)
+    response = travel_to(Time.zone.local(2026, 12, 31, 12)) { answer("What debts do I have saved?") }
+    assert_includes response.answer, "balance $4,000, monthly minimum $90"
+  end
+
+  test "what's in my checking answers with the approved statement balance and its date, and unknown stays unknown" do
+    @household.accounts.create!(label: "Checking ····4410", account_type: "checking", balance_cents: 781_766, balance_as_of_on: "2026-12-31", source_type: "document_import",
+      source_metadata: { "statement_balance" => { "tracked_account_id" => 1, "period_end_on" => "2026-12-31", "closing_balance_cents" => 781_766 } })
+    @household.accounts.create!(label: "Talun savings", account_type: "savings", balance_cents: 0, balance_known: false)
+    response = travel_to(Time.zone.local(2026, 12, 31, 12)) { answer("What's in my checking?") }
+    assert_includes response.answer, "Checking ····4410 (Checking): balance $7,817.66 as of Dec 31 from your approved statement."
+    assert_not_includes response.answer, "Talun savings"
+    assert_equal "no_write", response.metadata[:write_state]
+
+    response = travel_to(Time.zone.local(2027, 1, 4, 12)) { answer("How much is in my checking account?") }
+    assert_includes response.answer, "as of Dec 31, 2026 from your approved statement"
+
+    # A manual edit keeps the date but is no longer the statement's balance.
+    @household.accounts.find_by!(label: "Checking ····4410").update!(balance_cents: 790_000)
+    response = travel_to(Time.zone.local(2026, 12, 31, 12)) { answer("What's in my checking?") }
+    assert_includes response.answer, "Checking ····4410 (Checking): balance $7,900 as of Dec 31."
+    assert_not_includes response.answer, "approved statement"
+
+    @household.accounts.find_by!(label: "Checking ····4410").update!(balance_known: false, balance_cents: 0, balance_as_of_on: nil)
+    response = answer("What's in my checking?")
+    assert_includes response.answer, "Checking ····4410 (Checking): balance unknown, balance date unknown."
+    assert_not_includes response.answer, "$0"
   end
 
   test "tracked goal inventory excludes policy records and preserves unknown targets" do

@@ -14,7 +14,7 @@ module HouseholdFinance
     TOPICS = {
       income: /\b(?:income|pay|salary)(?:\s+sources?)?\b/i,
       debts: /\b(?:debts?|credit cards?)\b/i,
-      accounts: /\b(?:accounts?|assets?)\b/i,
+      accounts: /\b(?:accounts?|assets?|checking)\b/i,
       goals: /\b(?:goals?)\b/i,
       spending: /\b(?:spending|budget|planned amounts?|categor(?:y|ies)|expense stacks?)\b/i
     }.freeze
@@ -284,7 +284,7 @@ module HouseholdFinance
       end
       scope = @household.debts.active.order(:debt_type, :label, :id)
       rows = scope.limit(MAX_RECORDS).map do |debt|
-        "#{label(debt.label)} (#{debt.debt_type.humanize}): balance #{known_money(debt.balance_known?, debt.balance_cents)}, monthly minimum #{known_money(debt.minimum_payment_known?, debt.minimum_payment_cents)}, APR #{debt.interest_rate_percent.nil? ? 'unknown' : "#{debt.interest_rate_percent.to_s('F')}%"}."
+        "#{label(debt.label)} (#{debt.debt_type.humanize}): balance #{known_money(debt.balance_known?, debt.balance_cents)}#{statement_date(debt)}, monthly minimum #{known_money(debt.minimum_payment_known?, debt.minimum_payment_cents)}, APR #{debt.interest_rate_percent.nil? ? 'unknown' : "#{debt.interest_rate_percent.to_s('F')}%"}."
       end
       # The total covers every active debt, including any beyond the rows shown; it is not itself a row.
       known = scope.select(&:minimum_payment_known?)
@@ -298,10 +298,33 @@ module HouseholdFinance
 
     def answer_accounts
       scope = @household.accounts.active.order(:account_type, :label, :id)
+      # "What's in my checking?" answers for checking accounts when she has one.
+      named = scope.where(account_type: "checking") if @read_text.match?(/\bchecking\b/i)
+      scope = named if named&.exists?
       rows = scope.limit(MAX_RECORDS).map do |account|
-        "#{label(account.label)} (#{account.account_type.humanize}): balance #{known_money(account.balance_known?, account.balance_cents)}#{account.balance_as_of_on ? " as of #{account.balance_as_of_on.iso8601}" : ', balance date unknown'}."
+        "#{label(account.label)} (#{account.account_type.humanize}): balance #{known_money(account.balance_known?, account.balance_cents)}#{balance_date(account)}."
       end
       inventory_result(:accounts, scope.count, rows, "Balances are approved household snapshots, not verified live bank balances. Account savings balances do not automatically count toward challenge savings.")
+    end
+
+    # A card balance has no date of its own; it is dated only while it is still the statement's amount.
+    def statement_date(debt)
+      applied = debt.source_metadata.is_a?(Hash) ? debt.source_metadata["statement_balance"] : nil
+      return "" unless debt.balance_known? && debt.source_type == "document_import" && applied.is_a?(Hash) && applied["closing_balance_cents"] == debt.balance_cents
+
+      " as of #{BalanceDate.label(Date.iso8601(applied['period_end_on'].to_s))} from your approved statement"
+    rescue Date::Error
+      ""
+    end
+
+    def balance_date(account)
+      return ", balance date unknown" unless account.balance_known? && account.balance_as_of_on
+
+      applied = account.source_metadata.is_a?(Hash) ? account.source_metadata["statement_balance"] : nil
+      # Only while the balance is still the statement's: a manual edit keeps its date but is hers.
+      statement = account.source_type == "document_import" && applied.is_a?(Hash) && applied["period_end_on"] == account.balance_as_of_on.iso8601 &&
+        applied["closing_balance_cents"] == account.balance_cents
+      " as of #{BalanceDate.label(account.balance_as_of_on)}#{' from your approved statement' if statement}"
     end
 
     def answer_goals

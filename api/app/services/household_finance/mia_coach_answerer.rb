@@ -837,6 +837,7 @@ module HouseholdFinance
       else
         "Your approved readiness is #{actual_tone.capitalize}, not #{claimed_tone.capitalize}."
       end
+      status_line += BalanceDate.liquid_sentence(household)
 
       surplus = facts.fetch(:baseline_surplus_cents)
       runway = facts.fetch(:runway_months)
