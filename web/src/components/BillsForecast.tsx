@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { markBillPaid, removeBill, saveBill, type AnnualBudgetPlan, type ForecastMonth, type ScheduledBill } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
-import { billDate, forecastHeadline } from '../lib/yearForecast'
+import { billDate, forecastEstimates, forecastHeadline } from '../lib/yearForecast'
 
 const SINKING = new Set(['sinking_expected', 'sinking_unexpected'])
 const NO_CATEGORY = 'none'
@@ -89,7 +89,7 @@ export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: Annua
       <option value={NO_CATEGORY}>Not in any category plan</option>
     </select></label>
     {draft.category === NO_CATEGORY && <p className="bill-hint">This bill isn’t part of any category plan, so it adds to your planned costs when it’s due.</p>}
-    {chosen && SINKING.has(chosen.stack_key) && <p className="bill-hint">{chosen.name} is money you set aside for a planned cost. Once this bill is saved, the monthly set-aside stays in your savings and the bill counts when it’s due.</p>}
+    {chosen && SINKING.has(chosen.stack_key) && <p className="bill-hint">{chosen.name} is money you set aside for planned costs. The bill counts when it’s due, and the part of the monthly plan it covers stays in your savings. Any part your saved bills don’t cover still counts every month.</p>}
     {chosen && !SINKING.has(chosen.stack_key) && <p className="bill-hint">Counts inside {chosen.name}: the larger of the plan or this bill, not both.</p>}
     <label className="bill-check"><input type="checkbox" name="must_pay" defaultChecked={editing === 'new' ? true : editing.must_pay} />Must pay</label>
     <label className="bill-check"><input type="checkbox" name="estimate" defaultChecked={editing === 'new' ? false : editing.estimate} />Amount is an estimate</label>
@@ -100,13 +100,15 @@ export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: Annua
   return <div className="bills-forecast">
     <h4>Cash through December</h4>
     <p>{forecast.starting_note}</p>
-    <p role="status" className={forecast.first_short_month ? 'forecast-headline is-short' : 'forecast-headline'}>{forecastHeadline(forecast)}{forecast.first_short_month ? ` Costs that month: ${forecast.first_short_month.reasons.join(', ')}.${forecast.first_short_month.includes_estimates ? ' Some amounts are estimates.' : ''}` : ''}{forecast.status === 'unknown' && forecast.missing.length ? ` Still needed: ${forecast.missing.join(', ')}.` : ''}</p>
+    <p role="status" className={forecast.first_short_month ? 'forecast-headline is-short' : 'forecast-headline'}>{forecastHeadline(forecast)}{forecast.first_short_month ? ` Costs that month: ${forecast.first_short_month.reasons.join(', ')}.` : ''}{forecastEstimates(forecast) ? ` ${forecastEstimates(forecast)}` : ''}{forecast.status === 'unknown' && forecast.missing.length ? ` Still needed: ${forecast.missing.join(', ')}.` : ''}</p>
     <details><summary>How this forecast works</summary><ul className="forecast-rules">
       <li>It starts from your checking and savings balances when they all share one date this month or the last day of last month. Other dates leave ending cash unknown.</li>
       <li>From a balance in the middle of the month, only what comes after that day counts: income still expected, bills due later, and what’s left of each category’s plan.</li>
       <li>Each category counts the larger of its plan or its bills due that month, never both. This month, spending already recorded counts if it’s more.</li>
-      <li>Money set aside for planned yearly costs or surprises stays in your savings. Once you save the bill, it counts when it’s due.</li>
-      <li>Debt payments count once a month from My Money. A one-time bill you mark paid stops counting.</li>
+      <li>Money set aside for planned yearly costs or surprises stays in your savings, and saved bills count when they’re due. Any part of the monthly plan your saved bills don’t cover still counts every month.</li>
+      <li>A balance dated the last day of a month already includes that month, so the forecast starts with the next one.</li>
+      <li>Debt payments count once a month from My Money. Their due dates aren’t saved yet, so from a balance in the middle of the month they still count and may already be paid.</li>
+      <li>A one-time bill you mark paid stops counting.</li>
       <li>It shows each month’s end, not day-to-day dips inside a month.</li>
     </ul></details>
     <table className="forecast-table"><caption className="sr-only">Cash forecast by month</caption>

@@ -48,16 +48,23 @@ module HouseholdFinance
       short = forecast[:first_short_month]
       start = forecast[:starting_note]
       if short
-        estimate = short[:includes_estimates] ? " Some of that month’s amounts are estimates." : ""
-        "#{short[:label]} is the first month that runs short: cash would end about #{Money.plain(-short[:ending_cents])} below zero. Costs that month include #{short[:reasons].to_sentence}.#{estimate} #{start}"
+        "#{short[:label]} is the first month that runs short: cash would end about #{Money.plain(-short[:ending_cents])} below zero. Costs that month include #{short[:reasons].to_sentence}.#{estimate_note} #{start}"
       elsif forecast[:status] == "no_short_month"
         last = forecast[:months].last
-        "No month runs short through December in this plan; December would end with about #{Money.plain(last[:ending_cents])}. #{start}"
+        "No month runs short through December in this plan; December would end with about #{Money.plain(last[:ending_cents])}.#{estimate_note} #{start}"
       else
         missing = Array(forecast[:missing])
         needed = missing.any? ? " Still needed: #{missing.to_sentence}." : ""
         "I can’t tell yet whether you’ll make it through December.#{forecast[:starting_cash_cents].nil? ? " #{start}" : ''}#{needed}"
       end.strip
+    end
+
+    # Which estimates the answer rests on, in plain words, so "no month runs short" is never read as certain.
+    def estimate_note
+      reasons = Array(forecast[:estimate_reasons])
+      flagged = forecast[:first_short_month]&.dig(:includes_estimates) || Array(forecast[:months]).any? { |month| month[:includes_estimates] }
+      return " This rests on estimates: #{reasons.to_sentence}." if reasons.any?
+      flagged ? " Some of these amounts are estimates." : ""
     end
 
     # "Big" is the largest saved bill due in the next 60 days: the one to get ready for. With nothing due that soon,
