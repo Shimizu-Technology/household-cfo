@@ -38,6 +38,28 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert_nil debt.archived_at
   end
 
+  test "participant saves and clears a due day and past-due amount" do
+    user = create_user(email: "debt-arrears@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Car loan", debt_type: "auto_loan", balance_cents: 980_000, minimum_payment_cents: 31_000)
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { due_day: 15, past_due: 1_500 } },
+      headers: auth_headers(user, idempotency_key: "arrears-car"), as: :json
+    assert_response :success
+    body = JSON.parse(response.body).fetch("debt")
+    assert_equal [ 15, 1_500.0 ], body.values_at("due_day", "past_due")
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { due_day: nil, past_due: nil } },
+      headers: auth_headers(user, idempotency_key: "arrears-car-clear"), as: :json
+    assert_response :success
+    assert_equal [ nil, nil ], JSON.parse(response.body).fetch("debt").values_at("due_day", "past_due")
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { due_day: 32 } },
+      headers: auth_headers(user, idempotency_key: "arrears-car-bad"), as: :json
+    assert_response :unprocessable_entity
+    assert_nil debt.reload.due_day
+  end
+
   test "participant cannot mutate another household debt" do
     owner = create_user(email: "debt-owner@example.com")
     intruder = create_user(email: "debt-intruder@example.com")

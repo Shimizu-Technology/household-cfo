@@ -179,13 +179,17 @@ export type DebtRecord = {
   balance: number | null
   minimum_payment: number | null
   interest_rate_percent: number | null
+  /** Day of the month the payment is due (1–31); null when not entered. */
+  due_day?: number | null
+  /** How far behind she is, in dollars. null is not entered (unknown), never $0. */
+  past_due?: number | null
   active: boolean
   archived_at: string | null
   source_type: 'manual_ui' | 'mia' | 'document_import' | 'setup'
   source_metadata: Record<string, unknown>
 }
 
-export type DebtInput = Pick<DebtRecord, 'label' | 'debt_type' | 'balance' | 'minimum_payment' | 'interest_rate_percent'>
+export type DebtInput = Pick<DebtRecord, 'label' | 'debt_type' | 'balance' | 'minimum_payment' | 'interest_rate_percent' | 'due_day' | 'past_due'>
 
 export type DebtPortfolio = {
   mode: 'summary' | 'individual'
@@ -514,6 +518,8 @@ export type DashboardData = {
     total_review_count: number
     /** Statement files waiting for review; Home links to them without loading every import. */
     document_review_count?: number
+    /** Active debts she is behind on, largest first. */
+    past_due_debts?: Array<{ id: number; label: string; past_due_cents: number; due_day: number | null }>
     current_month_label: string
     current_month_index: number
     current_year: number

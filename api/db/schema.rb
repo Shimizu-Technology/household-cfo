@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_21_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_21_160000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1835,13 +1835,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_120000) do
     t.jsonb "source_metadata", default: {}, null: false
     t.string "source_type", default: "manual_ui", null: false
     t.datetime "updated_at", null: false
+    t.integer "due_day"
+    t.bigint "past_due_cents"
     t.index "household_id, financial_generation, debt_type, lower((label)::text)", name: "index_active_debts_on_household_type_label", unique: true, where: "(active = true)"
     t.index ["household_id", "active"], name: "index_debts_on_household_id_and_active"
     t.index ["household_id", "debt_type"], name: "index_debts_on_household_id_and_debt_type"
     t.index ["household_id"], name: "index_debts_on_household_id"
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "debts_archive_state_valid"
     t.check_constraint "balance_cents >= 0", name: "debts_balance_cents_non_negative"
+    t.check_constraint "due_day IS NULL OR due_day >= 1 AND due_day <= 31", name: "debts_due_day_valid"
     t.check_constraint "minimum_payment_cents >= 0", name: "debts_minimum_payment_cents_non_negative"
+    t.check_constraint "past_due_cents IS NULL OR past_due_cents >= 0", name: "debts_past_due_cents_non_negative"
     t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying::text, 'mia'::character varying::text, 'document_import'::character varying::text, 'setup'::character varying::text])", name: "debts_source_type_valid"
   end
 
