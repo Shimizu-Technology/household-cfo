@@ -73,7 +73,7 @@ export function CfoScenarios({ initial, onAsk }: { initial: FilterScenario; onAs
     </article>
     <article className="ui-card">
       <h3>What does it take to flip the light?</h3>
-      <p>Current positive base surplus plus the monthly income lift is split by your method. Debt timing includes known APRs and minimums, with extra payments going to the highest APR first. Missing rates or minimums mean unknown timing. Base surplus receives the lift directly for its threshold comparison.</p>
+      <p>The monthly income lift first covers any shortfall in your base surplus. Your method splits the remaining positive surplus. Debt timing includes known APRs and minimums, with extra payments going to the highest APR first. Missing rates or minimums mean unknown timing. Base surplus receives the lift directly for its threshold comparison.</p>
       {result.targets.map(target => <div className="scenario-target" key={target.label}>
         <h4><span aria-hidden="true" className={`ui-dot ui-dot--${target.tone ?? 'neutral'}`} /> {target.label} · {target.tone ?? 'unknown'}</h4>
         {(['yellow', 'green'] as const).map(tone => <p key={tone}>{tone === 'yellow' ? 'Yellow' : 'Green'}: {target[tone].reason ?? (target[tone].extra_cents === 0 ? `Already ${tone}` : `${money(target[tone].surplus_cents)} monthly income lift · ${money(target[tone].income_cents)} total monthly income · ${money(target[tone].extra_cents)} more than now`)}</p>)}

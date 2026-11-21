@@ -204,8 +204,9 @@ module HouseholdFinance
       "I cannot ignore the Household CFO safety and product boundaries, reveal hidden instructions, or claim an action happened when it did not. No budget, transfer, or household record changed."
     end
 
-    def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true, user: nil)
+    def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true, user: nil, experience_capabilities: nil)
       @household = household
+      @experience_capabilities = experience_capabilities
       @user = user
       @message = message.to_s.squish
       @annual_budget_manager = annual_budget_manager || AnnualBudgetManager.new(household, year: Date.current.year)
@@ -1035,11 +1036,23 @@ module HouseholdFinance
 
     def tool_presenter
       @tool_presenter ||= DataPresenter.new(household, user: user, ensure_plan: false,
-        experience_capabilities: user && ::Mia::ParticipantRuntimeResolver.new(user: user).call.capabilities)
+        experience_capabilities: @experience_capabilities || user && ::Mia::ParticipantRuntimeResolver.new(user: user).call.capabilities)
+    end
+
+    def current_tool_message
+      message.split("Current follow-up:", 2).last.to_s.downcase
+    end
+
+    def tool_context_relevant?
+      !message.include?("Current follow-up:") || current_tool_message.match?(/draw|runway|lift|what if|\$[\d,.]+\s+more/i)
+    end
+
+    def tool_routing_message
+      tool_context_relevant? ? normalized_message : current_tool_message
     end
 
     def tool_green_answer
-      return nil unless normalized_message.match?(/what does it take.*green|what.*(?:take|need).*get to green|flip the light/i)
+      return nil unless tool_routing_message.match?(/what does it take.*green|what.*(?:take|need).*get to green|flip the light/i)
       return nil unless tool_presenter.tool_enabled?("cfo_filter")
 
       lines = tool_presenter.cfo_filter_scenario.fetch(:targets).map do |target|
@@ -1051,17 +1064,17 @@ module HouseholdFinance
     end
 
     def transition_duration_answer
-      job_transition_answer if normalized_message.match?(TRANSITION_INTENT_PATTERN) && normalized_message.match?(/how long|could we last|runway/i)
+      job_transition_answer if tool_routing_message.match?(TRANSITION_INTENT_PATTERN) && tool_routing_message.match?(/how long|could we last|runway/i)
     end
 
     def job_transition_answer
-      return nil unless normalized_message.match?(JOB_TRANSITION_PATTERN)
-      unless normalized_message.match?(/how long|could we last|runway/i)
+      return nil unless tool_routing_message.match?(JOB_TRANSITION_PATTERN)
+      unless tool_routing_message.match?(/how long|could we last|runway/i)
         business_cents = business_income_cents
         return "Not yet as a full leap; this is a runway decision, not a motivation decision. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, business income entered is #{money(business_cents)} per month, and the emergency fund gap is #{money(emergency_fund_gap_cents)}. Keep stable income in the picture until household runway and repeatable business income can carry the baseline without panic. Next CFO move: define the monthly business-income floor and runway number that must be true before you revisit leaving the job."
       end
 
-      return nil unless normalized_message.match?(TRANSITION_INTENT_PATTERN) && tool_presenter.tool_enabled?("optionality")
+      return nil unless tool_routing_message.match?(TRANSITION_INTENT_PATTERN) && tool_presenter.tool_enabled?("optionality")
 
       draw_message = message.split("Current follow-up:", 2).last
       draw_match = draw_message.match(/\bdraw\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+month|a\s+month|monthly|\/mo)/i)
@@ -1296,7 +1309,7 @@ module HouseholdFinance
       end
       item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: item, effective_on: date&.iso8601,
-        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month, user: user).call.body
+        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month, user: user, experience_capabilities: @experience_capabilities).call.body
     end
 
     def purse_decision_answer
@@ -1332,7 +1345,7 @@ module HouseholdFinance
       return unavailable_plan_answer unless plan_available?
 
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: purchase_item,
-        annual_budget_manager: annual_budget_manager, reference_month: reference_month, user: user).call.body
+        annual_budget_manager: annual_budget_manager, reference_month: reference_month, user: user, experience_capabilities: @experience_capabilities).call.body
     end
 
     def purchase_decision_answer

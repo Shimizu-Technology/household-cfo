@@ -46,6 +46,22 @@ class HouseholdFinanceTalunToolsTest < ActiveSupport::TestCase
     assert followup.follow_up?
     assert_includes mia.call(followup.message), "from month one"
     refute_includes mia.call(followup.message), "$500 drawn from savings"
+    [ first, "What does it take to get to green?" ].each do |prior|
+      reply = mia.call(prior)
+      unrelated = HouseholdFinance::ConversationFollowupResolver.new("Should I pay my credit card first?",
+        conversation_context: { active_topic: { type: "coaching", latest_user_context: prior, latest_mia_summary: reply } }).call
+      assert unrelated.follow_up?
+      answer = mia.call(unrelated.message).to_s
+      refute_includes answer, "Your transition runway"
+      refute_includes answer, "To turn each light green independently"
+    end
+    selected_capabilities = Mia::ParticipantRuntimeResolver.new(user: user).call.capabilities.deep_dup
+    selected_capabilities[:modules].each { |mod| mod[:enabled] = false if %w[cfo_filter optionality].include?(mod[:id]) }
+    selected_mia = ->(question) { HouseholdFinance::MiaCoachAnswerer.new(household, question,
+      ensure_plan: false, user: user, experience_capabilities: selected_capabilities).call.to_s }
+    refute_includes selected_mia.call("What does it take to get to green?"), "monthly income lift"
+    refute_includes selected_mia.call(first), "Your transition runway"
+    refute_includes selected_mia.call("Can I afford $100?"), "CFO Filter:"
     hidden_tool_guidance = CohortExperience::MiaModuleGuidance.new(modules: [ { id: "optionality", enabled: false } ])
     refute_includes hidden_tool_guidance.filter(transition_answer), "Optionality"
     assert_equal transition_answer, hidden_tool_guidance.filter(transition_answer)

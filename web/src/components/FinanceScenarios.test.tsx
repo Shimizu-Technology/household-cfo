@@ -78,3 +78,8 @@ test('negative baseline and unreachable debt use distinct plain words', () => {
   expect(screen.queryByText(/This exceeds/)).toBeNull()
   expect(screen.getByText(/Never pays off at these payments/)).toBeTruthy()
 })
+
+test('income lift explains that a shortfall is covered before splitting surplus', () => {
+  render(<CfoScenarios initial={filter} />)
+  expect(screen.getByText(/income lift first covers any shortfall/).textContent).toContain('remaining positive surplus')
+})

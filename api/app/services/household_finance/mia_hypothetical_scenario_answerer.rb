@@ -11,7 +11,8 @@ module HouseholdFinance
       "extra_debt_payment" => "Extra debt payment"
     }.freeze
 
-    def initialize(household, scenario_type:, amount:, label:, effective_on: nil, timing_unavailable: false, annual_budget_manager:, reference_month:, user: nil)
+    def initialize(household, scenario_type:, amount:, label:, effective_on: nil, timing_unavailable: false, annual_budget_manager:, reference_month:, user: nil, experience_capabilities: nil)
+      @experience_capabilities = experience_capabilities
       @user = user
       @household = household
       @scenario_type = scenario_type.to_s
@@ -69,8 +70,9 @@ module HouseholdFinance
       priced_item = PurchaseQuestionText.priced_item(item, amount_cents)
       before = left.negative? ? "is #{money(left.abs)} short" : "has #{money(left)} left"
       period = date.beginning_of_month == Date.current.beginning_of_month ? "This month’s" : "Your #{facts[:period_label]}"
-      presenter = DataPresenter.new(household, user: @user, ensure_plan: false,
-        experience_capabilities: @user && ::Mia::ParticipantRuntimeResolver.new(user: @user).call.capabilities)
+      presenter = DataPresenter.new(household, user: @user,
+        ensure_plan: false,
+        experience_capabilities: @experience_capabilities || @user && ::Mia::ParticipantRuntimeResolver.new(user: @user).call.capabilities)
       filter_read = if presenter.tool_enabled?("cfo_filter") && date.beginning_of_month == Date.current.beginning_of_month
         filter = presenter.cfo_filter_scenario(spend_cents: amount_cents)
         after = filter.fetch(:after)

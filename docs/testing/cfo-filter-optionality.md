@@ -1,4 +1,4 @@
-# CFO Filter and Optionality — round 4
+# CFO Filter and Optionality — round 5
 
 November 21, 2026. Branch `feat/cfo-filter-optionality`, base `add758793ff92dd16299583496088032a97e4bb7`. The lead supplied the prototype formulas in the implementation brief; the private, gitignored HTML is not required in the public repository.
 
@@ -81,3 +81,24 @@ Guidance diagnostic: the read-only shared-context check cannot run on this host 
 Both offline scorecards pass with `RATCHET=1`: sample nine documents and full-year 79 documents. Both entire JSON reports equal their committed baselines; corrected spending remains $6,406.23 / $44,242.95. The existing full-year decisions target misses at 656, with no ratchet regression or baseline changes.
 
 Cleanup: both branch-specific test databases are removed after all synchronous tests/replays finish. The protected, pre-existing PostgreSQL service remains running. No servers, browsers, simulators, emulators or containers were started. Lifecycle records show no active owned resources. Checkout/branch retained for the lead; the pre-existing untracked `.codex/` directory is untouched.
+
+
+## Round 5 corrections and acceptance
+
+November 21, 2026; continues `11b3146b358bab46edfa5f5a11505dc49a384bc0`. Fetched `origin/main` is still `add758793ff92dd16299583496088032a97e4bb7`; no rebase required. Product context and formulas above remain applicable.
+
+- Tool routing now uses the current follow-up. Prior intent remains available for draw/runway/lift/“what if” continuations and “$300 more”. Unrelated credit-card questions after either a runway or green-target answer cannot repeat that tool answer. The real resolver-enriched $500 → $0 draw regression remains passing.
+- The controller passes request-selected experience capabilities through coaching and structured read-only answers into both presenters. A regression supplies capabilities with both tools off while the participant’s default enables them; green, runway and purchase details respect the selected capabilities. A full two-program HTTP fixture was not added.
+- The card explains that an income lift first covers a base shortfall, then the method splits the remaining positive surplus. Its component test rejects the old wording.
+
+Agent-executed acceptance uses fictional fixtures and Rails/controller integration, with no live models or paid services. Reverting routing separately reproduces stale runway and stale green answers; reverting selected capabilities reproduces the default-program leak. Reverting card wording fails one of eight component tests. All temporary reversions were restored. No new browser or device QA was performed for this text-only frontend change; historical browser evidence above remains historical.
+
+Final affected Rails gate (Ruby 3.3.14): 143 tests / 2,121 assertions, zero failures/errors/skips. RuboCop passes all five changed Ruby files. Web: eight component tests, ESLint and TypeScript/production build pass; existing bundle-size warning remains. Impeccable reports no findings; whitespace check passes. An intermediate 10-worker run exhausted PostgreSQL shared locks; the final one-worker run passes.
+
+Setup incident: an initial schema-load command omitted the branch-specific database environment and loaded the pre-existing default local development/test schemas. Their prior contents were not recorded and cannot be verified. Those databases are retained; only task-specific databases are removed. No remote or production database was used.
+
+Full Rails CI and fresh review belong to the lead. This worker pushes once, does not wait for CI, and does not merge. The frontend change would trigger a production frontend build if merged; previews remain disabled.
+
+Both offline scorecards pass with `RATCHET=1` (9 and 79 documents). Both complete JSON reports equal their committed baselines; corrected spending remains $6,406.23 / $44,242.95. The existing full-year decision-target miss remains 656; baselines are unchanged.
+
+Cleanup: all 11 task-specific test databases removed; no owned runtime resources remain. No servers or browsers were started. Protected PostgreSQL and pre-existing `.codex/` remain untouched. Checkout/branch retained for lead review.
