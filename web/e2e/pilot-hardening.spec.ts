@@ -15692,7 +15692,7 @@ test('BOG UI Review redesign keeps purchase drafts through queue paging and show
   } } }))
   await page.goto('/?pilot_e2e_role=participant#Review')
   await expect(page.getByRole('heading', { name: 'Review', exact: true })).toBeVisible()
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total).toContainText('$12,345.67')
   await expect(total).not.toContainText('100 purchases')
   await page.getByRole('button', { name: 'Add a purchase', exact: true }).click()
@@ -15751,7 +15751,7 @@ test('BOG UI P5 figure 2 editing another month preserves the current total and o
     await route.fulfill({ json: p5Report(route, calls > 1 ? 55.25 : 43.10) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
   await total.locator('summary').click()
   await expect(total.getByText('Current confirmed market')).toBeVisible()
@@ -15782,7 +15782,7 @@ test('BOG UI P5 figure 4 quiet success overtakes initial loading and rejects its
     }
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total).toContainText('Loading report')
   await p5Edit(page)
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
@@ -15811,7 +15811,7 @@ test('BOG UI P5 figure 4 later quiet success clears a quiet error', async ({ pag
     return calls === 2 ? route.fulfill({ status: 503, json: { error: 'Fictional refresh failure' } }) : route.fulfill({ json: p5Report(route, calls === 1 ? 43.10 : 57.25) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
   await p5Edit(page)
   await expect(total.getByRole('alert')).toBeVisible()
@@ -17299,7 +17299,7 @@ test('BOG UI F4 HEIC and HEIF bytes convert locally to a readable JPEG and bad p
 })
 
 for (const permanent of [true, false]) test(`BOG UI F4 ${permanent ? 'permanent' : 'temporary'} file failure gives the right next step`, async ({ page }) => {
-  const source = { ...f4Source(), status: 'failed', metadata: { extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes.' }
+  const source = { ...f4Source(), status: 'failed', metadata: { extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so open File options and choose Try again in a few minutes.' }
   await f4Chat(page, [source])
   await expect(page.getByRole('region', { name: /Could not read/ })).toBeVisible()
   await f4Evidence(page, permanent ? 'permanent-failure' : 'temporary-failure')
@@ -18860,4 +18860,35 @@ test('B5 round 4 cash answers stay disabled until a pending Mia response settles
   await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toBeDisabled()
   release()
   await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toBeEnabled()
+})
+
+
+test('BOG UI pending exclusion on an approved purchase stays left out when saved unchanged', async ({ page }) => {
+  let saved = false
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    expect(route.request().postDataJSON().input.lines[0]).toMatchObject({ decision: 'edited', expected_head: { pending_digest: 'demo-exclusion' }, edit: { kind: 'spending', amount_cents: 1000, category_id: null } })
+    saved = true
+    return route.fulfill({ json: { result: { approved: 1, left_out: 1, unchanged: 0, complete: true } } })
+  })
+  const review = await openTypedStatementReview(page, false, data => {
+    const event = { ...data.events[0], event_type: 'purchase' as const, signed_amount_cents: -1000 }
+    data.events = [event]
+    data.counts.all = 1
+    data.pagination = { page: 1, per_page: 50, total_count: 1, total_pages: 1, has_previous: false, has_next: false }
+    const participant = data.participant_review!
+    participant.rows[event.id] = { head: { id: 900, approved_version_id: saved ? 901 : 900, lock_version: saved ? 2 : 1 }, pending: null,
+      approved: { id: saved ? 901 : 900, digest: 'demo-purchase', version_number: saved ? 2 : 1, current: true, reason: 'Fictional approval', projection: { action: 'none' }, actual: null,
+        facts: { source_account_identity_version_id: 100, disposition: saved ? 'exclude' : 'include', event_type: 'purchase', signed_amount_cents: -1000, purchase_amount_cents: saved ? null : 1000, posted_on: event.posted_on, merchant: 'Demo purchase', budget_category_id: saved ? null : 10, overlap_disposition: saved ? 'excluded' : 'new' } } }
+    participant.plan = { ...participant.plan, total: 1, done: saved ? 1 : 0, ready: [], ready_event_ids: [], coverage: { question: null, answer: null }, attention: saved ? [] : [{ ...participant.plan.attention[0], event_id: event.id, kind: 'correction', event_type: 'purchase', disposition: 'exclude', signed_amount_cents: -1000, merchant: 'Demo purchase', editable_merchant: 'Demo purchase', posted_on: event.posted_on, category_id: null, recipient_question: false, question: 'Review your proposed correction.', answers: [{ id: 'edit', label: 'Review correction' }], expected_head: { approved_version_id: 900, lock_version: 1, account_version_id: 100, pending_digest: 'demo-exclusion' } }] }
+    return data
+  })
+  await review.getByRole('button', { name: 'Review correction' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Demo purchase' })
+  await expect(dialog.getByText('This line is left out of spending and income.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Leave this line out' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await review.getByText('See all 1 line', { exact: true }).click()
+  await expect(review.getByRole('cell', { name: 'Left out', exact: true })).toBeVisible()
+  expect(saved).toBe(true)
 })

@@ -2,6 +2,11 @@ require "test_helper"
 require_relative "../support/savings_challenge_test_support"
 
 class FinancialDocumentExtractionRecoveryJobTest < ActiveJob::TestCase
+  test "exhausted reads point to the current retry control and keep timing and alternatives" do
+    assert_equal "Mia couldn't finish reading this file after a few tries. Open File options and choose Try again, or upload a smaller file, a CSV export, or a screenshot.", FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE
+    assert_equal "Mia couldn't start reading this file. Open File options and choose Try again in a few minutes, or upload it again.", FinancialDocumentExtractionDispatch::ADMISSION_EXHAUSTED_MESSAGE
+  end
+
   include SavingsChallengeTestSupport
 
   WorkerKilled = Class.new(Exception)

@@ -692,7 +692,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
         assert_equal expected, result.error
         assert_no_match(/HTTP|OpenRouter|\d{3}/, result.error)
         assert_match(status == 400 ? /couldn’t finish this request/ : status == 402 ? /billing problem on our side/ : /temporary/i, result.error)
-        assert_match(status == 400 ? /try again later/ : /Reprocess/, result.error)
+        assert_match(status == 400 ? /try again later/ : /File options and choose Try again/, result.error)
         assert_equal "OpenRouter extraction failed with HTTP #{status}", result.metadata.fetch(:error_detail)
         assert_equal status, result.metadata.fetch(:status_code)
         assert_equal expected_calls, calls, "HTTP #{status} retry count"

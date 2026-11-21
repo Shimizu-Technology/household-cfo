@@ -179,6 +179,7 @@ module FinancialDocuments
         answers = line.kind.in?(%i[duplicate person_payment_duplicate]) && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS.fetch(line.kind).first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
         question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
         question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
+        question = "#{question} Category: #{names[line.category_id] || 'None chosen'}." if line.kind == :correction
         question = line.purchase_match.question if line.kind == :same_purchase
         # A refund names where its money goes back: the purchase's category, or the one she chose for this store before.
         refund_names = Array(line.refund_to).filter_map { |id| category_names[id] }
@@ -192,8 +193,9 @@ module FinancialDocuments
         { raw_description: AccountNumberMask.display(event.financial_source_evidence&.payload&.dig("raw_description")), event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
           amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
           merchant: MerchantNormalizer.call(saved&.merchant.presence || line.merchant), editable_merchant: AccountNumberMask.display(saved&.merchant.presence || line.merchant), posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
+          disposition: saved&.disposition, purchase_amount_cents: saved&.purchase_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id] || (refund_names.to_sentence.presence if line.kind == :refund), expected_head: line.expected_head,
-          recipient_question: !line.done && TransferPairs.person_wording?(event, line.merchant) && !event.signed_amount_cents.to_i.positive?,
+          recipient_question: line.kind != :correction && !line.done && TransferPairs.person_wording?(event, line.merchant) && !event.signed_amount_cents.to_i.positive?,
           transfer_pair: line.pair && { event_id: line.pair[:event].id, approved_version_id: line.pair[:version]&.id, account_version_id: line.pair[:identity].id,
             description: AccountNumberMask.display(ParticipantPlan.merchant_for(line.pair[:event])),
             account: AccountNumberMask.display(line.pair[:identity].source_tracked_account.label), posted_on: line.pair[:date].iso8601, signed_amount_cents: line.pair[:amount] } }

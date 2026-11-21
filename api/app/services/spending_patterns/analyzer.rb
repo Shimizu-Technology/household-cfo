@@ -76,7 +76,9 @@ module SpendingPatterns
       text = name.to_s
       text.match?(ALWAYS_PROTECTED_CATEGORY) || PROTECTED_CATEGORY_WORDS.slice(*(CORE_PROTECTED | Array(protected))).values.any? { |words| text.match?(words) }
     end
-    def self.protected_merchant?(name) = name.to_s.match?(PROTECTED_MERCHANT)
+    UTILITY_COMPANY = /\b(?:power|electric(?:ity)?|water|gas(?=[,\s]+(?:co\b|company\b|corporation\b|corp\b|inc\b|llc\b|ltd\b|authority\b|services?\b|utilit(?:y|ies)\b|district\b|department\b|board\b))|sewer|telecom(?:munications)?|telephone|internet|broadband)\b(?:,?\s+(?:co\.?|company|corporation|corp\.?|inc\.?|llc|ltd\.?|authority|services?|utility|utilities|district|department|board))*\s*\z/i
+
+    def self.protected_merchant?(name) = name.to_s.match?(PROTECTED_MERCHANT) || name.to_s.match?(UTILITY_COMPANY)
 
     # protected: the program's protected categories; nil reads the household's own program.
     def initialize(household, today: Time.current.in_time_zone("Pacific/Guam").to_date, from: nil, to: nil, protected: nil)

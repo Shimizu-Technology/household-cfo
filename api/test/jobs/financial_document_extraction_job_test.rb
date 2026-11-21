@@ -892,6 +892,12 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_not_includes @document_import.extraction_error, "undefined method"
   end
 
+  test "unexpected reader exceptions name File options and Try again" do
+    extractor = fake_extractor(nil, before_return: -> { raise "Fictional reader failure" })
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+    assert_equal "Document extraction could not finish. Open File options and choose Try again.", @document_import.reload.extraction_error
+  end
+
   private
 
   def fake_extractor(result, before_return: nil)

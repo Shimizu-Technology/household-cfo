@@ -258,3 +258,12 @@ it('says why a file cannot be deleted in the server’s own words', () => {
   expect(button.disabled).toBe(true)
   expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toBe(refusal)
 })
+
+it('names File options and Try again for a failed read', () => {
+  const source = statement({ status: 'failed', extraction_error: "We couldn't read this file right now. Open File options and choose Try again." })
+  render(<DocumentReviewPanel {...reviewPanelProps(source)} />)
+  expect(screen.getByText(/Open File options and choose Try again/)).toBeTruthy()
+  fireEvent.click(screen.getByText('File options', { exact: true }))
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+  expect(screen.queryByText(/extracting draft values/)).toBeNull()
+})
