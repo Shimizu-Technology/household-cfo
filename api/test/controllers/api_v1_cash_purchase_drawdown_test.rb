@@ -34,7 +34,7 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     confirm(draft, cash_withdrawal_event_id: withdrawal.id)
     assert_response :success, response.body
     assert_equal "Saved Tasi Demo Cafe for $40 in Dining, paid with cash you took out on Aug 3. That cash already counted, so $40 moved from Cash to Dining.",
-      @household.chat_sessions.flat_map { |session| session.chat_messages.pluck(:content) }.last
+      ChatMessage.where(chat_session: @household.chat_sessions).order(:id).last.content
     purchase = TransactionDraft.find(draft.fetch("id")).confirmed_transaction
     assert_equal({ "financial_source_event_id" => withdrawal.id, "amount_cents" => 4000 }, purchase.metadata.fetch("cash_withdrawal").slice("financial_source_event_id", "amount_cents"))
 
@@ -102,7 +102,7 @@ class ApiV1CashPurchaseDrawdownTest < ActionDispatch::IntegrationTest
     assert_equal [ 3000, 3000 ], second.dig("cash_payment", "candidates").sole.values_at("available_cents", "covers_cents")
     confirm(second, cash_withdrawal_event_id: withdrawal.id)
     assert_response :success, response.body
-    assert_includes @household.chat_sessions.flat_map { |session| session.chat_messages.pluck(:content) }.last, "The other $20 counts as new spending."
+    assert_includes ChatMessage.where(chat_session: @household.chat_sessions).order(:id).last.content, "The other $20 counts as new spending."
 
     assert_equal [ 0, 7000, 5000 ], [ @cash, @groceries, @dining ].map { |category| budget_actual(category, month: 8) }
     assert_equal 12_000, month_total(8)
