@@ -242,6 +242,10 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_includes response.answer, "Checking ····4410 (Checking): balance $7,817.66 as of Dec 31 from your approved statement."
     assert_not_includes response.answer, "Talun savings"
     assert_equal "no_write", response.metadata[:write_state]
+    # Asking for both keeps both.
+    response = answer("List my checking and savings accounts")
+    assert_includes response.answer, "Checking ····4410 (Checking)"
+    assert_includes response.answer, "Talun savings (Savings): balance unknown"
 
     response = travel_to(Time.zone.local(2027, 1, 4, 12)) { answer("How much is in my checking account?") }
     assert_includes response.answer, "as of Dec 31, 2026 from your approved statement"

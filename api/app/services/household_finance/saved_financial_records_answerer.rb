@@ -299,7 +299,7 @@ module HouseholdFinance
     def answer_accounts
       scope = @household.accounts.active.order(:account_type, :label, :id)
       # "What's in my checking?" answers for checking accounts when she has one.
-      named = scope.where(account_type: "checking") if @read_text.match?(/\bchecking\b/i)
+      named = scope.where(account_type: "checking") if @read_text.match?(/\bchecking\b/i) && !@read_text.match?(/\bsavings?\b/i)
       scope = named if named&.exists?
       rows = scope.limit(MAX_RECORDS).map do |account|
         "#{label(account.label)} (#{account.account_type.humanize}): balance #{known_money(account.balance_known?, account.balance_cents)}#{balance_date(account)}."

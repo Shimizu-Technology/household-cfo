@@ -65,6 +65,9 @@ module HouseholdFinance
         balance_cents: statement[:balance_cents], as_of_on: statement[:as_of_on]
       }
       linked = liability ? linked_debt(tracked) : linked_account(tracked)
+      # A statement linked to an account she archived stays with it: no other account, no new one.
+      return if linked && !linked.active?
+
       if linked
         return unless replaceable?(linked, offer)
 
@@ -138,14 +141,15 @@ module HouseholdFinance
       end
     end
 
+    # The account or card this statement already belongs to, archived ones included.
     def linked_account(tracked)
-      return household.accounts.active.find_by(id: tracked.account_id) if tracked.account_id
+      return household.accounts.find_by(id: tracked.account_id) if tracked.account_id
 
-      active_accounts.find { |account| self.class.linked_tracked_account_id(account) == tracked.id }
+      all_accounts.find { |account| self.class.linked_tracked_account_id(account) == tracked.id }
     end
 
     def linked_debt(tracked)
-      active_debts.find { |debt| self.class.linked_tracked_account_id(debt) == tracked.id }
+      all_debts.find { |debt| self.class.linked_tracked_account_id(debt) == tracked.id }
     end
 
     def account_choices(tracked)
@@ -209,16 +213,27 @@ module HouseholdFinance
           balance_cents: record.balance_known? ? record.balance_cents : nil, balance_as_of_on: record.balance_as_of_on&.iso8601 }
       else
         { kind: "debt", id: record.id, label: record.label, type: record.debt_type,
-          balance_cents: record.balance_known? ? record.balance_cents : nil, balance_as_of_on: record.source_metadata.dig(METADATA_KEY, "period_end_on") }
+          balance_cents: record.balance_known? ? record.balance_cents : nil, balance_as_of_on: debt_balance_date(record) }
       end
     end
 
-    def key_for(offer)
-      Operations::PreparedOperation.fingerprint(offer.slice(:tracked_account_id, :kind, :identity_version_id, :revision_approval_id, :balance_cents, :as_of_on))
+    # A card's balance is dated only while it is still the statement's amount; a manual edit has no date.
+    def debt_balance_date(debt)
+      applied = debt.source_metadata.is_a?(Hash) ? debt.source_metadata[METADATA_KEY] : nil
+      applied["period_end_on"] if debt.balance_known? && applied.is_a?(Hash) && applied["closing_balance_cents"] == debt.balance_cents
     end
 
-    def active_accounts = @active_accounts ||= household.accounts.active.order(:id).to_a
-    def active_debts = @active_debts ||= household.debts.active.order(:id).to_a
+    # The key covers everything she was shown, including each account's current
+    # balance, so an edit elsewhere between showing and approving is refused.
+    def key_for(offer)
+      Operations::PreparedOperation.fingerprint(offer.slice(:tracked_account_id, :kind, :identity_version_id, :revision_approval_id, :balance_cents, :as_of_on,
+        :target, :choices, :can_add_new, :new_label, :new_account_type))
+    end
+
+    def all_accounts = @all_accounts ||= household.accounts.order(:id).to_a
+    def all_debts = @all_debts ||= household.debts.order(:id).to_a
+    def active_accounts = @active_accounts ||= all_accounts.select(&:active?)
+    def active_debts = @active_debts ||= all_debts.select(&:active?)
     def debt_portfolio = @debt_portfolio ||= DebtPortfolio.new(household)
   end
 end

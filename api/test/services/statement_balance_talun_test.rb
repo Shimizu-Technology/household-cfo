@@ -40,11 +40,23 @@ class StatementBalanceTalunTest < ActionDispatch::IntegrationTest
         post "/api/v1/statement_balances/#{offer.fetch('tracked_account_id')}/apply", params: { kind: kind, target: target, offer_key: offer.fetch("key") },
           headers: headers.merge("Idempotency-Key" => key), as: :json
       end
+      returned = -> { response.parsed_body.fetch("offers").index_by { |offer| offer.fetch("statement_label") } }
       apply.call(offers.fetch("Checking ····4410"), "account", checking.id.to_s, "talun-checking")
       assert_response :success
-      apply.call(offers.fetch("Talun Savings ····8642"), "account", "new", "talun-savings")
+      # Each approval returns the current offers; their keys reflect the new balances.
+      apply.call(returned.call.fetch("Talun Savings ····8642"), "account", "new", "talun-savings")
       assert_response :success
-      apply.call(offers.fetch("Mainland Visa ····6074"), "debt", visa.id.to_s, "talun-visa")
+      offers = offers.merge(returned.call.slice("Mainland Visa ····6074"))
+      # Her card changed in another tab after the offer was shown: nothing is overwritten.
+      visa.update!(balance_cents: 4_100_00)
+      apply.call(offers.fetch("Mainland Visa ····6074"), "debt", visa.id.to_s, "talun-visa-stale")
+      assert_response :conflict
+      assert_equal "stale_review", response.parsed_body["code"]
+      assert_equal 4_100_00, visa.reload.balance_cents
+      get "/api/v1/statement_balances", headers: headers
+      fresh = response.parsed_body.fetch("offers").find { |offer| offer.fetch("statement_label") == "Mainland Visa ····6074" }
+      assert_equal 4_100_00, fresh.fetch("choices").sole.fetch("balance_cents")
+      apply.call(fresh, "debt", visa.id.to_s, "talun-visa")
       assert_response :success
       assert_empty response.parsed_body.fetch("offers")
 
@@ -93,8 +105,11 @@ class StatementBalanceRulesTest < ActionDispatch::IntegrationTest
       assert_nil offers.call.dig("account", :target, :balance_cents)
       tracked_id = offers.call.dig("account", :tracked_account_id)
 
-      # A balance she saved as of a later day keeps it.
-      unknown.update!(balance_known: true, balance_cents: 7_500_00, balance_as_of_on: Date.new(2027, 1, 5))
+      # A balance she saved as of the statement day, or later, keeps it.
+      unknown.update!(balance_known: true, balance_cents: 7_500_00, balance_as_of_on: Date.new(2026, 12, 31))
+      assert_nil offers.call["account"]
+      assert_equal 7_500_00, unknown.reload.balance_cents
+      unknown.update!(balance_as_of_on: Date.new(2027, 1, 5))
       assert_nil offers.call["account"]
       # So does a balance that came from a newer statement, even with no date.
       unknown.update!(balance_as_of_on: nil, source_metadata: { "statement_balance" => { "tracked_account_id" => tracked_id, "period_end_on" => "2027-01-31" } })
@@ -105,11 +120,23 @@ class StatementBalanceRulesTest < ActionDispatch::IntegrationTest
       unknown.update!(balance_cents: 7_000_00)
       assert_equal 7_400_00, offers.call.dig("account", :balance_cents)
 
+      # A card edited by hand after an earlier statement shows no statement date for its current balance.
+      card_tracked = offers.call.dig("debt", :tracked_account_id)
+      card = household.debts.create!(label: "Mainland Visa", debt_type: "credit_card", balance_cents: 3_500_00, minimum_payment_cents: 0,
+        source_type: "document_import", source_metadata: { "statement_balance" => { "tracked_account_id" => card_tracked, "period_end_on" => "2026-11-30", "closing_balance_cents" => 4_390_37 } })
+      assert_equal [ card.id, nil ], offers.call.dig("debt", :target).values_at(:id, :balance_as_of_on)
+
       # Summary debt tracking has no per-card balance to update.
       assert offers.call["debt"]
       household.household_profile.update!(debt_tracking_mode: "summary")
       assert_nil offers.call["debt"]
       assert_equal 7_000_00, unknown.reload.balance_cents
+
+      # An account she archived keeps its statement: no other account or new one is offered.
+      unknown.update!(source_metadata: { "statement_balance" => { "tracked_account_id" => tracked_id, "period_end_on" => "2026-11-30" } })
+      assert_equal unknown.id, offers.call.dig("account", :target, :id)
+      unknown.update!(active: false, archived_at: Time.current)
+      assert_nil offers.call["account"]
       checked = true
     }).call
     assert checked
