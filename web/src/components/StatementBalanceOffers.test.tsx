@@ -3,7 +3,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StatementBalanceOffer } from '../api'
-import { StatementBalanceOffers, offerQuestion } from './StatementBalanceOffers'
+import { offerQuestion } from '../lib/statementBalanceOffer'
+import { StatementBalanceOffers } from './StatementBalanceOffers'
 
 const apiMocks = vi.hoisted(() => ({
   fetchStatementBalanceOffers: vi.fn(),
@@ -38,7 +39,7 @@ afterEach(cleanup)
 
 describe('StatementBalanceOffers', () => {
   it('asks one plain question with the statement date and updates only after she approves', async () => {
-    apiMocks.fetchStatementBalanceOffers.mockResolvedValue([checking])
+    apiMocks.fetchStatementBalanceOffers.mockResolvedValueOnce([checking]).mockResolvedValue([])
     apiMocks.applyStatementBalance.mockResolvedValue([])
     const onChanged = vi.fn().mockResolvedValue(undefined)
     render(<StatementBalanceOffers onChanged={onChanged} />)
@@ -56,6 +57,8 @@ describe('StatementBalanceOffers', () => {
     await screen.findByText('Balance updated.')
     expect(onChanged).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: 'Update balance' })).toBeNull()
+    // The list that approved it does not ask the server again.
+    expect(apiMocks.fetchStatementBalanceOffers).toHaveBeenCalledTimes(1)
   })
 
   it('Not now changes nothing and keeps that offer hidden', async () => {

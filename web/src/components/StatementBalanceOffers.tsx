@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { applyStatementBalance, fetchStatementBalanceOffers, type StatementBalanceOffer, type StatementBalanceTarget } from '../api'
-import { formatHouseholdDay } from '../lib/householdDate'
+import { useEffect, useRef, useState } from 'react'
+import { applyStatementBalance, fetchStatementBalanceOffers, type StatementBalanceOffer } from '../api'
 import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
-import { formatReviewMoney } from '../lib/reviewMoney'
+import { currentBalance, offerQuestion, type BalanceChoice as Choice } from '../lib/statementBalanceOffer'
 
 const DISMISSED_KEY = 'hcfo.statement-balance.not-now'
 const DISMISSED_EVENT = 'hcfo:statement-balance-not-now'
@@ -28,29 +27,10 @@ function writeDismissed(keys: string[]) {
   }
 }
 
-type Choice = number | 'new' | null
-
 function initialChoice(offer: StatementBalanceOffer): Choice {
   if (offer.target) return offer.target.id
   if (offer.choices.length === 0 && offer.can_add_new) return 'new'
   return null
-}
-
-function owedSuffix(offer: StatementBalanceOffer) {
-  return offer.kind === 'debt' ? ' owed' : ''
-}
-
-function currentBalance(target: StatementBalanceTarget) {
-  return target.balance_cents == null ? 'not known yet' : formatReviewMoney(target.balance_cents)
-}
-
-export function offerQuestion(offer: StatementBalanceOffer, choice: Choice, today = new Date()) {
-  const amount = `${formatReviewMoney(offer.balance_cents)}${owedSuffix(offer)}`
-  const day = formatHouseholdDay(offer.as_of_on, today)
-  if (choice === 'new') return `Add ${offer.new_label} ${offer.kind === 'debt' ? 'to your debts' : 'to My Money'} with ${amount} from your ${day} statement?`
-  const target = [offer.target, ...offer.choices].find((row) => row?.id === choice)
-  if (target) return `Update ${target.label} to ${amount} from your ${day} statement?`
-  return `Your ${day} statement for ${offer.statement_label} shows ${amount}. Which ${offer.kind === 'debt' ? 'card' : 'account'} is it?`
 }
 
 function OfferCard({ offer, onApplied, onDismiss }: {
@@ -116,26 +96,28 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey }
   const [offers, setOffers] = useState<StatementBalanceOffer[]>([])
   const [dismissed, setDismissed] = useState<string[]>(readDismissed)
   const [notice, setNotice] = useState<string | null>(null)
-  const load = useCallback(async () => {
-    try {
-      setOffers(await fetchStatementBalanceOffers())
-    } catch {
-      // An offer is optional; Home and My Money still work without it.
-      setOffers([])
-    }
-  }, [])
+  const [reloads, setReloads] = useState(0)
+  const self = useRef({})
 
-  useEffect(() => { void load() }, [load, refreshKey])
+  useEffect(() => {
+    let current = true
+    fetchStatementBalanceOffers()
+      .then((rows) => { if (current) setOffers(rows) })
+      // An offer is optional; Home and My Money still work without it.
+      .catch(() => { if (current) setOffers([]) })
+    return () => { current = false }
+  }, [refreshKey, reloads])
   useEffect(() => {
     const sync = () => setDismissed(readDismissed())
-    const reload = () => { void load() }
+    // The list that approved an offer already has the server's latest offers.
+    const reload = (event: Event) => { if ((event as CustomEvent).detail !== self.current) setReloads((count) => count + 1) }
     globalThis.addEventListener(DISMISSED_EVENT, sync)
     globalThis.addEventListener(CHANGED_EVENT, reload)
     return () => {
       globalThis.removeEventListener(DISMISSED_EVENT, sync)
       globalThis.removeEventListener(CHANGED_EVENT, reload)
     }
-  }, [load])
+  }, [])
 
   const visible = offers.filter((offer) => !dismissed.includes(offer.key))
   if (visible.length === 0 && !notice) return null
@@ -143,7 +125,7 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey }
   async function applied(next: StatementBalanceOffer[]) {
     setOffers(next)
     setNotice('Balance updated.')
-    globalThis.dispatchEvent(new Event(CHANGED_EVENT))
+    globalThis.dispatchEvent(new CustomEvent(CHANGED_EVENT, { detail: self.current }))
     try {
       await onChanged()
     } catch {
