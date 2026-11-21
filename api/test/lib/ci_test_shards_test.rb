@@ -5,7 +5,7 @@ require Rails.root.join("lib/ci_test_shards")
 class CiTestShardsTest < ActiveSupport::TestCase
   test "every test file lands in exactly one shard" do
     root = Rails.root.to_s
-    shards = (1..3).map { |index| CiTestShards.files(root: root, index: index, total: 3) }
+    shards = (1..CiTestShards::SHARDS).map { |index| CiTestShards.files(root: root, index: index, total: CiTestShards::SHARDS) }
 
     assert_equal CiTestShards.all_files(root), shards.flatten.sort
     assert_equal shards.flatten.length, shards.flatten.uniq.length
@@ -43,13 +43,19 @@ class CiTestShardsTest < ActiveSupport::TestCase
     end
   end
 
-  test "the committed weights keep the three shards within ten percent of each other" do
-    loads = CiTestShards.loads(root: Rails.root.to_s, total: 3)
+  test "the committed weights keep CI's shards within ten percent of each other" do
+    loads = CiTestShards.loads(root: Rails.root.to_s, total: CiTestShards::SHARDS)
     assert_operator loads.max, :<=, loads.min * 1.1, loads.inspect
   end
 
   # parallelize sets one executor for the whole run, so a single test class that calls it decides how every
   # test in its shard runs: parallelize(workers: 1) in one class once made a whole shard take 17 minutes.
+  test "CI runs as many shards as the split expects" do
+    workflow = File.read(Rails.root.join("../.github/workflows/ci.yml"))
+    assert_includes workflow, "shard: [ #{(1..CiTestShards::SHARDS).to_a.join(', ')} ]"
+    assert_includes workflow, %(ruby script/ci_test_shard.rb "${{ matrix.shard }}" #{CiTestShards::SHARDS})
+  end
+
   test "only the test helper sets the parallel workers" do
     root = Rails.root.to_s
     offenders = CiTestShards.all_files(root).select { |path| File.read(File.join(root, path)).match?(/^\s*parallelize\b/) }

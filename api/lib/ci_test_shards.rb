@@ -12,6 +12,8 @@ require "json"
 # and keep the files at one second or more.
 module CiTestShards
   WEIGHTS_FILE = "lib/ci_test_shard_weights.json"
+  # How many shards CI runs; keep it in step with the rails_test_shard matrix in .github/workflows/ci.yml.
+  SHARDS = 2
   # Seconds of run time per byte of test source, for a file without a measured weight.
   SECONDS_PER_BYTE = 0.00003
 

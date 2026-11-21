@@ -5727,6 +5727,8 @@ test('Coach Studio Review in form opens and focuses the exact teaching and phras
 })
 
 test('Coach Studio preserves coach-authored community context through preview, publish, and assignment', async ({ page }) => {
+  // A long preview, publish and assignment journey; with three CI workers per runner it ran close to 30 seconds on WebKit.
+  test.slow()
   let initialCoachingAuthorization = ''
   await page.route('http://api.test/api/v1/admin/personas', async (route) => {
     initialCoachingAuthorization = route.request().headers().authorization ?? ''
@@ -5856,6 +5858,8 @@ test('Coach Studio preserves coach-authored community context through preview, p
 })
 
 test('Coach Studio switches tenant context safely across responsive layouts', async ({ page }) => {
+  // A long journey across workspaces and layouts; with three CI workers per runner it ran close to 30 seconds on WebKit.
+  test.slow()
   await mockStaffWithParticipantSeat(page, 'coach')
   let firstPersona = personaDetailFixture()
   const secondPersona = {
@@ -7483,6 +7487,8 @@ test('Admin UI People is a table on a wide screen, rows on a phone, and invites 
 })
 
 test('Admin UI every section fits the screen and calls a group a group', async ({ page }) => {
+  // Ten cold loads of the admin app (seven sections, then three widths); with three CI workers per runner it ran over 20 seconds.
+  test.slow()
   for (const section of ['today', 'people', 'groups', 'coaching', 'reports', 'support', 'settings']) {
     await page.goto(`/admin/${section}?pilot_e2e_role=admin`)
     await expect(page.locator('.admin-content [data-page-heading]').first()).toBeVisible()
@@ -15652,6 +15658,8 @@ test('BOG UI Mia fix2 savings and goal completions expose status with inert focu
 })
 
 test('BOG UI Budget redesign bars and column layouts preserve exact money at phone tablet and laptop widths', async ({ page }) => {
+  // Eight cold loads of the app, one per width; with three CI workers per runner it ran over 20 seconds.
+  test.slow()
   const workspace = realWorkspaceData(true)
   workspace.budget.annual_plan.pending_transaction_drafts = []
   workspace.budget.annual_plan.rows.forEach((row, index) => row.months.forEach(cell => { cell.planned = 100; cell.actual = [0, 25, 100, 125][index] ?? 0 }))
@@ -15873,6 +15881,8 @@ for (const resolution of ['confirm', 'ignore'] as const) {
 }
 
 test('BOG UI P5 Budget strip fits unknown nine-character and largest values on narrow phones', async ({ page }) => {
+  // Nine cold loads of the app (three values at three widths); with three CI workers per runner it ran close to 30 seconds.
+  test.slow()
   const workspace = realWorkspaceData(true)
   const answer = workspace.dashboard.month_answer!
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))

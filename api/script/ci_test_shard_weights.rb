@@ -1,5 +1,5 @@
 # Rewrites lib/ci_test_shard_weights.json from the logs of a CI run's Rails test shards:
-#   ruby script/ci_test_shard_weights.rb shard-1.log shard-2.log shard-3.log
+#   ruby script/ci_test_shard_weights.rb shard-1.log shard-2.log
 # The shards run `bin/rails test -v`, which prints each test as "Class#test_name = 1.23 s = .". The script
 # adds up the seconds per test file and keeps the files that take a second or more.
 require "json"
@@ -41,4 +41,4 @@ abort "no verbose test lines found in #{ARGV.join(', ')}" if seconds.empty?
 unknown.each { |name, total| warn format("No test file declares %s (%.1f s); it keeps its size estimate.", name, total) }
 weights = seconds.select { |_, total| total >= 1 }.sort.to_h { |path, total| [ path, total.round(1) ] }
 File.write(File.join(root, CiTestShards::WEIGHTS_FILE), JSON.pretty_generate(weights) + "\n")
-puts "Wrote #{weights.size} weights (#{seconds.values.sum.round} s of tests). Shard loads: #{CiTestShards.loads(root: root, total: 3).inspect}"
+puts "Wrote #{weights.size} weights (#{seconds.values.sum.round} s of tests). Shard loads: #{CiTestShards.loads(root: root, total: CiTestShards::SHARDS).inspect}"

@@ -16,6 +16,8 @@ permissions:
 jobs:
   synthetic_documents:
     runs-on: ubuntu-24.04
+    # Each job's limit is about twice its usual time, so a hung job frees its slot (the org runs at most 20 jobs at once).
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -39,6 +41,7 @@ jobs:
   rails_security:
     # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: api
@@ -61,6 +64,7 @@ jobs:
   rails_lint:
     # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: api
@@ -96,6 +100,7 @@ jobs:
   scorecard_ratchet:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -162,16 +167,18 @@ jobs:
           echo "Explicit ratchet change: $reason"
   # scorecard-ratchet:end
 
-  # The Rails tests split into shards that run side by side. Each shard has its own database; the file split
-  # is deterministic (api/lib/ci_test_shards.rb), so every test file runs in exactly one shard.
+  # The Rails tests split into two shards that run side by side, each in four processes. Each shard has its own
+  # database; the file split is deterministic (api/lib/ci_test_shards.rb), so every test file runs in exactly
+  # one shard. Two shards finish well before the browser jobs, and every extra job takes one of the org's slots.
   rails_test_shard:
-    name: rails_test_shard (${{ matrix.shard }}/3)
+    name: rails_test_shard (${{ matrix.shard }}/2)
     # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [ 1, 2, 3 ]
+        shard: [ 1, 2 ]
     defaults:
       run:
         working-directory: api
@@ -230,7 +237,7 @@ jobs:
 
       - name: Run this shard's Rails tests
         run: |
-          files="$(ruby script/ci_test_shard.rb "${{ matrix.shard }}" 3)"
+          files="$(ruby script/ci_test_shard.rb "${{ matrix.shard }}" 2)"
           echo "$files" | wc -l | xargs echo "Test files in this shard:"
           bin/rails test -v $files
 
@@ -248,6 +255,7 @@ jobs:
       # scorecard-ratchet:end
       - rails_test_shard
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Require every Rails test shard
         env:
@@ -268,6 +276,7 @@ jobs:
   # browser jobs run on every push to main and on pull requests that change one of those paths.
   changes:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       web: ${{ steps.filter.outputs.web }}
       browser-matrix: ${{ steps.partitions.outputs.matrix }}
@@ -303,11 +312,13 @@ jobs:
       # The one list of browser partitions: the web-browser matrix runs it and the web check requires a
       # report from each. web/scripts/browser-shard.mjs deals each script's tests round-robin across its
       # partitions, so every test runs in exactly one partition and the partitions take about as long.
+      # The org runs at most 20 jobs at once, so a run uses a few large partitions rather than many small ones:
+      # four Chromium and one WebKit, each about 20 minutes of tests at three workers.
       - name: List the browser test partitions
         id: partitions
         env:
-          CHROMIUM_SHARDS: 8
-          WEBKIT_SHARDS: 2
+          CHROMIUM_SHARDS: 4
+          WEBKIT_SHARDS: 1
         run: |
           set -euo pipefail
           matrix="$(jq -cn --argjson chromium "$CHROMIUM_SHARDS" --argjson webkit "$WEBKIT_SHARDS" '
@@ -318,6 +329,7 @@ jobs:
 
   web-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       TZ: UTC
     defaults:
@@ -357,6 +369,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
+    # About 25 minutes of tests plus setup; the browser install's apt retries can add up to 20 more in an outage.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -367,9 +381,10 @@ jobs:
     env:
       TZ: UTC
       PLAYWRIGHT_PORT: 6274
-      # Playwright workers per partition. The standard runner has four vCPUs, and one worker's browser
-      # and the shared Vite dev server already use more than one.
-      PLAYWRIGHT_WORKERS: 2
+      # Playwright workers per partition. The standard runner has four vCPUs; one worker's browser and the
+      # shared Vite dev server already use more than one, so three workers run about 1.5 times as many tests
+      # per minute as one, and each test takes about twice as long.
+      PLAYWRIGHT_WORKERS: 3
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -474,6 +489,7 @@ jobs:
     if: ${{ always() }}
     needs: [changes, web-quality, web-browser]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       BROWSER_RAN: ${{ needs.changes.outputs.web == 'true' }}
     steps:
