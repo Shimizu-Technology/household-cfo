@@ -2163,6 +2163,7 @@ module Api
         read_only_result = if read_only_plan
           HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
             current_household,
+            user: current_user,
             plan: read_only_plan,
             annual_budget_manager: annual_budget_manager,
             annual_plan: annual_plan,

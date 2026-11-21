@@ -40,7 +40,8 @@ module HouseholdFinance
     READ_ONLY_AMOUNT_EDIT_PATTERN = /(?:\A|[.!?;])\s*(?:(?:please|can you|could you|would you)\s+)?(?:set|change|update|adjust|increase|raise|decrease|lower|reduce|cut)\s+[^.!?;]{1,120}?\b(?:to|at|by)\s*\$?\s*\d/i.freeze
     FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b|\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
-    JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop|reduce\s+hours?|cut\s+hours?)\b.*\b(?:job|work|hours?)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
+    TRANSITION_INTENT_PATTERN = /\b(?:leave|quit)(?:\s+(?:my|our|the|a))?\s+(?:job|work)\b|\bstop\s+work(?:ing)?\b|\b(?:reduce|cut)\s+(?:my\s+)?hours?\b|\b(?:run|focus on|go full[ -]time (?:on|in|with))\s+(?:(?:my|our|the)\s+)?business\b|\breplace\s+(?:(?:my|our|the)\s+)?salary\b/i.freeze
+    JOB_TRANSITION_PATTERN = /\b(?:leave|quit)(?:\s+(?:my|our|the|a))?\s+(?:job|work)\b|\bstop\s+work(?:ing)?\b|\b(?:reduce|cut)\s+(?:my\s+)?hours?\b|\b(?:run|focus on|go full[ -]time (?:on|in|with))\s+(?:(?:my|our|the)\s+)?business\b|\breplace\s+(?:(?:my|our|the)\s+)?salary\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
     OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first|hide from bills)\b/i.freeze
     EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|(?:i am|im|i['’]m) (?:(?:so|really|very|just|such|an?|total|complete|absolute|completely)\s+){0,4}stupid|spouse|fighting about money)\b/i.freeze
     BUDGET_FRUSTRATION_PATTERN = /\b(?:stupid|annoying|frustrat\w*|hate)\b.{0,35}\b(?:budget|challenge)\b|\b(?:budget|challenge)\b.{0,35}\b(?:stupid|dumb|annoying|frustrat\w*)\b/i.freeze
@@ -1033,7 +1034,8 @@ module HouseholdFinance
     end
 
     def tool_presenter
-      @tool_presenter ||= DataPresenter.new(household, ensure_plan: false)
+      @tool_presenter ||= DataPresenter.new(household, user: user, ensure_plan: false,
+        experience_capabilities: user && ::Mia::ParticipantRuntimeResolver.new(user: user).call.capabilities)
     end
 
     def tool_green_answer
@@ -1045,24 +1047,25 @@ module HouseholdFinance
         needed.nil? || target.dig(:green, :income_cents).nil? ? "#{target[:label]}: #{target.dig(:green, :reason) || 'add the missing approved balances and plan details'}" :
           "#{target[:label]}: #{needed.zero? ? 'Already green; $0' : money(needed)} monthly income lift, #{money(target.dig(:green, :income_cents))} total monthly income for green; #{target.dig(:yellow, :extra_cents).nil? ? 'unknown' : target.dig(:yellow, :extra_cents).zero? ? 'Already yellow; $0' : money(target.dig(:yellow, :extra_cents))} monthly lift for yellow"
       end
-      "To turn each light green independently: #{lines.join('; ')}. The method splits current positive base surplus plus the lift between emergency savings, extra debt principal and surplus. Debt timing includes known interest and minimum payments, excluding the mortgage. Nothing changed."
+      "To turn each light green independently: #{lines.join('; ')}. The lift first covers any base shortfall. The method splits the remaining positive surplus between emergency savings, extra debt principal and surplus. Debt timing includes known interest and minimum payments, excluding the mortgage. Nothing changed."
     end
 
     def transition_duration_answer
-      job_transition_answer if normalized_message.match?(JOB_TRANSITION_PATTERN) && normalized_message.match?(/how long|could we last|runway/i)
+      job_transition_answer if normalized_message.match?(TRANSITION_INTENT_PATTERN) && normalized_message.match?(/how long|could we last|runway/i)
     end
 
     def job_transition_answer
       return nil unless normalized_message.match?(JOB_TRANSITION_PATTERN)
-      return nil unless tool_presenter.tool_enabled?("optionality")
-
       unless normalized_message.match?(/how long|could we last|runway/i)
         business_cents = business_income_cents
         return "Not yet as a full leap; this is a runway decision, not a motivation decision. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, business income entered is #{money(business_cents)} per month, and the emergency fund gap is #{money(emergency_fund_gap_cents)}. Keep stable income in the picture until household runway and repeatable business income can carry the baseline without panic. Next CFO move: define the monthly business-income floor and runway number that must be true before you revisit leaving the job."
       end
 
-      draw_match = message.match(/\bdraw\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+month|a\s+month|monthly|\/mo)/i)
-      return "Enter a monthly savings draw of $0 or more, with up to two decimal places. Nothing changed." if message.match?(/\bdraw\b/i) && !draw_match
+      return nil unless normalized_message.match?(TRANSITION_INTENT_PATTERN) && tool_presenter.tool_enabled?("optionality")
+
+      draw_message = message.split("Current follow-up:", 2).last
+      draw_match = draw_message.match(/\bdraw\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+month|a\s+month|monthly|\/mo)/i)
+      return "Enter a monthly savings draw of $0 or more, with up to two decimal places. Nothing changed." if draw_message.match?(/\bdraw\s+[-$\d]/i) && !draw_match
       return "Enter a savings draw of #{Money::MAX_AMOUNT_TEXT} or less. Nothing changed." if draw_match && Money.cents(draw_match[1].delete(",")) > Money::MAX_AMOUNT_CENTS
       draw = draw_match && Money.cents!(draw_match[1].delete(","))
       result = tool_presenter.optionality_scenario(**(draw ? { monthly_draw_cents: draw } : {}))
@@ -1070,7 +1073,7 @@ module HouseholdFinance
       return "I cannot calculate your transition runway yet. #{result[:label]}. Unknown is not $0. Nothing changed." unless result[:tone]
 
       duration = result[:months] == 0 ? "has no savings to draw from" : result[:sustainable] ? "lasts indefinitely in this model" : "lasts approximately #{result[:months]} months / #{result[:months] / 12}yr #{result[:months] % 12}mo"
-      "#{result[:sources_cover_need] ? "All sources cover the need — business income is pure upside. " : ""}Your transition runway #{duration}: #{result[:label]}. The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. #{money(result[:business_required_annual_cents])}/yr your business needs to pay you#{result[:monthly_draw_cents].positive? ? " after the entered draw" : " from month one"}. This assumes 5% yearly savings growth at 0.05/12 per month, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Ask me about another savings draw if you want to compare; nothing changed."
+      "#{result[:sources_cover_need] ? "All sources cover the need — business income is pure upside. " : ""}Your transition runway #{duration}: #{result[:label]}. #{draw_match ? "The requested monthly draw is used." : "The savings draw defaults to the monthly gap."} The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. #{money(result[:business_required_annual_cents])}/yr your business needs to pay you#{result[:monthly_draw_cents].positive? ? " after the entered draw" : " from month one"}. This assumes 5% yearly savings growth at 0.05/12 per month, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Ask me about another savings draw if you want to compare; nothing changed."
     end
 
     def emotional_stress_answer
@@ -1293,7 +1296,7 @@ module HouseholdFinance
       end
       item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: item, effective_on: date&.iso8601,
-        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
+        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month, user: user).call.body
     end
 
     def purse_decision_answer
@@ -1329,7 +1332,7 @@ module HouseholdFinance
       return unavailable_plan_answer unless plan_available?
 
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: purchase_item,
-        annual_budget_manager: annual_budget_manager, reference_month: reference_month).call.body
+        annual_budget_manager: annual_budget_manager, reference_month: reference_month, user: user).call.body
     end
 
     def purchase_decision_answer

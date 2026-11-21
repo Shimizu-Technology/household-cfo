@@ -25,13 +25,27 @@ class HouseholdFinanceTalunToolsTest < ActiveSupport::TestCase
     assert_equal filter[:facts][:costs_cents], runway[:inputs][:monthly_costs_cents]
     assert_equal 439_000, runway[:monthly_draw_cents]
     assert_equal 1, runway[:months]
-    mia = ->(message) { HouseholdFinance::MiaCoachAnswerer.new(household, message, ensure_plan: false).call }
+    mia = ->(message) { HouseholdFinance::MiaCoachAnswerer.new(household, message, ensure_plan: false, user: user).call }
     transition_answer = mia.call("How long could we last if I quit to run my business?")
     assert_includes transition_answer, "lasts approximately 1 months"
     assert_includes mia.call("How long will our savings last if I quit my job?"), "Your transition runway"
     assert_includes mia.call("How long could we last if I quit to run my business and draw $500 per month?"), "$500 drawn from savings"
     assert_includes mia.call("How long could we last if I quit to run my business and draw $0 per month?"), "from month one"
     assert_includes mia.call("How long could we last if I quit to run my business and draw $10000000 per month?"), "$9,999,999.99 or less"
+    natural = mia.call("How long could we last if I quit my job and draw down our savings?")
+    assert_includes natural, "Your transition runway"
+    assert_includes natural, "defaults to the monthly gap"
+    assert_includes natural, "$4,390 drawn from savings"
+    savings = mia.call("How long to save $500 if I stop buying lunch at work?")
+    refute_includes savings.to_s, "transition runway"
+    assert_includes savings, "savings goal will take"
+    first = "How long could we last if I quit my job and draw $500 per month?"
+    assert_includes mia.call(first), "$500 drawn from savings"
+    followup = HouseholdFinance::ConversationFollowupResolver.new("What if I draw $0 monthly?",
+      conversation_context: { active_topic: { type: "coaching", latest_user_context: first } }).call
+    assert followup.follow_up?
+    assert_includes mia.call(followup.message), "from month one"
+    refute_includes mia.call(followup.message), "$500 drawn from savings"
     hidden_tool_guidance = CohortExperience::MiaModuleGuidance.new(modules: [ { id: "optionality", enabled: false } ])
     refute_includes hidden_tool_guidance.filter(transition_answer), "Optionality"
     assert_equal transition_answer, hidden_tool_guidance.filter(transition_answer)
@@ -44,18 +58,20 @@ class HouseholdFinanceTalunToolsTest < ActiveSupport::TestCase
     assert_includes mia.call("Can I afford $100?"), "CFO Filter:"
     assert_equal before, [ household.reload.attributes, household.accounts.map(&:attributes), household.income_sources.map(&:attributes),
       household.debts.map(&:attributes), BudgetAllocation.count, IncomeScheduleEntry.count ]
-    capabilities = CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: nil).call.deep_dup
-    capabilities[:modules].each { |item| item[:enabled] = false if %w[cfo_filter optionality].include?(item[:id]) }
-    resolver = Struct.new(:call).new(capabilities)
-    original = CohortExperience::EffectiveCapabilitiesResolver.method(:new)
-    begin
-      CohortExperience::EffectiveCapabilitiesResolver.define_singleton_method(:new) { |**| resolver }
-      refute_includes mia.call("What does it take to get to green?").to_s, "monthly income lift"
-      refute_includes mia.call("How long could we last if I quit to run my business?").to_s, "transition runway"
-      refute_includes mia.call("Can I afford $100?").to_s, "CFO Filter:"
-    ensure
-      CohortExperience::EffectiveCapabilitiesResolver.define_singleton_method(:new, original)
-    end
+    coach = User.create!(clerk_id: "tool-coach", email: "tool-coach@example.test", role: "coach", invitation_status: "accepted")
+    cohort = Cohort.create!(name: "Tools off", status: "active", created_by_user: coach)
+    cohort.cohort_memberships.create!(user: user, role: "participant")
+    configuration = cohort.cohort_experience_configuration
+    configuration.update!(draft_config: CohortExperience::Schema::DEFAULT_CONFIG.deep_merge(
+      "optional_modules" => { "cfo_filter" => false, "optionality" => false }), last_edited_by_user: coach)
+    publisher = CohortExperience::Publisher.new(configuration: configuration, actor: coach)
+    digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+    publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+    refute HouseholdFinance::DataPresenter.new(household, user: user, ensure_plan: false).tool_enabled?("cfo_filter")
+    refute_includes mia.call("What does it take to get to green?").to_s, "monthly income lift"
+    refute_includes mia.call("How long could we last if I quit to run my business?").to_s, "transition runway"
+    refute_includes mia.call("Can I afford $100?").to_s, "CFO Filter:"
+    assert_includes mia.call("Should I quit my job?"), "Not yet as a full leap"
     household.update!(confirmed_setup_fields: household.confirmed_setup_fields - [ "business_income" ])
     household.income_sources.where(source_type: "business").destroy_all
     unknown = HouseholdFinance::DataPresenter.new(household.reload, ensure_plan: false).optionality_scenario

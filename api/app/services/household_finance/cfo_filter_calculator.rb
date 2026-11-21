@@ -11,7 +11,7 @@ module HouseholdFinance
 
     def call(spend_cents: 0, windfall_cents: 0, lift_cents: 0)
       surplus = @income && @costs && @income - @costs
-      @base = surplus && [ surplus, 0 ].max
+      @base = surplus
       @debt_months_cache = {}
       @debt_outcomes = {}
       @gap = @costs && @savings && [ (@costs * @target_runway_months).round - @savings, 0 ].max

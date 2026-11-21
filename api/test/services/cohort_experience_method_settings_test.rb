@@ -140,7 +140,7 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     participant, household = launch("priorities" => %w[debt emergency_fund wealth experiences], "windfall" => %w[consumer_debt emergency_fund surplus],
       "income_split" => { "emergency_fund" => 20, "debt" => 60, "surplus" => 20 })
     filter = presenter(participant, household).cfo_filter
-    assert_equal "Debt acceleration", filter.fetch(:priority_stack).first.split(" · ").first
+    assert_equal [ "Debt acceleration", "Emergency fund", "Wealth building", "Experiences and life" ], filter.fetch(:priority_stack).map { |entry| entry.split(" · ").first }
     assert_equal %w[unknown yellow unknown red], filter.fetch(:priority_stack).map { |entry| entry.split(" · ").last }
     assert_equal [ "20% to emergency fund", "60% to extra debt payments", "20% to surplus" ], filter.fetch(:income_split)
     assert_includes mia(household, "Emergency fund or debt first?"), "So extra debt payments come before topping up savings."

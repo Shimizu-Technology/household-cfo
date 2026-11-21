@@ -158,6 +158,18 @@ class HouseholdFinanceToolCalculatorsTest < ActiveSupport::TestCase
     assert calls.values.all? { |count| count == 1 }
   end
 
+  test "income lifts cover the existing deficit before funding targets" do
+    calculator = HouseholdFinance::CfoFilterCalculator.new(income_cents: 400_000, costs_cents: 450_000,
+      savings_cents: 0, debt_cents: 0, method: CohortExperience::MethodSettings.defaults)
+    result = calculator.call(spend_cents: 10_000, lift_cents: 275_000)
+    assert_equal(-50_000, result[:base_surplus_cents])
+    assert_equal(-610_000, result[:after_spend_surplus_cents])
+    assert_equal 275_000, result[:targets][0][:green][:extra_cents]
+    assert_equal 12, result[:lifted][:emergency_months]
+    assert_equal 13, calculator.call(lift_cents: 274_999)[:lifted][:emergency_months]
+    assert_nil calculator.call(lift_cents: 50_000)[:lifted][:emergency_months]
+  end
+
   private
 
   def filter(savings: 0, debt: 600_000, income: 500_000)
