@@ -192,7 +192,7 @@ function MoneyValue({ label, cents, hero = false }: { label: string; cents: numb
 
 export function ActualIncomeLine({ actual, plannedCents }: { actual?: NonNullable<DashboardData['month_answer']>['actual_income']; plannedCents?: number | null }) {
   return <div className="actual-income-line" style={{ fontVariantNumeric: 'tabular-nums' }}>
-    <p>{actual?.actual_cents == null ? 'Money in: Not known yet' : `${formatReviewMoney(actual.actual_cents)} in so far`}{plannedCents != null ? ` of ${formatReviewMoney(plannedCents)} planned` : ' · no income plan yet'}</p>
+    <p>{actual?.actual_cents == null ? 'Money in: Not known yet' : `${formatReviewMoney(actual.actual_cents)} ${actual.month_open ? 'in so far' : 'came in'}`}{plannedCents != null ? ` of ${formatReviewMoney(plannedCents)} planned` : ' · no income plan yet'}</p>
     {actual && <p>{actual.coverage_note}</p>}
   </div>
 }

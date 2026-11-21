@@ -112,7 +112,8 @@
         "actual_cents": 768500,
         "expected_cents": 768500,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 358586,
@@ -125,7 +126,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 92,
+      "decisions": 93,
       "decisions_by_kind": {
         "account_identity": 10,
         "store_category": 1,
@@ -136,10 +137,11 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
+        "money_in_source": 1,
         "direction": 5,
         "repeated_file": 1,
-        "duplicate": 41,
-        "person_payment_duplicate": 1,
+        "duplicate": 40,
+        "person_payment_duplicate": 2,
         "coverage": 1
       },
       "manual_correction": 14,
@@ -158,10 +160,11 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
+        "money_in_source": 1,
         "direction": 5,
         "repeated_file": 1,
-        "duplicate": 41,
-        "person_payment_duplicate": 1
+        "duplicate": 40,
+        "person_payment_duplicate": 2
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -275,7 +278,8 @@
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 366838,
@@ -436,7 +440,8 @@
         "actual_cents": 782750,
         "expected_cents": 782750,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 360591,
@@ -466,7 +471,7 @@
           "category_allocation_error_cents": 0
         }
       ],
-      "decisions": 85,
+      "decisions": 87,
       "decisions_by_kind": {
         "receipt_confirmation": 1,
         "account_identity": 8,
@@ -478,11 +483,12 @@
         "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
+        "money_in_source": 1,
         "repeated_file": 3,
-        "duplicate": 46,
+        "duplicate": 45,
         "coverage": 3,
-        "refund_category": 1,
-        "person_payment_duplicate": 1
+        "person_payment_duplicate": 3,
+        "refund_category": 1
       },
       "manual_correction": 2,
       "manual_exclusion": 0,
@@ -502,10 +508,11 @@
         "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
+        "money_in_source": 1,
         "repeated_file": 3,
-        "duplicate": 46,
-        "refund_category": 1,
-        "person_payment_duplicate": 1
+        "duplicate": 45,
+        "person_payment_duplicate": 3,
+        "refund_category": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -619,7 +626,8 @@
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 339897,
@@ -776,7 +784,8 @@
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 378889,
@@ -936,7 +945,8 @@
         "actual_cents": 759600,
         "expected_cents": 759600,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 371534,
@@ -966,7 +976,7 @@
           "category_allocation_error_cents": 0
         }
       ],
-      "decisions": 68,
+      "decisions": 69,
       "decisions_by_kind": {
         "receipt_confirmation": 1,
         "account_identity": 5,
@@ -977,8 +987,9 @@
         "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
-        "duplicate": 42,
-        "person_payment_duplicate": 1
+        "money_in_source": 1,
+        "duplicate": 41,
+        "person_payment_duplicate": 2
       },
       "manual_correction": 1,
       "manual_exclusion": 0,
@@ -997,8 +1008,9 @@
         "person_payment": 1,
         "same_purchase": 1,
         "transfer_pair": 5,
-        "duplicate": 42,
-        "person_payment_duplicate": 1
+        "money_in_source": 1,
+        "duplicate": 41,
+        "person_payment_duplicate": 2
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -1112,7 +1124,8 @@
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 359348,
@@ -1269,7 +1282,8 @@
         "actual_cents": 794200,
         "expected_cents": 794200,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 359550,
@@ -1282,7 +1296,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 32,
+      "decisions": 33,
       "decisions_by_kind": {
         "account_identity": 7,
         "approve_page": 7,
@@ -1292,7 +1306,8 @@
         "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 3
+        "duplicate": 3,
+        "money_in_source": 1
       },
       "manual_correction": 0,
       "manual_exclusion": 0,
@@ -1310,7 +1325,8 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 3
+        "duplicate": 3,
+        "money_in_source": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -1424,7 +1440,8 @@
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 428752,
@@ -1579,7 +1596,8 @@
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 379796,
@@ -1751,7 +1769,8 @@
         "actual_cents": 771300,
         "expected_cents": 771300,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 360156,
@@ -1764,7 +1783,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 32,
+      "decisions": 33,
       "decisions_by_kind": {
         "account_identity": 7,
         "approve_page": 7,
@@ -1774,7 +1793,8 @@
         "person_payment": 1,
         "transfer_pair": 5,
         "coverage": 3,
-        "duplicate": 3
+        "duplicate": 3,
+        "money_in_source": 1
       },
       "manual_correction": 0,
       "manual_exclusion": 0,
@@ -1792,7 +1812,8 @@
         "card_payment": 1,
         "person_payment": 1,
         "transfer_pair": 5,
-        "duplicate": 3
+        "duplicate": 3,
+        "money_in_source": 1
       },
       "unmapped_spending_cents": 0,
       "unmapped_spending_count": 0
@@ -1906,7 +1927,8 @@
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
-        "absolute_error_percent": 0.0
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "analyzer_spending": {
         "actual_cents": 360358,
@@ -1965,17 +1987,18 @@
       "error_cents": 0,
       "absolute_error_percent": 0.0
     },
-    "app_actual_income": {
-      "actual_cents": 9126350,
-      "expected_cents": 9126350,
-      "error_cents": 0,
-      "absolute_error_percent": 0.0
-    },
     "analyzer_spending": {
       "actual_cents": 4424295,
       "expected_cents": 4424295,
       "error_cents": 0,
       "absolute_error_percent": 0.0
+    },
+    "app_actual_income": {
+      "actual_cents": 9126350,
+      "expected_cents": 9126350,
+      "error_cents": 0,
+      "absolute_error_percent": 0.0,
+      "known": true
     },
     "spending_by_category": {
       "Housing": {
@@ -2073,7 +2096,7 @@
     "transfer_leakage_cents": 0,
     "transfer_leakage_spending_cents": 0,
     "transfer_leakage_income_cents": 0,
-    "decisions": 638,
+    "decisions": 644,
     "manual_correction": 25,
     "manual_exclusion": 2,
     "accepted_as_proposed": 566,
@@ -2085,12 +2108,13 @@
       "card_payment": 12,
       "coverage": 22,
       "direction": 5,
-      "duplicate": 269,
+      "duplicate": 266,
       "manual_correction": 2,
       "manual_exclusion": 2,
+      "money_in_source": 5,
       "no_category": 14,
       "person_payment": 11,
-      "person_payment_duplicate": 6,
+      "person_payment_duplicate": 10,
       "receipt_confirmation": 3,
       "refund_category": 1,
       "repeated_file": 4,
@@ -2111,10 +2135,11 @@
     "questions_by_kind": {
       "card_payment": 12,
       "direction": 5,
-      "duplicate": 269,
+      "duplicate": 266,
+      "money_in_source": 5,
       "no_category": 18,
       "person_payment": 11,
-      "person_payment_duplicate": 6,
+      "person_payment_duplicate": 10,
       "refund_category": 1,
       "repeated_file": 4,
       "same_purchase": 3,
@@ -2259,7 +2284,8 @@
           "actual_cents": 768500,
           "expected_cents": 768500,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 358586,
@@ -2272,7 +2298,7 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 91,
+        "decisions": 92,
         "decisions_by_kind": {
           "account_identity": 10,
           "store_category": 1,
@@ -2282,10 +2308,11 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
+          "money_in_source": 1,
           "direction": 5,
           "repeated_file": 1,
-          "duplicate": 41,
-          "person_payment_duplicate": 1,
+          "duplicate": 40,
+          "person_payment_duplicate": 2,
           "coverage": 1
         },
         "manual_correction": 13,
@@ -2304,10 +2331,11 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
+          "money_in_source": 1,
           "direction": 5,
           "repeated_file": 1,
-          "duplicate": 41,
-          "person_payment_duplicate": 1
+          "duplicate": 40,
+          "person_payment_duplicate": 2
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -2421,7 +2449,8 @@
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 369013,
@@ -2579,7 +2608,8 @@
           "actual_cents": 782750,
           "expected_cents": 782750,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 360591,
@@ -2609,7 +2639,7 @@
             "category_allocation_error_cents": 0
           }
         ],
-        "decisions": 84,
+        "decisions": 86,
         "decisions_by_kind": {
           "receipt_confirmation": 1,
           "account_identity": 8,
@@ -2620,11 +2650,12 @@
           "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
+          "money_in_source": 1,
           "repeated_file": 3,
-          "duplicate": 46,
+          "duplicate": 45,
           "coverage": 3,
-          "refund_category": 1,
-          "person_payment_duplicate": 1
+          "person_payment_duplicate": 3,
+          "refund_category": 1
         },
         "manual_correction": 2,
         "manual_exclusion": 0,
@@ -2643,10 +2674,11 @@
           "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
+          "money_in_source": 1,
           "repeated_file": 3,
-          "duplicate": 46,
-          "refund_category": 1,
-          "person_payment_duplicate": 1
+          "duplicate": 45,
+          "person_payment_duplicate": 3,
+          "refund_category": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -2760,7 +2792,8 @@
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 341296,
@@ -2914,7 +2947,8 @@
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 378889,
@@ -3071,7 +3105,8 @@
           "actual_cents": 759600,
           "expected_cents": 759600,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 371534,
@@ -3101,7 +3136,7 @@
             "category_allocation_error_cents": 0
           }
         ],
-        "decisions": 66,
+        "decisions": 67,
         "decisions_by_kind": {
           "receipt_confirmation": 1,
           "account_identity": 5,
@@ -3111,8 +3146,9 @@
           "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
-          "duplicate": 42,
-          "person_payment_duplicate": 1
+          "money_in_source": 1,
+          "duplicate": 41,
+          "person_payment_duplicate": 2
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
@@ -3130,8 +3166,9 @@
           "person_payment": 1,
           "same_purchase": 1,
           "transfer_pair": 5,
-          "duplicate": 42,
-          "person_payment_duplicate": 1
+          "money_in_source": 1,
+          "duplicate": 41,
+          "person_payment_duplicate": 2
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -3245,7 +3282,8 @@
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 359348,
@@ -3400,7 +3438,8 @@
           "actual_cents": 794200,
           "expected_cents": 794200,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 359550,
@@ -3413,7 +3452,7 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 31,
+        "decisions": 32,
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
@@ -3422,7 +3461,8 @@
           "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 3
+          "duplicate": 3,
+          "money_in_source": 1
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
@@ -3439,7 +3479,8 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 3
+          "duplicate": 3,
+          "money_in_source": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -3553,7 +3594,8 @@
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 428752,
@@ -3706,7 +3748,8 @@
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 379796,
@@ -3876,7 +3919,8 @@
           "actual_cents": 771300,
           "expected_cents": 771300,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 360156,
@@ -3889,7 +3933,7 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 31,
+        "decisions": 32,
         "decisions_by_kind": {
           "account_identity": 7,
           "approve_page": 7,
@@ -3898,7 +3942,8 @@
           "person_payment": 1,
           "transfer_pair": 5,
           "coverage": 3,
-          "duplicate": 3
+          "duplicate": 3,
+          "money_in_source": 1
         },
         "manual_correction": 0,
         "manual_exclusion": 0,
@@ -3915,7 +3960,8 @@
           "card_payment": 1,
           "person_payment": 1,
           "transfer_pair": 5,
-          "duplicate": 3
+          "duplicate": 3,
+          "money_in_source": 1
         },
         "unmapped_spending_cents": 0,
         "unmapped_spending_count": 0
@@ -4029,7 +4075,8 @@
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
-          "absolute_error_percent": 0.0
+          "absolute_error_percent": 0.0,
+          "known": true
         },
         "analyzer_spending": {
           "actual_cents": 360358,
@@ -4086,17 +4133,18 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
-      "app_actual_income": {
-        "actual_cents": 9126350,
-        "expected_cents": 9126350,
-        "error_cents": 0,
-        "absolute_error_percent": 0.0
-      },
       "analyzer_spending": {
         "actual_cents": 4427869,
         "expected_cents": 4424295,
         "error_cents": 3574,
         "absolute_error_percent": 0.0808
+      },
+      "app_actual_income": {
+        "actual_cents": 9126350,
+        "expected_cents": 9126350,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": true
       },
       "spending_by_category": {
         "Housing": {
@@ -4194,7 +4242,7 @@
       "transfer_leakage_cents": 0,
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
-      "decisions": 622,
+      "decisions": 628,
       "manual_correction": 21,
       "manual_exclusion": 0,
       "accepted_as_proposed": 557,
@@ -4206,10 +4254,11 @@
         "card_payment": 12,
         "coverage": 22,
         "direction": 5,
-        "duplicate": 269,
+        "duplicate": 266,
+        "money_in_source": 5,
         "no_category": 14,
         "person_payment": 12,
-        "person_payment_duplicate": 5,
+        "person_payment_duplicate": 9,
         "receipt_confirmation": 3,
         "refund_category": 1,
         "repeated_file": 4,
@@ -4229,10 +4278,11 @@
       "questions_by_kind": {
         "card_payment": 12,
         "direction": 5,
-        "duplicate": 269,
+        "duplicate": 266,
+        "money_in_source": 5,
         "no_category": 18,
         "person_payment": 12,
-        "person_payment_duplicate": 5,
+        "person_payment_duplicate": 9,
         "refund_category": 1,
         "repeated_file": 4,
         "same_purchase": 3,

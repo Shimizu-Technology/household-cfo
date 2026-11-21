@@ -215,7 +215,7 @@ module FinancialDocuments
           amount, limitations = signed_row_amount(values, map, file_direction: directions[[ sheet_index, key ]])
           kind = cell(values, map, "status").to_s.match?(/\Apending\z/i) ? "informational" : "posted"
           kind = "informational" if [ merchant, notes ].compact.join(" ").match?(/returned\s+unpaid|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
-          type = source_event_type(values, map, merchant, amount)
+          type = source_event_type(values, map, merchant, amount, basis: basis)
           limitations << "merchant_missing" if merchant.blank?
           warnings << "Retained unresolved #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): conflicting debit and credit information makes its direction unclear." if limitations.include?("conflicting_debit_credit")
           warnings << "Retained #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): transaction direction is unclear; provide debit/credit direction before review." if limitations.include?("transaction_direction_unclear")
@@ -357,7 +357,7 @@ module FinancialDocuments
       [ -magnitude, [] ]
     end
 
-    def source_event_type(values, map, merchant, amount)
+    def source_event_type(values, map, merchant, amount, basis: nil)
       # The description is evidence even when a Merchant column names the store ("ATM Withdrawal" at "Tasi Demo Bank").
       description = [ merchant, cell(values, map, "label") ].compact.uniq.join(" ")
       label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), description ].compact.join(" ").downcase
@@ -369,6 +369,8 @@ module FinancialDocuments
       return "cash_withdrawal" if !amount.to_i.positive? && label.match?(/\b(?:ATM\b|(?:Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && !description.match?(/\b(?:purchase|pos)\b/i)
       return "refund" if label.match?(/refund|reimburse|reversal/)
       return "interest" if label.match?(/interest/)
+      # Money into a card or loan ("AUTOPAY PAYMENT", "MOBILE PAYMENT") is a payment on it, never income; anything else is asked.
+      return label.match?(/\b(?:payments?|pmt|auto\s*pay|autopay)\b/) ? "debt_payment" : "unknown" if amount.to_i.positive? && basis == "liability"
       return "income" if amount.to_i.positive?
       return "purchase" if amount.to_i.negative?
 

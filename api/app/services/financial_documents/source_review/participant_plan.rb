@@ -22,6 +22,7 @@ module FinancialDocuments
         # Asked with the purchase: "Same purchase as your receipt from Payless on Aug 3 ($103.42)?"
         same_purchase: nil,
         person_payment: "Your own account or someone else?",
+        money_in_source: "Money you earned or received, or your own money moving back?",
         person_payment_duplicate: "Is this the same payment, or a different one?",
         transfer_pair: "Do these two lines show money moved between your accounts?",
         transfer: "Did this move between your own accounts?",
@@ -42,6 +43,7 @@ module FinancialDocuments
         same_purchase: [ { id: "same_purchase", label: "Same purchase" }, { id: "different", label: "Different purchase" } ],
         person_payment_duplicate: [ { id: "leave_out", label: "Same payment" }, { id: "own_account", label: "Different payment — your own account" }, { id: "someone_else", label: "Different payment — someone else" } ],
         person_payment: [ { id: "own_account", label: "Your own account" }, { id: "someone_else", label: "Someone else" } ],
+        money_in_source: [ { id: "someone_else", label: "Earned or received" }, { id: "own_account", label: "My own money moving back" }, { id: "edit", label: "Something else" } ],
         transfer_pair: [ { id: "pair_transfer", label: "Yes, pair them — not spending" }, { id: "edit", label: "Review separately" } ],
         transfer: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         card_payment: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
@@ -51,6 +53,12 @@ module FinancialDocuments
         suggested_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ],
         still_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ]
       }.freeze
+      # Answers that leave a line unfinished: it counts nowhere until the rest of its question is answered.
+      UNFINISHED_REFERENCES = %w[unpaired-transfer: ownership-needed: overlap-cleared:].freeze
+      # Pay, benefits, pensions, tax refunds and interest are money she earned or received.
+      EARNED_INCOME = /\b(?:payroll|salary|salaries|wages?|pay\s*check|direct\s+dep(?:osit)?|dir\s+dep|pension|annuity|social\s+security|soc\s+sec|ssa|ssi|ssdi|tax\s+ref(?:und)?|unemployment|benefits?|dividends?|interest)\b/i
+      # Words that can mean her own money coming back from another account, a wallet or cash she put in.
+      OWN_MONEY = /\b(?:cash|atm|branch|teller|mobile|remote|check|counter)\s+deposit\b|\bdeposit\s+(?:from|at)\b|\bfrom\s+(?:my\s+|own\s+)?(?:savings|checking|share|account|acct)\b|\btransfers?\b|\bown\b|\bpaypal\b|\bvenmo\b|\bcash\s*app\b|\bzelle\b|\bapple\s+cash\b/i
 
       # unlinked_account_ids: accounts linked by the save in progress. Their copies are read as she saw them before the link.
       def initialize(household, revision, unlinked_account_ids: [], overlap_context: nil, accounts: nil)
@@ -90,7 +98,7 @@ module FinancialDocuments
         lines.select do |line|
           next false if line.done || line.kind != :duplicate || line.purchase_match
           next false if review_heads[line.event.id]&.source_review_drafts&.any? { |draft| draft.status == "pending" }
-          next false if TransferPairs.person_payment?(line.event, line.merchant)
+          next false if self.class.ownership_question?(line.event, line.merchant)
           next false if line.event.event_type.in?(%w[transfer debt_payment]) && transfer_pairs.candidate(line.event)
           approved = line.overlaps.select { |row| row[:approved_version_id] }
           next false unless line.overlaps.one? && approved.one? && approved.first[:pending_draft_id].nil?
@@ -135,6 +143,19 @@ module FinancialDocuments
 
       def self.expense?(event)
         event.row_kind == "posted" && event.event_type.in?(EXPENSE_TYPES) && event.signed_amount_cents.to_i.negative?
+      end
+
+      # Money in read as income counts as income only when it plainly is pay, a benefit or interest. Anything that could be
+      # her own money coming back ("ATM deposit", "Deposit from savings", "ACH credit PayPal", a deposit with no payer) is asked.
+      def self.money_in_question?(event, merchant)
+        return false unless event.row_kind == "posted" && event.event_type == "income" && event.signed_amount_cents.to_i.positive?
+        text = [ merchant, event.financial_source_evidence&.payload&.dig("raw_description") ].compact.join(" ")
+        !text.match?(EARNED_INCOME) || text.match?(OWN_MONEY)
+      end
+
+      # Lines whose answer is whose money it was: a payment to or from a person, or money in that may be her own.
+      def self.ownership_question?(event, merchant)
+        TransferPairs.person_payment?(event, merchant) || TransferPairs.incoming_person_payment?(event, merchant) || money_in_question?(event, merchant)
       end
 
       def self.refund?(event)
@@ -202,8 +223,8 @@ module FinancialDocuments
           overlaps = [] if heads[event.id]&.approved_version&.external_reference.to_s.start_with?("overlap-cleared:", "ownership-needed:")
           purchase_match = purchase_matches.best(signed_amount_cents: event.signed_amount_cents, posted_on: event.posted_on, merchant: merchant, event_type: event.event_type, head_id: heads[event.id]&.id) unless heads[event.id]&.approved_version&.external_reference.to_s.start_with?("ownership-needed:")
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], purchase_match: purchase_match, disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && policy&.dig(:reason) != "confirmed_spending_purpose" && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
-          pair = transfer_pairs.candidate(event) if kind.in?(%i[transfer card_payment person_payment]) && !heads[event.id]&.approved_version
-          kind = :transfer_pair if pair && kind.in?(%i[transfer card_payment person_payment])
+          pair = transfer_pairs.candidate(event) if kind.in?(%i[transfer card_payment person_payment money_in_source]) && !heads[event.id]&.approved_version
+          kind = :transfer_pair if pair && kind.in?(%i[transfer card_payment person_payment money_in_source])
           without_category = without_category?(heads[event.id]&.approved_version)
           # Saved with no category: show and ask exactly that, not the reader's earlier guess.
           kind, category_id = :no_category, nil if without_category
@@ -268,7 +289,7 @@ module FinancialDocuments
       # purchase as one she confirmed stays finished only while that purchase still counts; otherwise it is asked about again.
       def done?(version)
         return false unless version
-        return false if version.external_reference.to_s.start_with?("unpaired-transfer:", "ownership-needed:", "overlap-cleared:")
+        return false if version.external_reference.to_s.start_with?(*UNFINISHED_REFERENCES)
         return false if version.matched_transaction_id && !ConfirmedPurchaseMatch.current?(household, version)
         version.source_account_identity_version.source_account_review_head.approved_version_id == version.source_account_identity_version_id
       end
@@ -290,10 +311,14 @@ module FinancialDocuments
         return :unclear if event.row_kind != "posted" || event.event_type.in?(%w[unknown adjustment]) || amount.nil? || amount.zero? || event.posted_on.nil?
         return :unclear if event.posted_on > Date.current || outside_period?(event, account)
         return :unclear if event.event_type.in?(%w[purchase fee]) && !amount.negative? || event.event_type.in?(%w[refund income]) && !amount.positive?
-        return (TransferPairs.person_payment?(event, merchant) && !purchase_match ? :person_payment_duplicate : :duplicate) if overlaps.any?
+        person = TransferPairs.person_payment?(event, merchant) || TransferPairs.incoming_person_payment?(event, merchant)
+        return ((person || self.class.money_in_question?(event, merchant)) && !purchase_match ? :person_payment_duplicate : :duplicate) if overlaps.any?
         return :same_purchase if purchase_match
         return :refund if event.event_type == "refund"
-        return :person_payment if TransferPairs.person_payment?(event, merchant)
+        return :person_payment if person
+        # Money into a card or loan is a payment on it, never income.
+        return :card_payment if event.event_type == "income" && liability?(event, account)
+        return :money_in_source if self.class.money_in_question?(event, merchant)
         return :transfer if event.event_type == "transfer"
         return :card_payment if event.event_type == "debt_payment"
         if self.class.expense?(event)
@@ -306,6 +331,12 @@ module FinancialDocuments
           return :suggested_category if confirm_suggestion
         end
         nil
+      end
+
+      def liability?(event, account)
+        basis = account&.account_basis
+        basis = overlap_context.accounts[event.financial_source_account_id]&.approved_version&.source_tracked_account&.account_basis if basis.nil? || basis == "unknown"
+        basis == "liability"
       end
 
       def outside_period?(event, account)

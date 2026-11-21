@@ -323,7 +323,7 @@ module Scorecard
         # A refund with no category to go back to can't be answered "Yes", like a line with no category.
         # "Same purchase as …?" with no answer to go on: she keeps the line, as the app shows it.
         return base.merge(decision: "different") if !@correct_proposals && line.kind == :same_purchase
-        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate person_payment person_payment_duplicate]) && !(line.kind == :refund_category && line.category_id.nil?)
+        if !@correct_proposals && !line.kind.in?(%i[unclear direction no_category duplicate person_payment person_payment_duplicate money_in_source]) && !(line.kind == :refund_category && line.category_id.nil?)
           if line.kind == :transfer_pair
             return base.merge(decision: "edited", edit: { kind: row.event_type == "debt_payment" ? "card" : "moved", money_direction: row.signed_amount_cents.positive? ? "in" : "out" })
           end
@@ -379,7 +379,7 @@ module Scorecard
       # A refund whose purchase the app can't find asks which category it goes back to, like a purchase's category.
       fields << "category" if (kind == "spending" || (kind == "refund" && line.kind == :refund_category)) && line.category_id != category
       quality[month]["accepted_as_proposed"] += 1 if fields.empty? && !excluded
-      if line.kind.in?(%i[person_payment person_payment_duplicate])
+      if line.kind.in?(%i[person_payment person_payment_duplicate money_in_source])
         # These explicit answers change type/category just as the old edit form
         # did. Keep those diagnostic corrections; they are not extra actions.
         changes = @correct_proposals ? fields : fields & %w[type category]
@@ -389,7 +389,9 @@ module Scorecard
         end
         # A careful participant can open the same line form to repair a bad
         # amount/date while explicitly choosing spending or an own movement.
-        if @correct_proposals && (changes & %w[amount date direction]).any?
+        # Money in that was neither earned nor her own money (a refund) is answered in the line form.
+        other_money_in = row.signed_amount_cents.to_i.positive? && !type.in?(%w[income transfer_own_accounts card_payment])
+        if (@correct_proposals && (changes & %w[amount date direction]).any?) || other_money_in
           return base.merge(decision: "edited", edit: { kind: kind, category_id: category, amount_cents: signed.abs,
             money_direction: signed.positive? ? "in" : "out", posted_on: answer.fetch("date") })
         end

@@ -54,21 +54,54 @@ module HouseholdFinance
     def month_response(date)
       return "Which month and year do you mean? Please use a valid month, such as October 2026." unless date
 
-      plan = @annual_plan if @annual_plan && (@annual_plan[:year] || @annual_plan["year"]).to_i == date.year
-      plan ||= AnnualBudgetManager.new(@household, year: date.year).read_only_plan_data
-      facts = MiaMonthAnswer.new(@household, annual_plan: plan, month: date.month).call
-      period = facts[:period_label]
+      facts = MiaMonthAnswer.new(@household, annual_plan: plan_for(date.year), month: date.month).call
       actual = facts.fetch(:actual_income)
       received = actual[:actual_cents]
-      plan_note = facts[:money_in_cents].nil? ? "There is no income plan for this month." : "You planned #{money(facts[:money_in_cents])}."
-      lead = received.nil? ? "Income for #{period} is not known yet." : "#{money(received)} came in for #{period} from the lines you approved."
-      "#{lead} #{plan_note} #{actual[:coverage_note]}"
+      lead = received.nil? ? "Income for #{facts[:period_label]} is not known yet." : "#{money(received)} came in for #{facts[:period_label]} from the lines you approved."
+      "#{lead} #{plan_note(facts)} #{actual[:coverage_note]}"
     end
 
-    # Keep every month visible rather than hiding gaps in a year total.
+    # One total for the months that are known, then the months that are partly covered or not known, by name.
     def year_response(today, year)
+      plan = plan_for(year)
       last = year == today.year ? today.month : 12
-      (1..last).map { |month| month_response(Date.new(year, month, 1)) }.join(" ")
+      facts = (1..last).map { |month| MiaMonthAnswer.new(@household, annual_plan: plan, month: month).call }
+      known, unknown = facts.partition { |month| !month.dig(:actual_income, :actual_cents).nil? }
+      partial = known.select { |month| month.dig(:actual_income, :partial) }
+      planned = facts.select { |month| month[:plan_available] && !month[:before_plan_start] && !month[:money_in_cents].nil? }
+      start = facts.find { |month| month[:before_plan_start] }
+      parts = [ known.any? ? "#{money(known.sum { |month| month.dig(:actual_income, :actual_cents) })} came in for #{month_names(known, year)} from the lines you approved." : "Income for #{year} is not known yet." ]
+      parts << "You planned #{money(planned.sum { |month| month[:money_in_cents] })} for #{planned.map { |month| month[:month] } == known.map { |month| month[:month] } ? (known.one? ? 'that month' : 'those months') : month_names(planned, year)}." if planned.any?
+      parts << "#{month_names(partial, year)} #{partial.one? ? 'is' : 'are'} only partly covered, so #{partial.one? ? 'it shows' : 'they show'} the income approved so far." if partial.any?
+      parts << "Not known yet: #{month_names(unknown, year)}." if unknown.any? && known.any?
+      if start
+        parts << "Your plan starts in #{Date.iso8601(start[:plan_starts_on]).strftime('%B %Y')}."
+      elsif facts.none? { |month| month[:plan_available] }
+        parts << "Your #{year} plan isn’t set up yet."
+      end
+      parts.join(" ")
+    end
+
+    def plan_for(year)
+      @plans ||= {}
+      @plans[year] ||= if @annual_plan && (@annual_plan[:year] || @annual_plan["year"]).to_i == year
+        @annual_plan
+      else
+        AnnualBudgetManager.new(@household, year: year).read_only_plan_data
+      end
+    end
+
+    def plan_note(facts)
+      return "Your plan starts in #{Date.iso8601(facts[:plan_starts_on]).strftime('%B %Y')}." if facts[:before_plan_start]
+      return "Your #{facts[:year]} plan isn’t set up yet." unless facts[:plan_available]
+
+      facts[:money_in_cents].nil? ? "There is no income plan for this month." : "You planned #{money(facts[:money_in_cents])}."
+    end
+
+    # "January to March and May 2026".
+    def month_names(months, year)
+      runs = months.map { |month| month[:month] }.slice_when { |left, right| right != left + 1 }
+      "#{runs.map { |run| run.one? ? Date::MONTHNAMES[run.first] : "#{Date::MONTHNAMES[run.first]} to #{Date::MONTHNAMES[run.last]}" }.to_sentence} #{year}"
     end
 
     def money(cents)

@@ -39,9 +39,9 @@ class ApiV1MiaAnswersTheQuestionTest < ActionDispatch::IntegrationTest
 
   test "income for a year adds the planned months, and a week says the plan is monthly" do
     post_message("How much have we brought in this year?")
-    assert_includes reply, "Income for July 2026 is not known yet. You planned $8,000."
+    assert_equal "Income for 2026 is not known yet. You planned $16,000 for July to August 2026. Your plan starts in July 2026.", reply
     post_message("How much did we earn last year?")
-    assert_includes reply, "Income for January 2025 is not known yet."
+    assert_equal "Income for 2025 is not known yet. Your plan starts in July 2026.", reply
     post_message("How much came in this week?")
     assert_includes reply, "I only have your income by month, not by day or week. Income for August 2026 is not known yet. You planned $8,000."
   end

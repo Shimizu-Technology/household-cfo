@@ -8,6 +8,19 @@ module FinancialDocuments
       def self.person_wording?(event, merchant)
         return false if event.event_type.in?(%w[fee interest cash_withdrawal refund income debt_payment])
 
+        names_person?(event, merchant)
+      end
+
+      def self.person_payment?(event, merchant)
+        event.signed_amount_cents.to_i.negative? && person_wording?(event, merchant)
+      end
+
+      # "Zelle from …" or "Received from …" can be her own money from another account or money someone gave her.
+      def self.incoming_person_payment?(event, merchant)
+        event.signed_amount_cents.to_i.positive? && event.event_type.in?(%w[transfer income]) && names_person?(event, merchant)
+      end
+
+      def self.names_person?(event, merchant)
         payload = event.financial_source_evidence&.payload || {}
         words = [ merchant, payload["merchant"], payload["raw_description"] ].compact.map(&:to_s)
         words.any? do |text|
@@ -16,13 +29,9 @@ module FinancialDocuments
             next true if label.match?(/\b(?:zelle|venmo|cash\s*app)\b/i)
             next false if label.match?(/\b(?:card|loan|power|authority|utility|utilities|insurance|telecom|mortgage|inc|llc|corp)\b/i)
             label.match?(/\Apaypal\s*(?:to\s+|\*\s*)[a-z]+(?:[ .]+[a-z]+)+\z/i) && !label.match?(/\.[a-z]{2,}\b/i) ||
-              label.match?(/\A(?:payment\s+)?to\s+\S+/i)
+              label.match?(/\A(?:payment\s+)?to\s+\S+/i) || label.match?(/\Areceived\s+from\s+\S+/i)
           end
         end
-      end
-
-      def self.person_payment?(event, merchant)
-        event.signed_amount_cents.to_i.negative? && person_wording?(event, merchant)
       end
 
       def initialize(household)
@@ -68,7 +77,8 @@ module FinancialDocuments
           FinancialSourceEvent.where(financial_extraction_revision_id: latest.select(:id), row_kind: "posted").includes(:financial_source_evidence).filter_map do |event|
             next if paired_ids.include?(event.id)
             next if blocked.include?(event.financial_extraction_revision_id)
-            next if event.signed_amount_cents.to_i.positive? && self.class.person_wording?(event, ParticipantPlan.merchant_for(event))
+            merchant = ParticipantPlan.merchant_for(event)
+            next if event.signed_amount_cents.to_i.positive? && (self.class.person_wording?(event, merchant) || self.class.incoming_person_payment?(event, merchant))
             identity = identities[event.financial_source_account_id]
             head = heads[event.id]
             next if head&.source_review_drafts&.any? { |draft| draft.status == "pending" }
@@ -78,7 +88,8 @@ module FinancialDocuments
             type = version&.event_type || event.event_type
             amount = version ? version.signed_amount_cents : event.signed_amount_cents
             date = version ? version.posted_on : event.posted_on
-            movement = type.in?(%w[transfer debt_payment]) || (!version && self.class.person_payment?(event, ParticipantPlan.merchant_for(event)))
+            # Money in that may be her own money coming back can be the other half of a move between her accounts.
+            movement = type.in?(%w[transfer debt_payment]) || (!version && (self.class.person_payment?(event, merchant) || ParticipantPlan.money_in_question?(event, merchant)))
             next unless movement && amount && !amount.zero? && date && date <= Date.current
             { event: event, identity: identity, version: version, amount: amount, date: date }
           end

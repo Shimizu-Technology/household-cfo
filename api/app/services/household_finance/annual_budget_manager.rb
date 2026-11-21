@@ -12,7 +12,8 @@ module HouseholdFinance
 
     attr_reader :year
 
-    def actual_income = @actual_income ||= ActualIncome.new(household)
+    # Read lazily: most callers never show what came in, and every plan this manager builds shares one read.
+    def actual_income = @actual_income ||= ActualIncome.new(household).year(year)
 
     def provisioned_categories = @provisioned_categories ||= {}
 
@@ -88,7 +89,7 @@ module HouseholdFinance
         months: periods.map { |period| period_payload(period) },
         rows: rows,
         monthly_income: monthly_income,
-        actual_income: (1..12).to_h { |month| [ month, actual_income.month(Date.new(year, month, 1)) ] },
+        actual_income: actual_income,
         monthly_debt_minimums: monthly_debt_minimums,
         monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,
@@ -361,7 +362,7 @@ module HouseholdFinance
         months: months,
         rows: rows,
         monthly_income: monthly_income,
-        actual_income: (1..12).to_h { |month| [ month, actual_income.month(Date.new(year, month, 1)) ] },
+        actual_income: actual_income,
         monthly_debt_minimums: Money.dollars(debt_portfolio.monthly_minimum_cents),
         monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,

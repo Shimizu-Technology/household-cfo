@@ -13,6 +13,16 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     end
   end
 
+  test "money into a card is a payment on it or a question, never income" do
+    Tempfile.create([ "card", ".csv" ]) do |file|
+      file.write("Date,Description,Amount\n2026-10-03,AUTOPAY PAYMENT,500.00\n2026-10-05,MOBILE PAYMENT,75.00\n2026-10-06,TALUN DEMO CASHBACK CREDIT,12.00\n2026-10-07,Tasi Demo Market,-40.00\n")
+      file.flush
+      events = ->(basis) { FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "card.csv", account_basis: basis, negative_is_money_out: true).call.data.fetch(:source_accounting).fetch(:events).pluck(:event_type) }
+      assert_equal %w[debt_payment debt_payment unknown purchase], events.call("liability")
+      assert_equal %w[income income income purchase], events.call("asset")
+    end
+  end
+
   test "keeps CSV account names and masks account numbers without collapsing distinct numbers" do
     Tempfile.create([ "accounts", ".csv" ]) do |file|
       file.write(<<~CSV)
