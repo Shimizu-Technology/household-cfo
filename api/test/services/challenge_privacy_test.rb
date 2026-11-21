@@ -271,6 +271,56 @@ class ChallengePrivacyTest < ActiveSupport::TestCase
     assert_raises(ChallengePrivacy::Access::Denied) { ChallengePrivacy::SponsorExports.new(cohort, user: @savings_owner).approve(checkpoint_day: 90, resolved_cutoff_on: "2026-11-15") }
   end
 
+  test "a report is compared with every saved report, not only the latest day" do
+    cohort = report_cohort(15)
+    adapter = Adapter.new
+    ids = SavingsEnrollment.where(cohort: cohort).order(:id).pluck(:id)
+    service = exporter(cohort, adapter)
+    ids.each_with_index { |id, index| adapter.bands[id] = index < 5 ? "at_target" : "below_target" }
+    refute service.approve(checkpoint_day: 30, resolved_cutoff_on: "2026-11-15")["suppressed"]
+    ids.each_with_index { |id, index| adapter.bands[id] = index < 5 ? "below_target" : "at_target" }
+    refute service.approve(checkpoint_day: 60, resolved_cutoff_on: "2026-11-15")["suppressed"]
+    # Day 90 differs from Day 60 in fourteen people but from Day 30 in only one.
+    ids.each_with_index { |id, index| adapter.bands[id] = index < 6 ? "at_target" : "below_target" }
+    report = service.approve(checkpoint_day: 90, resolved_cutoff_on: "2026-11-15")
+    assert report["suppressed"]
+    assert_empty report["bands"]
+  end
+
+  test "days on another schedule can be saved after a later day" do
+    short = { challenge_length_days: 60, checkpoint_days: [ 20, 40, 60 ] }
+    cohort = report_cohort(10, rules: (5..9).index_with { short })
+    assert_equal [ 20, 30, 40, 60, 90 ], ChallengePrivacy::SponsorExports.reportable_days(cohort)
+    service = exporter(cohort, Adapter.new)
+    service.approve(checkpoint_day: 30, resolved_cutoff_on: "2026-11-15")
+    assert_equal 20, service.approve(checkpoint_day: 20, resolved_cutoff_on: "2026-11-15")["checkpoint_day"]
+    error = assert_raises(ArgumentError) { service.approve(checkpoint_day: 45, resolved_cutoff_on: "2026-11-15") }
+    assert_equal "Use only the group's Day 20, 30, 40, 60 or 90 exports", error.message
+  end
+
+  test "the report says what at target counted, from each person's own rule" do
+    savings_only = exporter(report_cohort(5), Adapter.new).approve(checkpoint_day: 30, resolved_cutoff_on: "2026-11-15")
+    assert_equal [ "savings" ], savings_only["counted_under"]
+    assert_includes savings_only["qualification"], "At target and below target compare new money set aside, minus withdrawals, with the suggested goal."
+    refute_match(/debt|establish known savings/, savings_only["qualification"])
+
+    debt = { goal_counts: "savings_and_debt", suggested_goal_cents: 100_000 }
+    mixed = exporter(report_cohort(10, rules: (5..9).index_with { debt }), Adapter.new).approve(checkpoint_day: 30, resolved_cutoff_on: "2026-11-15")
+    refute mixed["suppressed"]
+    assert_equal [ { "band" => "at_target", "count_range" => "10-14" } ], mixed["bands"]
+    assert_equal %w[savings savings_and_debt], mixed["counted_under"]
+    assert_includes mixed["qualification"], "they also include self-reported extra payments on a card or loan beyond the minimum, so at target does not mean that amount was saved"
+    assert_includes mixed["qualification"], "those goals differ in this report"
+    refute_match(/\$|\d{3,}/, mixed["qualification"])
+
+    debt_only = exporter(report_cohort(5, rules: (0..4).index_with { debt }), Adapter.new).approve(checkpoint_day: 30, resolved_cutoff_on: "2026-11-15")
+    assert_equal [ "savings_and_debt" ], debt_only["counted_under"]
+    assert_includes debt_only["qualification"], "plus self-reported extra payments on a card or loan beyond the minimum"
+    refute_includes debt_only["qualification"], "goals differ"
+    csv = ChallengePrivacy::SponsorExports.new(ChallengeSponsorExport.last.cohort, user: @savings_owner).csv(ChallengeSponsorExport.last.id)
+    assert_includes csv, "counted_under,savings_and_debt,"
+  end
+
   test "unknown final pending custom null target late and withdrawn are distinct qualified bands" do
     cohort = report_cohort(30)
     adapter = Adapter.new
@@ -338,7 +388,8 @@ class ChallengePrivacyTest < ActiveSupport::TestCase
       accepted_cohort_membership_id: membership.id, membership_started_at: membership.created_at, accepted_at: Time.current,
       accepted_local_on: @savings_enrollment.accepted_local_on, starts_on: starts_on, ends_on: starts_on + 89, policy_version: "1")
   end
-  def report_cohort(count)
+  # rules: optional per-person challenge rules (index => attributes) she joined under.
+  def report_cohort(count, rules: {})
     cohort = Cohort.create!(name: "Report #{SecureRandom.hex(8)}", status: "enrolling", created_by_user: @savings_owner, starts_on: Date.new(2026, 11, 1), savings_challenge_enabled: true, savings_challenge_release_hold: false)
     config = cohort.cohort_experience_configuration
     config.update!(draft_config: CohortExperience::Schema::PILOT_SAVINGS_CONFIG)
@@ -347,13 +398,14 @@ class ChallengePrivacyTest < ActiveSupport::TestCase
     pub.publish!(expected_preview_digest: preview, expected_draft_revision: config.draft_revision, expected_current_version_id: nil)
     release = CohortReleases::Sealer.new(cohort: cohort, actor: nil, publication_source: "system").call!(request_key: "s08-report-fixture")
     CohortReleases::RuntimeActivator.new(cohort: cohort).call!
-    count.times do
+    count.times do |index|
+      joined = { challenge_length_days: 90, checkpoint_days: [ 30, 60, 90 ], suggested_goal_cents: 50_000, goal_counts: "savings" }.merge(rules.fetch(index, {}))
       user = User.create!(clerk_id: SecureRandom.uuid, email: "report-#{SecureRandom.hex(8)}@example.com", role: "participant")
       household = HouseholdFinance::WorkspaceResolver.new(user).household
       member = cohort.cohort_memberships.create!(user: user, role: "participant")
       enrollment = SavingsEnrollment.create!(household: household, user: user, cohort: cohort, accepted_cohort_release: release,
         accepted_cohort_membership_id: member.id, membership_started_at: member.created_at, accepted_at: Time.current, accepted_local_on: Date.new(2026, 11, 15),
-        starts_on: Date.new(2026, 11, 15), ends_on: Date.new(2026, 11, 15) + 89, policy_version: "1")
+        starts_on: Date.new(2026, 11, 15), ends_on: Date.new(2026, 11, 15) + joined[:challenge_length_days] - 1, policy_version: "1", **joined)
       ChallengePrivacyGrant.create!(household: household, participant_user: user, savings_enrollment: enrollment, kind: "sponsor_aggregate", granted: true, policy_version: "challenge_privacy_v1")
     end
     cohort

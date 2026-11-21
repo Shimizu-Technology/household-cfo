@@ -5557,15 +5557,15 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
       <section ref={dialogRef} data-dialog-panel="true" className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
         <header>
           <div>
-            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
+            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your savings challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={requestClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
           {savingsChallenge ? <>
-            <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
-            <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>
+            <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested goal for the whole challenge is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
+            <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for each checkpoint on your challenge calendar. Feelings are optional.</p></div></li>
             <li><span>3</span><div><strong>Report money you actually set aside.</strong><p>On Home, choose Report savings, check its date and funding source, then approve your reviewed record. A plan or pending proposal does not count as savings. Ask {assistantName} for a comfortable next step.</p></div></li>
           </> : <><li><span>1</span><div><strong>Log your purchases.</strong><p>Add a transaction in Review or tell {assistantName} what you spent.</p></div></li>
           <li><span>2</span><div><strong>Check your month.</strong><p>Confirm the date, amount and category in Review. Budget shows your confirmed spending against the plan.</p></div></li>

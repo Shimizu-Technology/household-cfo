@@ -49,6 +49,7 @@ module SavingsChallenge
         can_open: blockers.empty? && state != "open",
         can_pause: state == "open",
         blockers: blockers,
+        rules_notice: (SavingsChallenge::Rules.unreadable_notice unless SavingsChallenge::Rules.read_release(cohort.active_cohort_release).last),
         participants_can_join: state == "open" && blockers.empty?,
         recent_events: cohort.cohort_challenge_access_events.includes(:actor_user).order(occurred_at: :desc, id: :desc).limit(5).map { |event| serialize_event(event) }
       }
@@ -145,7 +146,7 @@ module SavingsChallenge
       elsif !SavingsChallenge::AccessPolicy.release_supports_challenge?(release)
         blockers << "The launched release is not the Savings Challenge experience. Choose Savings Challenge in Participant tools, publish, seal, and launch again."
       end
-      blockers << "Set a start date in Group details & dates before opening. Each participant gets 90 days from their start." unless cohort.starts_on
+      blockers << "Set a start date in Group details & dates before opening. Each participant gets #{SavingsChallenge::Rules.for_cohort(cohort).length_days} days from their start." unless cohort.starts_on
       blockers << "Set the cohort status to Enrolling or Active first." unless cohort.status.in?(OPEN_STATUSES)
       blockers
     end

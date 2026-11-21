@@ -138,6 +138,9 @@ module Api
             draft_revision: editable_configuration.draft_revision,
             generated_at: editable_configuration.previewed_at,
             challenge_open: cohort.savings_challenge_enabled && !cohort.savings_challenge_release_hold,
+            # People already running a challenge keep their own days, so Go live can say a
+            # schedule change leaves the group with more than one.
+            challenge_running: SavingsEnrollment.counted.where(cohort: cohort, status: "active").exists?,
             module_order: capabilities.fetch(:module_order, []),
             modules: capabilities.fetch(:modules)
           }

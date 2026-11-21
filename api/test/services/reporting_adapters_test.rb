@@ -106,7 +106,9 @@ class ReportingAdaptersTest < ActiveSupport::TestCase
       observations = record.private_provenance.fetch("observations")
       assert_equal 30, observations.pluck("checkpoint_id").uniq.length
       assert_equal 10, observations.count { |row| row["checkpoint_version"].nil? }
-      assert_match(/absent target bands do not establish known savings/, report["qualification"])
+      assert_match(/absent target bands do not establish a known result/, report["qualification"])
+      assert_match(/At target and below target compare new money set aside, minus withdrawals, with the suggested goal\./, report["qualification"])
+      assert_equal [ "savings" ], report["counted_under"]
       assert_not report.to_json.match?(/enrollment_id|checkpoint_id|version_id|reported_cents|merchant|reflection/)
       assert_not service.csv(record.id).match?(/unapproved:|enrollment_id|checkpoint_id|reported_cents/)
       select_participant(participants[5])

@@ -51,6 +51,19 @@ describe('Reports', () => {
     expect(await screen.findByText(/Fewer than five people agreed to share/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Download this report' })).toBeTruthy()
   })
+  it('says what at target counted when debt payments count for some people', async () => {
+    reports.exports.mockResolvedValue(index({ records: [{ id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-11-09' }] }))
+    reports.report.mockResolvedValue({ export_id: 4, report: { ...report, counted_under: ['savings', 'savings_and_debt'] } })
+    render(<ReportsSection currentUser={adminUser()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'View report' }))
+    expect(await screen.findByText(/it also includes extra payments they reported on a card or loan, so it doesn’t always mean money saved/)).toBeTruthy()
+  })
+  it('lists every day people have, and says when the group’s settings could not be read', async () => {
+    reports.exports.mockResolvedValue(index({ rules_notice: 'This group’s challenge settings couldn’t be read.', scheduled_checkpoints: [20, 30, 40, 60, 90].map(day => ({ day, cutoff_on: '2026-11-09', sealable: true })) }))
+    render(<ReportsSection currentUser={adminUser()} />)
+    expect(await screen.findAllByText(/^Day (20|30|40|60|90)$/)).toHaveLength(5)
+    expect(screen.getByText('This group’s challenge settings couldn’t be read.')).toBeTruthy()
+  })
   it('offers no save to someone who may only read reports', async () => {
     reports.exports.mockResolvedValue(index({ can_seal: false }))
     render(<ReportsSection currentUser={adminUser()} />)

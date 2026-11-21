@@ -1,6 +1,7 @@
-import type { MethodOptionalProtectedCategory, MethodSettings } from '../api'
+import { useState } from 'react'
+import type { MethodChallenge, MethodOptionalProtectedCategory, MethodSettings } from '../api'
 import { Button } from './Button'
-import { coreProtected, debtOrderChoices, defaultMethod, groupNameChoices, homeViewChoices, methodProblems, optionalProtected, priorityLabels, protectedLabels, splitLabels, windfallLabels } from '../lib/methodSettings'
+import { challengeCheckpointDays, challengeCountsChoices, checkpointDaysText, coreProtected, debtOrderChoices, defaultMethod, groupNameChoices, homeViewChoices, methodProblems, optionalProtected, priorityLabels, protectedLabels, splitLabels, windfallLabels } from '../lib/methodSettings'
 
 type Props = {
   method: MethodSettings
@@ -83,9 +84,60 @@ export function MethodSettingsEditor({ method, disabled, onChange }: Props) {
       <MethodChoice legend="Spending group names" name="group_names" choices={groupNameChoices} value={method.group_names} disabled={disabled} onChange={group_names => onChange({ ...method, group_names })} note="Names only. Categories and totals stay the same." />
       <MethodChoice legend="Home leads with" name="home_view" choices={homeViewChoices} value={method.home_view} disabled={disabled} onChange={home_view => onChange({ ...method, home_view })} note="Each person can still switch Home for themselves." />
       <MethodChoice legend="Debt payoff" name="debt_order" choices={debtOrderChoices} value={method.debt_order} disabled={disabled} onChange={debt_order => onChange({ ...method, debt_order })} note="Mia always keeps every minimum paid first." />
+      <ChallengeSettings challenge={method.challenge} disabled={disabled} onChange={challenge => onChange({ ...method, challenge })} />
       {problems.length > 0 && <ul className="experience-method-problems" role="alert">{problems.map(problem => <li key={problem}>{problem}</li>)}</ul>}
       <Button variant="ghost" disabled={disabled || isDefault} onClick={() => onChange(defaultMethod)}>Use the usual method</Button>
     </article>
+  )
+}
+
+/** The savings challenge for groups that run it. People already in keep the rules they joined with. */
+function ChallengeSettings({ challenge, disabled, onChange }: { challenge: MethodChallenge; disabled: boolean; onChange: (challenge: MethodChallenge) => void }) {
+  const explicit = challenge.checkpoints !== 'thirds'
+  const savedText = explicit ? (challenge.checkpoints as number[]).join(', ') : null
+  const [daysText, setDaysText] = useState(savedText ?? '')
+  const thirds = challengeCheckpointDays({ ...challenge, checkpoints: 'thirds' })
+  const parseDays = (text: string) => text.split(/[\s,]+/).filter(Boolean).map(Number)
+  // The text is kept while she types ("15, "); when the draft's days change from elsewhere
+  // (another draft, a reset), show those instead of what was typed before.
+  if (savedText !== null && parseDays(daysText).join(', ') !== savedText) setDaysText(savedText)
+  const setDays = (text: string) => {
+    setDaysText(text)
+    onChange({ ...challenge, checkpoints: parseDays(text) })
+  }
+  return (
+    <>
+      <fieldset disabled={disabled}>
+        <legend>Savings challenge</legend>
+        <div className="experience-method-fields">
+          <MethodNumber label="Runs for" unit="days" min={30} value={challenge.length_days} onChange={value => onChange({ ...challenge, length_days: wholeNumber(value) })} />
+          <MethodNumber label="Suggested goal" prefix="$" unit="in all" min={100} value={challenge.suggested_goal_cents / 100} onChange={value => onChange({ ...challenge, suggested_goal_cents: Math.round(wholeNumber(value) * 100) })} />
+        </div>
+        <small>Each person can still choose their own goal.</small>
+      </fieldset>
+      <fieldset disabled={disabled}>
+        <legend>Challenge check-ins</legend>
+        <div className="experience-method-choices">
+          <label>
+            <input type="radio" name="method-challenge-checkpoints" value="thirds" checked={!explicit} onChange={() => onChange({ ...challenge, checkpoints: 'thirds' })} />
+            <span><strong>Every third of the challenge</strong><small>{Number.isInteger(challenge.length_days) ? checkpointDaysText(thirds) : 'Set the length first.'}</small></span>
+          </label>
+          <label>
+            <input type="radio" name="method-challenge-checkpoints" value="days" checked={explicit} onChange={() => setDays(daysText || thirds.join(', '))} />
+            <span><strong>Choose the days</strong><small>Up to 6 days, ending on the last day.</small></span>
+          </label>
+        </div>
+        {explicit && (
+          <label className="experience-method-field">
+            <span>Check-in days</span>
+            <input className="ui-field" type="text" inputMode="numeric" value={daysText} onChange={event => setDays(event.target.value)} aria-describedby="method-challenge-days-hint" />
+            <small id="method-challenge-days-hint">For example 15, 45, {Number.isInteger(challenge.length_days) ? challenge.length_days : 60}</small>
+          </label>
+        )}
+        <small>People already in the challenge keep the dates they joined with.</small>
+      </fieldset>
+      <MethodChoice legend="What counts toward the goal" name="challenge_counts" choices={challengeCountsChoices} value={challenge.counts} disabled={disabled} onChange={counts => onChange({ ...challenge, counts })} note="Your bank may decide this. People already in keep the rule they joined with." />
+    </>
   )
 }
 

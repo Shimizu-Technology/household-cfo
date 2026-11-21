@@ -232,6 +232,43 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     assert_operator JSON.generate(with_defaults).bytesize, :<, 1_024
   end
 
+  test "challenge rules are optional in schema five: 90 days in thirds, a $500 suggestion, savings only; a coach's values are checked" do
+    schema = CohortExperience::Schema
+    settings = CohortExperience::MethodSettings
+    stored = schema::DEFAULT_CONFIG
+    assert_equal settings::CHALLENGE_DEFAULTS, schema.method_for(stored).fetch("challenge")
+    refute schema.normalize(stored).fetch("method").key?("challenge"), "a block without it keeps its bytes and digest"
+    assert_equal SavingsChallenge::Rules.new(length_days: 90, checkpoint_days: [ 30, 60, 90 ], suggested_goal_cents: 50_000, counts: "savings"), SavingsChallenge::Rules.default
+    assert_equal "90-day Savings Challenge", schema.mode_payload(schema::PILOT_SAVINGS_CONFIG).fetch(:label)
+
+    short = { "length_days" => 60, "checkpoints" => "thirds", "suggested_goal_cents" => 30_000, "counts" => "savings_and_debt" }
+    config = method_config("challenge" => short).merge("experience_mode" => "savings_challenge")
+    assert_empty schema.errors(config)
+    assert_equal schema.digest(config), schema.digest(config.merge("method" => config.fetch("method").merge("challenge" => short.to_a.reverse.to_h)))
+    assert_equal [ 20, 40, 60 ], SavingsChallenge::Rules.from_setting(short).checkpoint_days
+    assert_equal [ 33, 67, 100 ], settings.checkpoint_days(short.merge("length_days" => 100))
+    assert_equal [ 10, 20, 30 ], settings.checkpoint_days(short.merge("length_days" => 30))
+    assert_equal [ 14, 45, 60 ], SavingsChallenge::Rules.from_setting(short.merge("checkpoints" => [ 14, 45, 60 ])).checkpoint_days
+    assert_equal "60-day Savings Challenge", schema.mode_payload(config).fetch(:label)
+    assert_equal "Day 20, 40 and 60", SavingsChallenge::Rules.from_setting(short).checkpoint_text
+
+    {
+      { "length_days" => 29 } => "method.challenge.length_days must be a whole number of days from 30 to 180",
+      { "length_days" => 181 } => "method.challenge.length_days must be a whole number of days from 30 to 180",
+      { "checkpoints" => [ 20, 40 ] } => "method.challenge.checkpoints must be thirds or 1 to 6 increasing days that end on the last day",
+      { "checkpoints" => [ 40, 20, 60 ] } => "method.challenge.checkpoints must be thirds or 1 to 6 increasing days that end on the last day",
+      { "checkpoints" => [ 0, 60 ] } => "method.challenge.checkpoints must be thirds or 1 to 6 increasing days that end on the last day",
+      { "checkpoints" => (10..60).step(10).to_a.unshift(5) } => "method.challenge.checkpoints must be thirds or 1 to 6 increasing days that end on the last day",
+      { "suggested_goal_cents" => 9_900 } => "method.challenge.suggested_goal_cents must be whole dollars from $100 to $5,000",
+      { "suggested_goal_cents" => 30_050 } => "method.challenge.suggested_goal_cents must be whole dollars from $100 to $5,000",
+      { "counts" => "everything" } => "method.challenge.counts must be one of savings, savings_and_debt"
+    }.each do |change, message|
+      assert_includes schema.errors(method_config("challenge" => short.merge(change))), message, change.inspect
+    end
+    assert_includes schema.errors(method_config("challenge" => short.except("counts"))), "method.challenge must contain length_days, checkpoints, suggested_goal_cents, counts"
+    assert_operator JSON.generate(config).bytesize, :<, 1_024
+  end
+
   test "expense group names: plain words by default, her method's terms after Go live, with the same totals" do
     participant, household = launch
     household.budget_categories.create!(name: "Gifts", stack_key: "sinking_expected", sort_order: 1)

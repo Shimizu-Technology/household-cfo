@@ -861,9 +861,9 @@ module Api
         cohort = current_cohort_membership.cohort
         offer = enrollment ? nil : SavingsChallenge::EnrollmentOffer.call(cohort: cohort, user: current_user, membership: current_cohort_membership)
         reply = if enrollment
-          "You're already in. Your 90 days run #{SavingsChallenge::JoinRequest.range_text(enrollment.starts_on, enrollment.ends_on)}. Nothing else to do to join."
+          "You're already in. Your #{enrollment.challenge_length_days} days run #{SavingsChallenge::JoinRequest.range_text(enrollment.starts_on, enrollment.ends_on)}. Nothing else to do to join."
         elsif offer[:accepting_enrollments]
-          dates = offer[:personal_starts_on] && offer[:personal_ends_on] ? " Your 90 days would run #{SavingsChallenge::JoinRequest.range_text(offer[:personal_starts_on], offer[:personal_ends_on])}." : ""
+          dates = offer[:personal_starts_on] && offer[:personal_ends_on] ? " Your #{offer[:challenge_length_days]} days would run #{SavingsChallenge::JoinRequest.range_text(offer[:personal_starts_on], offer[:personal_ends_on])}." : ""
           "Happy to help you join.#{dates} The card below has the terms. Nothing happens until you check the box and tap Accept and join."
         else
           "This group isn't taking new members right now, so I can't add you yet. Your program team can tell you more. Nothing was changed."

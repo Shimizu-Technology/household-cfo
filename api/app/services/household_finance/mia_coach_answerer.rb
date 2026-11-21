@@ -474,8 +474,8 @@ module HouseholdFinance
 
       amount_cents = MoneyMovementText.savings_deposit_cents(message)
       opening = "Putting #{amount_cents ? money(amount_cents) : 'money'} into savings counts as saving, not spending, so I did not add it as an expense or count it against your budget."
-      where_to_log = if user && SavingsEnrollment.exists?(household: household, user: user, status: "active")
-        "To count it toward your 90-day savings challenge, open Home and review it as a contribution; it counts once you approve it."
+      where_to_log = if challenge_enrollment
+        "To count it toward your #{challenge_rules.label} savings challenge, open Home and review it as a contribution; it counts once you approve it."
       else
         "If you track that account here, you can update its saved balance in My Money when you are ready."
       end
@@ -1128,6 +1128,18 @@ module HouseholdFinance
       "I can help you plan how long a savings goal will take, and I will not guess at the math from a loose sentence. Protect food, housing, utilities, and required payments first; savings should come from flexible money, and a smaller amount you can keep up beats a big one you skip. Next CFO move: tell me in one short sentence how much you can set aside each paycheck, and in another what the goal is, then we will work out the timeline together. Nothing changed."
     end
 
+    # Her active savings challenge, and the rules it started with; before she joins, the
+    # rules her own program would give her.
+    def challenge_enrollment
+      return @challenge_enrollment if defined?(@challenge_enrollment)
+
+      @challenge_enrollment = user && SavingsEnrollment.where(household: household, user: user, status: "active").order(:id).last
+    end
+
+    def challenge_rules
+      @challenge_rules ||= SavingsChallenge::Rules.for_participant(user: user, enrollment: challenge_enrollment)
+    end
+
     def savings_goal_amount_cents
       amount = /#{AMOUNT_PATTERN}\s+(?:(?:savings|challenge|saving)\s+)?(?:goal|target)\b|\b(?:goal|target)\s+(?:of|is|at|to|for)\s+#{AMOUNT_PATTERN}/i.match(message)
       return unless amount
@@ -1149,9 +1161,10 @@ module HouseholdFinance
       line = "Your approved numbers leave about #{money(surplus_cents)} a month after your planned budget and monthly debt payments."
       return line unless amount_cents&.positive? && normalized_message.match?(/\bchallenge\b/)
 
-      monthly_cents = ((amount_cents / 3.0) / 100).round * 100
+      months = challenge_rules.length_days / 30.0
+      monthly_cents = ((amount_cents / months) / 100).round * 100
       fit = monthly_cents <= surplus_cents ? "fits inside" : "is more than"
-      "#{line} Spread over the 90-day challenge, #{money(amount_cents)} is about #{money(monthly_cents)} a month, which #{fit} that margin on paper."
+      "#{line} Spread over the #{challenge_rules.label} challenge, #{money(amount_cents)} is about #{money(monthly_cents)} a month, which #{fit} that margin on paper."
     end
 
     def conditional_monthly_income_answer

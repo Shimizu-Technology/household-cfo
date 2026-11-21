@@ -24,7 +24,8 @@ module SavingsChallenge
     def self.record(record, context: nil)
       case record
       when SavingsEnrollment
-        record.attributes.slice("id", "cohort_id", "accepted_cohort_release_id", "starts_on", "ends_on", "time_zone", "status", "policy_version", "late_start_accepted", "current_accepted_plan_version_id", "approval_sequence", "lock_version")
+        record.attributes.slice("id", "cohort_id", "accepted_cohort_release_id", "starts_on", "ends_on", "time_zone", "status", "policy_version", "late_start_accepted", "current_accepted_plan_version_id", "approval_sequence", "lock_version",
+          "challenge_length_days", "checkpoint_days", "suggested_goal_cents", "goal_counts")
       when SavingsEntry
         record.attributes.slice("id", "current_approved_version_id", "lock_version").merge(
           "current_approved_version" => record.current_approved_version && self.record(record.current_approved_version, context: context))
@@ -73,10 +74,12 @@ module SavingsChallenge
     def self.calendar(enrollment)
       today = enrollment.local_today
       phase = today < enrollment.starts_on ? "upcoming" : (today > enrollment.ends_on ? "window_ended" : "active")
+      rules = enrollment.rules
       {
         time_zone: enrollment.time_zone, local_today: today, starts_on: enrollment.starts_on, ends_on: enrollment.ends_on,
-        phase: phase, day: today < enrollment.starts_on ? nil : [ (today - enrollment.starts_on).to_i + 1, 90 ].min,
-        checkpoints: [ 30, 60, 90 ].to_h { |day| [ day, (enrollment.starts_on + day - 1).iso8601 ] }
+        phase: phase, day: enrollment.challenge_day(today), length_days: rules.length_days, checkpoint_days: rules.checkpoint_days,
+        checkpoints: rules.checkpoint_dates(enrollment.starts_on).transform_values(&:iso8601),
+        suggested_goal_cents: rules.suggested_goal_cents, goal_counts: rules.counts
       }
     end
   end

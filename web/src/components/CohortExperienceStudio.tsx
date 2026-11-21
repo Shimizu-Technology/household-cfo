@@ -66,8 +66,8 @@ const experienceModes: Array<{ mode: ExperienceMode; title: string; description:
   },
   {
     mode: 'savings_challenge',
-    title: '90-day Savings Challenge',
-    description: 'A guided challenge: join, set a comfortable target, and record money set aside.',
+    title: 'Savings Challenge',
+    description: 'A guided challenge: join, set a comfortable target, and record money set aside. Set its length and check-in days in Method below.',
     detail: 'Participants land on Savings with Today check-ins, Ask Mia and Statements. Review becomes Transactions.',
   },
 ]
@@ -301,7 +301,7 @@ export function CohortExperienceStudio({
                 {experienceModes.map((option) => (
                   <label key={option.mode} className={`experience-mode-option${experienceModeOf(draft) === option.mode ? ' is-selected' : ''}`}>
                     <input type="radio" name="experience-mode" value={option.mode} checked={experienceModeOf(draft) === option.mode} onChange={() => chooseMode(option.mode)} />
-                    <span><strong>{option.title}</strong><small>{option.description}</small><small>{option.detail}</small></span>
+                    <span><strong>{option.mode === 'savings_challenge' ? `${methodOf(draft).challenge.length_days}-day ${option.title}` : option.title}</strong><small>{option.description}</small><small>{option.detail}</small></span>
                   </label>
                 ))}
               </div>

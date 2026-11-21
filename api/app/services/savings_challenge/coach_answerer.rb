@@ -48,7 +48,7 @@ module SavingsChallenge
       return deterministic(loan_answer) if loan_decision_question?
       return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
       return deterministic(::Mia::SensitiveMoment.response(@message)) if ::Mia::SensitiveMoment.matches?(@message) && (!@daily_report || ::Mia::SensitiveMoment.grief?(@message))
-      return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
+      return "The recommended goal is #{money(rules.suggested_goal_cents)} in #{rules.counts_debt? ? 'new money you set aside or extra debt payments' : 'new money you actually set aside'} over #{rules.length_days} days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return targeted(attachment_answer) if @attachments.any?
         return deterministic(daily_report_answer) if @daily_report
@@ -154,12 +154,44 @@ module SavingsChallenge
 
     def money(cents) = HouseholdFinance::Money.plain(cents)
 
+    # The rules she started with; before she joins, the ones her program would give her.
+    def rules
+      @rules ||= Rules.for_participant(user: @user, enrollment: @enrollment)
+    end
+
+    def counts_sentence
+      if rules.counts_debt?
+        extra = Projection.extra_debt_payment_cents(@enrollment)
+        "New money you set aside counts, and so do extra payments on a card or loan beyond the minimum, minus anything you take out.#{extra.positive? ? " That includes #{money(extra)} in extra debt payments." : ''} Spending less, refunds, minimum payments and moving money you already had don't count on their own."
+      else
+        extra = Projection.extra_debt_payment_cents(@enrollment)
+        "Only new money you actually set aside counts, minus anything you take out. Spending less, refunds, debt payments and moving money you already had don't count on their own.#{extra.positive? ? " Your #{money(extra)} in extra debt payments is tracked alongside, not in the goal." : ''}"
+      end
+    end
+
+    # What counts toward the goal, in one line, from her rule.
+    def counted_short
+      if rules.counts_debt?
+        "Approved new money you set aside, minus withdrawals, counts toward the challenge, and so do extra payments on a card or loan beyond the minimum once you add them in Savings."
+      else
+        "Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+      end
+    end
+
+    def card_payment_sentence
+      if rules.counts_debt?
+        "Extra payments beyond the minimum count toward your challenge total once you add them in Savings; minimum payments don't."
+      else
+        "Card payments lower debt but don't count toward your savings total."
+      end
+    end
+
     def privacy_answer
       "Participation does not give an employer or sponsor access to your balances, statements, purchases, chat or feelings. Your records are private by default; coach monetary summaries and selected details require separate choices in Privacy & reminders. Sponsor reporting uses fixed, coarse cohort summaries with suppression, not individual financial records. You choose what to share, and can revoke a grant. What access would you like to review?"
     end
 
     def food_insecurity_answer
-      "Thank you for telling me; a week like this is hard, and it is not a failure on your part. Food comes first, ahead of the savings challenge, so pausing or lowering your savings to buy food is the right call; the $500 suggestion is not an obligation. It is okay to ask for help this week; your program team or a local food pantry can help you get through to payday. Would it help to list what is due before your next paycheck, so we can decide together what can be paused or moved so food comes first?"
+      "Thank you for telling me; a week like this is hard, and it is not a failure on your part. Food comes first, ahead of the savings challenge, so pausing or lowering your savings to buy food is the right call; the #{money(rules.suggested_goal_cents)} suggestion is not an obligation. It is okay to ask for help this week; your program team or a local food pantry can help you get through to payday. Would it help to list what is due before your next paycheck, so we can decide together what can be paused or moved so food comes first?"
     end
 
     def investment_answer
@@ -167,11 +199,11 @@ module SavingsChallenge
     end
 
     def guarantee_answer
-      "I cannot guarantee $500 saved, promise a financial outcome, or decide bank or loan eligibility. The challenge tracks new money you actually reserve and approve over your personal 90 days, less withdrawals. You own the choices, and can choose a smaller comfortable target or postpone it. Keep essentials and required payments protected. What would be manageable for you?"
+      "I cannot guarantee #{money(rules.suggested_goal_cents)} saved, promise a financial outcome, or decide bank or loan eligibility. The challenge tracks new money you actually reserve#{rules.counts_debt? ? ' and extra debt payments you' : ' and'} approve over your personal #{rules.length_days} days, less withdrawals. You own the choices, and can choose a smaller comfortable target or postpone it. Keep essentials and required payments protected. What would be manageable for you?"
     end
 
     def protected_baseline_answer
-      "Protect food, housing, medication, utilities and required payments before trying to reach a savings target. If essentials already exceed available income, focus on stabilizing that shortfall and postpone savings or choose a smaller comfortable goal; the $500 suggestion is not an obligation. I have not verified your complete income, commitments or available cash from this message. We can review what is known and missing without requiring a full budget or changing any records. Which essential or due payment needs attention first?"
+      "Protect food, housing, medication, utilities and required payments before trying to reach a savings target. If essentials already exceed available income, focus on stabilizing that shortfall and postpone savings or choose a smaller comfortable goal; the #{money(rules.suggested_goal_cents)} suggestion is not an obligation. I have not verified your complete income, commitments or available cash from this message. We can review what is known and missing without requiring a full budget or changing any records. Which essential or due payment needs attention first?"
     end
 
     def attachment_answer
@@ -235,15 +267,15 @@ module SavingsChallenge
 
     def debt_answer
       if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
-        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. #{counted_short}"
       else
-        "A small cushion helps keep an unexpected bill from going back on your credit card while you work on paying it down. The challenge measures new money you set aside; a card payment reduces debt but isn't added to that savings total. If you want to compare your cards, open Optional card & debt review in Savings; you can use it without a full budget. For now, what small amount could you comfortably keep aside after essentials and required payments?"
+        "A small cushion helps keep an unexpected bill from going back on your credit card while you work on paying it down. #{rules.counts_debt? ? "The challenge counts new money you set aside and extra payments beyond the minimum, once you add them in Savings; a minimum payment isn't added to that total." : "The challenge measures new money you set aside; a card payment reduces debt but isn't added to that savings total."} If you want to compare your cards, open Optional card & debt review in Savings; you can use it without a full budget. For now, what small amount could you comfortably keep aside after essentials and required payments?"
       end
     end
 
     def debt_comparison_answer
       if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
-        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. #{counted_short}"
       else
         comparison = Debt::Reader.new(@enrollment, user: @user).call
         cards = comparison.fetch(:cards).index_by { |row| row[:card_id] }
@@ -255,10 +287,10 @@ module SavingsChallenge
         else
           "Among your current eligible reviewed cards, the known-balance order is #{balance_order.any? ? balance_order.join(', ') : 'not established'}. The known single-rate APR order is #{rate_order.any? ? rate_order.join(', ') : 'not established'}. #{comparison[:stale_card_count]} card records have changed source facts; review them before comparing. Unknown APRs, unknown balances, promotions and separate-rate segments are not precise avalanche targets."
         end
-        "#{reviewed} I only see the cards you've reviewed here, not your whole budget, so I can't pick an extra-payment amount or promise a payoff date. Card payments lower debt but don't count toward your savings total. What card term would you like to look at?"
+        "#{reviewed} I only see the cards you've reviewed here, not your whole budget, so I can't pick an extra-payment amount or promise a payoff date. #{card_payment_sentence} What card term would you like to look at?"
       end
     rescue AccessPolicy::Unavailable
-      "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. Debt payments do not automatically count as saved money; review missing terms before considering a debt strategy."
+      "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. #{rules.counts_debt? ? 'Extra debt payments count only once you add them in Savings' : 'Debt payments do not automatically count as saved money'}; review missing terms before considering a debt strategy."
     end
 
     def feeling_answer
@@ -332,10 +364,10 @@ module SavingsChallenge
       else
         "You haven't saved any money to your challenge yet, so your progress isn't known yet. That's not the same as $0."
       end
-      target = plan&.target_cents ? " Your goal is #{money(plan.target_cents)} over your 90-day challenge." : " You haven't picked a goal yet; you can keep checking in."
+      target = plan&.target_cents ? " Your goal is #{money(plan.target_cents)} over your #{rules.label} challenge." : " You haven't picked a goal yet; you can keep checking in."
       waiting = SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: @enrollment.id }, status: "pending").count
       target += " #{waiting} savings #{waiting == 1 ? 'record is' : 'records are'} waiting for you to save in Savings; #{waiting == 1 ? 'it doesn’t' : 'they don’t'} count until you do." if waiting.positive?
-      "#{progress}#{target} Only new money you actually set aside counts, minus anything you take out. Spending less, refunds, debt payments and moving money you already had don't count on their own. To add money you set aside, open Savings and save it there; nothing counts until you do. Did you set aside new money, or are you thinking about a spending change?"
+      "#{progress}#{target} #{counts_sentence} To add money you set aside, open Savings and save it there; nothing counts until you do. Did you set aside new money, or are you thinking about a spending change?"
     end
 
     def calendar_answer
