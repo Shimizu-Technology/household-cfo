@@ -13,9 +13,15 @@ module HouseholdFinance
     def call
       gap = @costs && @income && [ @costs - @income, 0 ].max
       draw = @draw.nil? ? gap : @draw
-      if @savings.nil? || draw.nil?
+      if @savings.nil? || @costs.nil? || @income.nil? || draw.nil?
         return { monthly_gap_cents: gap, monthly_draw_cents: draw, months: nil, tone: nil,
-                 label: "Add savings, household costs and replacement income" }
+                 label: "Add #{[ (@savings.nil? ? 'savings' : nil), (@costs.nil? ? 'household costs' : nil), (@income.nil? ? 'replacement income' : nil) ].compact.to_sentence}" }
+      end
+
+      if gap.positive? && draw.zero?
+        return { monthly_gap_cents: gap, monthly_draw_cents: draw, months: nil, tone: nil,
+          no_draw: true, label: "Business must cover the monthly gap from month one",
+          uncovered_monthly_gap_cents: gap, business_required_annual_cents: gap * 12, sources_cover_need: false }
       end
 
       balance = @savings.to_f
@@ -24,7 +30,7 @@ module HouseholdFinance
         balance = [ balance * (1 + MONTHLY_GROWTH) - draw, 0 ].max
         months += 1
       end
-      sustainable = months == 1200 || draw.zero?
+      sustainable = (months == 1200 && balance.positive?) || draw.zero?
       months = nil if sustainable
       tone, label = if sustainable || months >= 36
         [ "green", "Comfortable window to build" ]
@@ -34,7 +40,7 @@ module HouseholdFinance
         [ "red", "Tight — business revenue needed quickly" ]
       end
       { monthly_gap_cents: gap, monthly_draw_cents: draw, months: months, sustainable: sustainable,
-        tone: tone, label: label, annual_growth_percent: 5, uncovered_monthly_gap_cents: gap && [ gap - draw, 0 ].max, business_required_annual_cents: gap && [ gap - draw, 0 ].max * 12, sources_cover_need: gap == 0 }
+        tone: tone, label: @savings <= 0 && draw.positive? ? "No savings to draw from" : label, annual_growth_percent: 5, uncovered_monthly_gap_cents: gap && [ gap - draw, 0 ].max, business_required_annual_cents: gap && [ gap - draw, 0 ].max * 12, sources_cover_need: gap == 0 }
     end
   end
 end

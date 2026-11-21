@@ -435,6 +435,8 @@ module HouseholdFinance
       }
     end
 
+    def tool_enabled?(id) = module_enabled?(id)
+
     private
 
     attr_reader :experience_capabilities, :brand

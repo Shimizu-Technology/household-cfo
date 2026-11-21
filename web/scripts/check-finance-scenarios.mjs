@@ -14,7 +14,10 @@ try {
   await page.getByLabel('Monthly income lift ($)').fill('2000')
   await page.getByRole('button', {name:'Explore this lift'}).click()
   await expect(page.getByText(/Lift split: EF/)).toContainText('$1,000.00')
-  await expect(page.getByText(/With this lift:/)).toContainText('10 months (green)')
+  await expect(page.getByText(/With this lift:/)).toContainText('7 months (green)')
+  await page.getByLabel('Purchase amount ($)').fill('100')
+  await page.getByRole('button', {name:'Compare this spend'}).click()
+  await expect(page.getByText(/Lift split: EF/)).toContainText('$1,000.00')
   await page.getByLabel('Windfall amount ($)').fill('1000')
   await page.getByRole('button', {name:'Split this windfall'}).click()
   await expect(page.getByText('Emergency fund: $1,000.00', {exact:true})).toBeVisible()
@@ -37,11 +40,27 @@ try {
   await page.screenshot({path:`docs/testing/evidence/cfo-filter-optionality/optionality-${width}.png`,fullPage:true})
   await page.getByLabel(/Monthly savings draw/).fill('0')
   await page.getByRole('button', {name:'Explore this runway'}).click()
-  await expect(page.getByText('Savings last indefinitely in this model', {exact:true})).toBeVisible()
+  await expect(page.getByText('Business must cover $3,000.00/mo from month one', {exact:true})).toBeVisible()
   await page.reload()
   await expect(page.getByLabel('Savings available ($)')).toHaveValue('3200')
+  for (const draft of ['text', 'files', 'text and files']) {
+    await page.evaluate(() => { location.hash = '#Ask%20Mia' })
+    const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+    const text = draft.includes('text') ? 'Keep this unsent question.' : ''
+    await composer.fill(text)
+    if (draft.includes('files')) await page.locator('.ask-row input[type="file"]').setInputFiles({name:'draft.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\nfictional')})
+    await page.evaluate(() => { location.hash = '#CFO%20Filter' })
+    await page.getByRole('button', {name:'Ask Mia where to cut'}).click()
+    await expect(composer).toHaveValue(text)
+    await expect(page.getByText('Your message and files are waiting here. Send or clear them before choosing another prompt.', {exact:true})).toBeVisible()
+    if (draft.includes('files')) {
+      await expect(page.getByRole('button', {name:'Remove draft.pdf',exact:true})).toBeVisible()
+      await page.getByRole('button', {name:'Remove draft.pdf',exact:true}).click()
+    }
+    await composer.fill('')
+  }
   expect(errors).toEqual([])
-  console.log(`PASS ${width}×${height}: spend, flip targets, windfall, runway, reload preserves approved data, no horizontal overflow or page errors`)
+  console.log(`PASS ${width}×${height}: spend, flip targets, windfall, runway, reload preserves approved data, cut prompt preserves text/files/both, no horizontal overflow or page errors`)
   await page.close()
  }
 } finally { await browser.close() }

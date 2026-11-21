@@ -28,13 +28,34 @@ class HouseholdFinanceTalunToolsTest < ActiveSupport::TestCase
     mia = ->(message) { HouseholdFinance::MiaCoachAnswerer.new(household, message, ensure_plan: false).call }
     transition_answer = mia.call("How long could we last if I quit to run my business?")
     assert_includes transition_answer, "lasts approximately 1 months"
+    assert_includes mia.call("How long will our savings last if I quit my job?"), "Your transition runway"
+    assert_includes mia.call("How long could we last if I quit to run my business and draw $500 per month?"), "$500 drawn from savings"
+    assert_includes mia.call("How long could we last if I quit to run my business and draw $0 per month?"), "from month one"
+    assert_includes mia.call("How long could we last if I quit to run my business and draw $10000000 per month?"), "$9,999,999.99 or less"
     hidden_tool_guidance = CohortExperience::MiaModuleGuidance.new(modules: [ { id: "optionality", enabled: false } ])
     refute_includes hidden_tool_guidance.filter(transition_answer), "Optionality"
     assert_equal transition_answer, hidden_tool_guidance.filter(transition_answer)
-    assert_includes mia.call("What does it take to get to green?"), "Emergency fund: $1,661.67 monthly income lift"
+    assert_includes mia.call("What does it take to get to green?"), "Emergency fund: $651.67 monthly income lift"
+    assert_equal 0, filter[:targets][0][:yellow][:extra_cents]
+    assert_equal 65_167, filter[:targets][0][:green][:extra_cents]
+    assert_equal 20, filter[:before][:emergency_months]
+    assert_equal 12, presenter.cfo_filter_scenario(lift_cents: 65_167)[:lifted][:emergency_months]
+    assert_equal 13, presenter.cfo_filter_scenario(lift_cents: 65_166)[:lifted][:emergency_months]
     assert_includes mia.call("Can I afford $100?"), "CFO Filter:"
     assert_equal before, [ household.reload.attributes, household.accounts.map(&:attributes), household.income_sources.map(&:attributes),
       household.debts.map(&:attributes), BudgetAllocation.count, IncomeScheduleEntry.count ]
+    capabilities = CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: nil).call.deep_dup
+    capabilities[:modules].each { |item| item[:enabled] = false if %w[cfo_filter optionality].include?(item[:id]) }
+    resolver = Struct.new(:call).new(capabilities)
+    original = CohortExperience::EffectiveCapabilitiesResolver.method(:new)
+    begin
+      CohortExperience::EffectiveCapabilitiesResolver.define_singleton_method(:new) { |**| resolver }
+      refute_includes mia.call("What does it take to get to green?").to_s, "monthly income lift"
+      refute_includes mia.call("How long could we last if I quit to run my business?").to_s, "transition runway"
+      refute_includes mia.call("Can I afford $100?").to_s, "CFO Filter:"
+    ensure
+      CohortExperience::EffectiveCapabilitiesResolver.define_singleton_method(:new, original)
+    end
     household.update!(confirmed_setup_fields: household.confirmed_setup_fields - [ "business_income" ])
     household.income_sources.where(source_type: "business").destroy_all
     unknown = HouseholdFinance::DataPresenter.new(household.reload, ensure_plan: false).optionality_scenario
