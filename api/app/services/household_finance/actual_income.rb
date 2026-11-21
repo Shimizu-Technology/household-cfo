@@ -22,7 +22,8 @@ module HouseholdFinance
         facts["period_start_on"] <= first.iso8601 && facts["period_end_on"] >= last.iso8601 && approved_account?(identity, complete: true)
       end.map(&:source_tracked_account_id).uniq
       partial = (tracked_ids - covered).any? || unrepresented_accounts?
-      open = last >= Time.current.in_time_zone("Pacific/Guam").to_date
+      today = Time.current.in_time_zone("Pacific/Guam").to_date
+      open = today.between?(first, last)
       note = if !known
         "No statements approved for this month yet."
       elsif partial
@@ -31,6 +32,7 @@ module HouseholdFinance
         "From the statements you approved; other income may be missing."
       end
       note += " This month is still open." if open
+      note += " This month has not started yet." if first > today
       { actual_cents: known ? rows.sum { |row| row[:signed_amount_cents] } : nil,
         partial: partial, month_open: open, coverage_note: note }
     end

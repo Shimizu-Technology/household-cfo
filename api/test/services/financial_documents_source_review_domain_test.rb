@@ -23,6 +23,9 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_nil actual.month(Date.new(2026, 6, 1))[:actual_cents]
     answer = HouseholdFinance::MiaIncomeAnswer.new(@household, message: "How much did I make in July 2026?").response
     assert_includes answer, "$3,380 came in"
+    future = actual.month(Date.current.next_month)
+    refute future[:month_open]
+    assert_includes future[:coverage_note], "has not started yet"
   end
 
   test "an approved line with a pending correction remains an individual question" do
