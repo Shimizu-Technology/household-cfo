@@ -33,29 +33,48 @@ module HouseholdFinance
       total = rows.sum { |row| row[:signed_amount_cents] }
       seen = deposit_ids.any? { |id| covered_days(id, first, last).any? }
       covered = deposit_ids.count { |id| covered_days(id, first, last, complete: true).length == last - first + 1 }
-      partial = deposit_ids.empty? || covered < deposit_ids.length || unrepresented_accounts?
+      waiting = waiting_rows.count { |row| Date.iso8601(row[:posted_on]).between?(first, last) }
+      incomplete = deposit_ids.empty? || covered < deposit_ids.length || unrepresented_accounts?
+      partial = waiting.positive? || incomplete
       actual = (rows.any? || seen) && !(partial && total.zero?) ? total : nil
       open = @today.between?(first, last)
       note = if first > @today
         "This month has not started yet."
       elsif actual.nil?
-        seen ? "None approved yet. Your approved statements don’t cover all of this month." : "No statements approved for this month yet."
-      elsif partial
+        waiting.positive? && !incomplete ? "None approved yet." :
+          (seen ? "None approved yet. Your approved statements don’t cover all of this month." : "No statements approved for this month yet.")
+      elsif incomplete
         "Statements do not cover the whole month for every account. This is only the income approved so far."
       else
         "From the statements you approved; other income may be missing."
       end
+      note += " #{self.class.waiting_note(waiting)}" if waiting.positive?
       note += " This month is still open." if open
-      { actual_cents: actual, partial: partial, month_open: open, coverage_note: note }
+      { actual_cents: actual, partial: partial, month_open: open, coverage_note: note, waiting_deposits: waiting }
+    end
+
+    def self.waiting_note(count)
+      count == 1 ? "1 deposit still needs your answer in Review, so it isn't counted yet." :
+        "#{count} deposits still need your answer in Review, so they aren't counted yet."
     end
 
     private
 
     def income_rows
-      @income_rows ||= reader[:canonical_rows].select do |row|
+      @income_rows ||= eligible_rows.reject { |row| waiting?(row) }
+    end
+
+    def waiting_rows = @waiting_rows ||= eligible_rows.select { |row| waiting?(row) }
+
+    def waiting?(row)
+      row[:unanswered_money_in] || row[:external_reference].to_s.start_with?(*FinancialDocuments::SourceReview::ParticipantPlan::UNFINISHED_REFERENCES)
+    end
+
+    def eligible_rows
+      @eligible_rows ||= reader[:canonical_rows].select do |row|
         row[:account_identity_current] && deposit_ids.include?(row[:tracked_account_id]) && row[:account_basis] == "asset" &&
-          row[:disposition] == "include" && row[:event_type].in?(INCOME_TYPES) && row[:signed_amount_cents].to_i.positive? &&
-          row[:posted_on].present? && !row[:external_reference].to_s.start_with?(*FinancialDocuments::SourceReview::ParticipantPlan::UNFINISHED_REFERENCES)
+          row[:disposition] == "include" && (row[:event_type].in?(INCOME_TYPES) || (row[:event_type] == "transfer" && waiting?(row))) && row[:signed_amount_cents].to_i.positive? &&
+          row[:posted_on].present?
       end
     end
 

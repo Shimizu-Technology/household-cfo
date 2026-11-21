@@ -79,6 +79,8 @@ module HouseholdFinance
       elsif facts.none? { |month| month[:plan_available] }
         parts << "Your #{year} plan isn’t set up yet."
       end
+      waiting = facts.sum { |month| month.dig(:actual_income, :waiting_deposits).to_i }
+      parts << ActualIncome.waiting_note(waiting) if waiting.positive?
       parts.join(" ")
     end
 

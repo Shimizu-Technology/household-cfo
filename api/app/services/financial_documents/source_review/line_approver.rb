@@ -204,7 +204,7 @@ module FinancialDocuments
         end
         identity = domain.overlap_context.accounts[event.financial_source_account_id]&.approved_version
         head = domain.line_head(event)
-        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done), prior: head&.approved_version)
+        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done || line.kind == :money_in_source), prior: head&.approved_version)
         if facts[:signed_amount_cents] != event.signed_amount_cents || facts[:posted_on].to_s != event.posted_on.to_s
           candidate = event.dup
           candidate.signed_amount_cents = facts[:signed_amount_cents]

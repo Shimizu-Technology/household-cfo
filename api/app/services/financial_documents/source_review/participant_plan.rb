@@ -58,7 +58,7 @@ module FinancialDocuments
       # Pay, bonuses, benefits, pensions, tax refunds and interest are money she earned or received.
       EARNED_INCOME = /\b(?:payroll|pay|pay\s*check|salary|salaries|wages?|bonus(?:es)?|commissions?|stipend|direct\s+dep(?:osit)?|dir\s+dep|pension|annuity|social\s+security|soc\s+sec|ssa|ssi|ssdi|tax\s+ref(?:und)?|unemployment|benefits?|dividends?|interest)\b/i
       # Words that can mean her own money coming back from another account, a wallet or cash she put in.
-      OWN_MONEY = /\b(?:cash|atm|branch|teller|mobile|remote|check|counter)\s+deposit\b|\bdeposit\s+(?:from|at)\b|\bfrom\s+(?:my\s+|own\s+)?(?:savings|checking|share|account|acct)\b|\btransfers?\b|\bown\b|\bpaypal\b|\bvenmo\b|\bcash\s*app\b|\bzelle\b|\bapple\s+(?:cash|pay)\b/i
+      OWN_MONEY = /\b(?:cash|atm|branch|teller|mobile|remote|check|counter)\s+deposit\b|\bdeposit\s+(?:from|at)\b|\bfrom\s+(?:my\s+|own\s+)?(?:savings|checking|share|account|acct)\b|\btransfers?\b|\bown\b|\bpay\s*pal\b|\b(?:google|samsung|amazon)\s+pay\b|\bvenmo\b|\bcash\s*app\b|\bzelle\b|\bapple\s+(?:cash|pay)\b/i
 
       # unlinked_account_ids: accounts linked by the save in progress. Their copies are read as she saw them before the link.
       def initialize(household, revision, unlinked_account_ids: [], overlap_context: nil, accounts: nil)
@@ -147,10 +147,16 @@ module FinancialDocuments
 
       # Money in read as income counts as income only when it plainly is pay, a benefit or interest. Anything that could be
       # her own money coming back ("ATM deposit", "Deposit from savings", "ACH credit PayPal", a deposit with no payer) is asked.
-      def self.money_in_question?(event, merchant)
-        return false unless event.row_kind == "posted" && event.event_type == "income" && event.signed_amount_cents.to_i.positive?
+      def self.money_in_question?(event, merchant, event_type: event.event_type, amount: event.signed_amount_cents)
+        return false unless event.row_kind == "posted" && event_type == "income" && amount.to_i.positive?
         text = [ merchant, event.financial_source_evidence&.payload&.dig("raw_description") ].compact.join(" ")
         !text.match?(EARNED_INCOME) || text.match?(OWN_MONEY)
+      end
+
+      # Old approvals remain immutable, but do not answer a newly required ownership question.
+      def self.unanswered_money_in?(version)
+        version.disposition == "include" && !version.external_reference.to_s.start_with?("received:") &&
+          money_in_question?(version.financial_source_event, version.merchant, event_type: version.event_type, amount: version.signed_amount_cents)
       end
 
       # Lines whose answer is whose money it was: a payment to or from a person, or money in that may be her own.
@@ -234,6 +240,7 @@ module FinancialDocuments
             kind = nil
             category_id = heads[event.id].approved_version.budget_category_id
           end
+          kind = :money_in_source if !liability?(event, accounts[event.financial_source_account_id]) && heads[event.id]&.approved_version && self.class.unanswered_money_in?(heads[event.id].approved_version)
           pending = heads[event.id]&.source_review_drafts&.find { |draft| draft.status == "pending" }
           proposed = SourceReviewVersion.new(pending.facts) if pending
           kind, category_id = :correction, proposed.budget_category_id if pending
@@ -289,6 +296,7 @@ module FinancialDocuments
       # purchase as one she confirmed stays finished only while that purchase still counts; otherwise it is asked about again.
       def done?(version)
         return false unless version
+        return false if self.class.unanswered_money_in?(version)
         return false if version.external_reference.to_s.start_with?(*UNFINISHED_REFERENCES)
         return false if version.matched_transaction_id && !ConfirmedPurchaseMatch.current?(household, version)
         version.source_account_identity_version.source_account_review_head.approved_version_id == version.source_account_identity_version_id

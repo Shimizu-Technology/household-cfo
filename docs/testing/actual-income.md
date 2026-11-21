@@ -25,3 +25,33 @@ Display:
 Performance: the plan carries approved income lazily (`ActualIncome::Months`). It reads the current picture's approved lines once, and only when a month is shown. Home and Mia reuse the plan's months, and a Mia year answer builds one plan. On a household with three approved statements, measured by the same test: Home went from 2 statement reads and 341 queries to 1 and 267, and a Mia year turn from 22 reads and 2,054 queries to 1 and 212.
 
 Scorecard: `app_actual_income` now records `known`, and an unknown month has `actual_cents: null` with the whole expected amount as its error, never a $0 match. The ratchet treats a known month becoming unknown as a regression. Browser screenshots in `evidence/actual-income/` predate round 2: the Budget screenshot still shows the old open-month difference line.
+
+## Round 3 (ownership answers on approved deposits)
+
+Context: continued from rebased PR head `2ba27758648beca90e052353b5ae516684bd0833`, on Ruby 3.3.14. This round changes backend review and income facts only; the existing Home/Budget coverage-note display consumes the same response. Fictional strings and committed offline Talun recordings only; no production records, paid services or live model calls.
+
+- An included, positive deposit with an unfinished ownership reference keeps its month partial, even when the statement coverage approval is complete. Income excludes the waiting line. The coverage note counts the waiting deposits and directs her to Review: “1 deposit still needs your answer in Review, so it isn't counted yet.” Mia repeats that note for a month and totals waiting deposits for a year.
+- Legacy included income approvals now use the same money-in predicate as new lines. An ambiguous/own-money description without a recorded `received:` answer reopens as the money-in question and stays out of actual income. Reads preserve every existing approved version. Answering preserves the facts she previously corrected (including the posted date). “Earned or received” saves income normally; “My own money moving back” saves a transfer. Payroll stays finished. Evidence is preloaded through the review head.
+- Google Pay, Samsung Pay, Amazon Pay and spaced PAY PAL now count as wallet wording even though “pay” also appears in earned-income wording.
+- Statement completeness and income completeness remain separate. An ownership question makes income partial without falsely claiming that otherwise complete statements miss calendar days.
+
+Agent-executed affected-flow regression cases:
+1. A complete July statement has an approved ATM deposit and approved payroll. Review reopens only the deposit; income counts only payroll, reports one waiting deposit, and Mia's month/year answers disclose it. The old approval ID remains unchanged until the participant answers; earned/received then counts the deposit, preserves its corrected date, and finishes review.
+2. A complete statement contains positive transfer/income lines with `ownership-needed:` and `overlap-cleared:`. July stays partial and the note counts both waiting deposits.
+3. All four wallet names trigger the money-in question.
+
+All three new tests failed against the incoming head (three failures, no errors). The initial focused domain run passed 83 tests / 495 assertions. An attempted preload optimization used a delegated method as an association; the broader run caught it and was stopped. The corrected preload follows `source_review_head.financial_source_event`. A concurrent related-test/scorecard run encountered a database lock and was stopped; final scorecards use their own database.
+
+Final-code regression cases pass: 3 tests / 22 assertions. RuboCop passes 1,523 files; Brakeman reports zero warnings; Zeitwerk eager loading passes.
+
+The additional `scorecard:prove_injections` task fails during its untouched baseline replay with `Domain::StaleReview` at `LineApprover#apply!`, before any injection runs. Loading all five affected services from incoming head `2ba27758` in a separate Rails process reproduces the same error at the same baseline call. The injection proofs remain unverified; the required fast/full ratchet replays are recorded separately below.
+
+The final fast/full reports both pass `RATCHET=1` and exactly equal their committed baselines, including the answers-only view. No baseline regeneration or override change is needed. Careful-user income, January–December, is $7,685; $7,500; $7,827.50; $7,500; $7,500; $7,596; $7,500; $7,942; $7,500; $7,500; $7,713; $7,500 (annual $91,263.50), every month known with zero manifest error. Careful spending stays $44,242.95, double counts 0 and leakage $0. Answers-only metrics are unchanged, including their existing spending/double-count errors. Decisions remain 644 careful / 628 answers-only for the year and 79 / 77 for the fast subset; the existing full-year fewer-than-200 target remains unmet.
+
+A final rerun after preserving corrected facts encountered a pathological PostgreSQL plan in the existing 300-copy duplicate-review test. The stopped focused/full runs were not counted as passes. With `PGOPTIONS='-c jit=off -c enable_nestloop=off'`, that exact test passes 1 test / 12 assertions in 6.9 seconds; final suite/focused counts below use those same connection settings, without repository/database configuration changes.
+
+Final full Rails suite: **5,788 tests / 85,136 assertions**, zero failures, errors or skips (347.4 seconds, four workers). Final related domain/statement-approval/Mia batch: **180 tests / 1,645 assertions**, zero failures, errors or skips. These run on the final API/test code; the final documentation/reporting update changes no runtime behavior.
+
+Cleanup: all started test/replay jobs finished or were explicitly stopped and reaped. The seven owned databases (`income_round3_test`, its `_0`–`_3` workers, `income_round3_related_test`, `income_round3_scorecard_test`) were dropped. Lifecycle session `manual-20261121-183215-64840-b9b3` reports no active owned resources. No servers or browser tabs were started. Shared PostgreSQL and protected services remain available; the branch/checkout is retained for the lead. No merge or deployment.
+
+Browser checks, real iPhone/Safari, live extraction/model behavior and deployment were not rerun in round 3. The older screenshots do not establish acceptance of these new ownership states. No web source changed, so the conditional web build gate does not apply.

@@ -14,9 +14,9 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
   end
 
   test "actual income counts only current included positive income and keeps missing months unknown" do
-    fresh = source([ movement(338_000, type: "income"), movement(10_000, row: 2, type: "refund"), movement(20_000, row: 3, type: "transfer") ])
+    fresh = source([ movement(338_000, type: "income").merge(merchant: "Orchid Demo payroll"), movement(10_000, row: 2, type: "refund"), movement(20_000, row: 3, type: "transfer") ])
     identity = link(fresh)
-    fresh[:events].each { |event| approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: event.event_type, purchase: nil, category: nil)) }
+    fresh[:events].each { |event| approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: event.event_type, merchant: FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), purchase: nil, category: nil)) }
     actual = HouseholdFinance::ActualIncome.new(@household)
     assert_equal 338_000, actual.month(Date.new(2026, 7, 1))[:actual_cents]
     assert actual.month(Date.new(2026, 7, 1))[:partial]
@@ -45,6 +45,62 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     event = src[:events].sole
     event.financial_source_evidence.update!(payload: event.financial_source_evidence.payload.merge("merchant" => description, "raw_description" => description))
     FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+  end
+
+  test "legacy approved deposits reopen without rewriting approvals and count after the ownership answer" do
+    src = source([ movement(40_000, type: "income", posted_on: "2026-07-06").merge(merchant: "ATM DEPOSIT"),
+      movement(80_000, row: 2, type: "income").merge(merchant: "Orchid Demo payroll") ])
+    identity = link(src, tracked: @identity.source_tracked_account)
+    src[:events].each do |event|
+      approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: "income",
+        merchant: FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), purchase: nil, category: nil))
+    end
+    attest("complete", src)
+    head = SourceReviewHead.find_by!(financial_source_event: src[:events].first)
+    old_id = head.approved_version_id
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision])
+    line = plan.lines.first
+    assert_equal :money_in_source, line.kind
+    refute line.done
+    assert plan.lines.second.done
+    july = HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))
+    assert_equal [ 80_000, true, 1 ], july.values_at(:actual_cents, :partial, :waiting_deposits)
+    assert_includes july[:coverage_note], "1 deposit still needs your answer in Review, so it isn't counted yet."
+    assert_equal old_id, head.reload.approved_version_id
+    %w[July year].each do |period|
+      answer = HouseholdFinance::MiaIncomeAnswer.new(@household, message: "How much came in this #{period} 2026?").response
+      assert_includes answer, "1 deposit still needs your answer in Review"
+    end
+    assert_equal Date.new(2026, 7, 7), answer_line(src, line, "someone_else").posted_on
+    assert_equal 120_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+    assert FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.all?(&:done)
+  end
+
+  test "complete statements with different incoming payments waiting on ownership keep the month partial" do
+    src = source([ movement(20_000, type: "income").merge(merchant: "Orchid Demo payroll"),
+      movement(9_000, row: 2, type: "transfer").merge(merchant: "Zelle From Iris Demo"),
+      movement(8_000, row: 3, type: "income").merge(merchant: "ATM DEPOSIT") ])
+    identity = link(src, tracked: @identity.source_tracked_account)
+    src[:events].each_with_index do |event, index|
+      reference = [ nil, "ownership-needed", "overlap-cleared" ][index]
+      approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: event.event_type,
+        merchant: FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), purchase: nil, category: nil,
+        external_reference: reference && "#{reference}:#{event.id}"))
+    end
+    attest("complete", src)
+    july = HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))
+    assert july[:partial]
+    assert_equal 2, july[:waiting_deposits]
+    assert_includes july[:coverage_note], "2 deposits still need your answer in Review"
+  end
+
+  test "wallet names with pay ask the money in question" do
+    [ "Google Pay", "Samsung Pay", "Amazon Pay", "PAY PAL" ].each do |wallet|
+      src = source([ movement(40_000, type: "income").merge(merchant: "#{wallet} Orchid Demo") ])
+      link(src)
+      line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+      assert_equal :money_in_source, line.kind, wallet
+    end
   end
 
   test "money into a card is never income, even approved as read" do
@@ -1435,13 +1491,13 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     run_operation(OPS::AccountLink, account_input(source).merge(tracked_account_id: tracked&.id))
   end
 
-  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" }, merchant: "Synthetic merchant", category: @category)
+  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" }, merchant: nil, category: @category, external_reference: nil)
     head = SourceReviewHead.find_by(household: @household, financial_source_event: event)
     purchase = amount&.abs if purchase == :default
     pending = head&.source_review_drafts&.pending&.first
     run_operation(OPS::DraftStage, { event_id: event.id, base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, expected_pending_draft: pending && { id: pending.id, lock_version: pending.lock_version, digest: pending.digest }, reason: reason, projection: projection,
       facts: { source_account_identity_version_id: identity.id, disposition: disposition, event_type: event_type, signed_amount_cents: amount, purchase_amount_cents: purchase, posted_on: posted_on,
-        merchant: merchant, budget_category_id: category&.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
+        merchant: merchant || FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), external_reference: external_reference, budget_category_id: category&.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
   end
 
   def draft_input(draft)
