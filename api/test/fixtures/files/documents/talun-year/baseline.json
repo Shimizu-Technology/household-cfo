@@ -108,6 +108,12 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 768500,
+        "expected_cents": 768500,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
       "analyzer_spending": {
         "actual_cents": 358586,
         "expected_cents": 358586,
@@ -265,6 +271,12 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 750000,
+        "expected_cents": 750000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
       "analyzer_spending": {
         "actual_cents": 366838,
         "expected_cents": 366838,
@@ -415,6 +427,12 @@
         }
       },
       "income": {
+        "actual_cents": 782750,
+        "expected_cents": 782750,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
         "actual_cents": 782750,
         "expected_cents": 782750,
         "error_cents": 0,
@@ -597,6 +615,12 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 750000,
+        "expected_cents": 750000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
       "analyzer_spending": {
         "actual_cents": 339897,
         "expected_cents": 339897,
@@ -743,6 +767,12 @@
         }
       },
       "income": {
+        "actual_cents": 750000,
+        "expected_cents": 750000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
@@ -897,6 +927,12 @@
         }
       },
       "income": {
+        "actual_cents": 759600,
+        "expected_cents": 759600,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
         "actual_cents": 759600,
         "expected_cents": 759600,
         "error_cents": 0,
@@ -1072,6 +1108,12 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 750000,
+        "expected_cents": 750000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
       "analyzer_spending": {
         "actual_cents": 359348,
         "expected_cents": 359348,
@@ -1218,6 +1260,12 @@
         }
       },
       "income": {
+        "actual_cents": 794200,
+        "expected_cents": 794200,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
         "actual_cents": 794200,
         "expected_cents": 794200,
         "error_cents": 0,
@@ -1372,6 +1420,12 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 750000,
+        "expected_cents": 750000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
       "analyzer_spending": {
         "actual_cents": 428752,
         "expected_cents": 428752,
@@ -1516,6 +1570,12 @@
         }
       },
       "income": {
+        "actual_cents": 750000,
+        "expected_cents": 750000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
         "actual_cents": 750000,
         "expected_cents": 750000,
         "error_cents": 0,
@@ -1687,6 +1747,12 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 771300,
+        "expected_cents": 771300,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
       "analyzer_spending": {
         "actual_cents": 360156,
         "expected_cents": 360156,
@@ -1836,6 +1902,12 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 750000,
+        "expected_cents": 750000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
       "analyzer_spending": {
         "actual_cents": 360358,
         "expected_cents": 360358,
@@ -1888,6 +1960,12 @@
       "absolute_error_percent": 0.0
     },
     "income": {
+      "actual_cents": 9126350,
+      "expected_cents": 9126350,
+      "error_cents": 0,
+      "absolute_error_percent": 0.0
+    },
+    "app_actual_income": {
       "actual_cents": 9126350,
       "expected_cents": 9126350,
       "error_cents": 0,
@@ -2177,6 +2255,12 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 768500,
+          "expected_cents": 768500,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
         "analyzer_spending": {
           "actual_cents": 358586,
           "expected_cents": 358586,
@@ -2333,6 +2417,12 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
         "analyzer_spending": {
           "actual_cents": 369013,
           "expected_cents": 366838,
@@ -2480,6 +2570,12 @@
           }
         },
         "income": {
+          "actual_cents": 782750,
+          "expected_cents": 782750,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
           "actual_cents": 782750,
           "expected_cents": 782750,
           "error_cents": 0,
@@ -2660,6 +2756,12 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
         "analyzer_spending": {
           "actual_cents": 341296,
           "expected_cents": 339897,
@@ -2803,6 +2905,12 @@
           }
         },
         "income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
@@ -2954,6 +3062,12 @@
           }
         },
         "income": {
+          "actual_cents": 759600,
+          "expected_cents": 759600,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
           "actual_cents": 759600,
           "expected_cents": 759600,
           "error_cents": 0,
@@ -3127,6 +3241,12 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
         "analyzer_spending": {
           "actual_cents": 359348,
           "expected_cents": 359348,
@@ -3271,6 +3391,12 @@
           }
         },
         "income": {
+          "actual_cents": 794200,
+          "expected_cents": 794200,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
           "actual_cents": 794200,
           "expected_cents": 794200,
           "error_cents": 0,
@@ -3423,6 +3549,12 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
         "analyzer_spending": {
           "actual_cents": 428752,
           "expected_cents": 428752,
@@ -3565,6 +3697,12 @@
           }
         },
         "income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
           "actual_cents": 750000,
           "expected_cents": 750000,
           "error_cents": 0,
@@ -3734,6 +3872,12 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 771300,
+          "expected_cents": 771300,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
         "analyzer_spending": {
           "actual_cents": 360156,
           "expected_cents": 360156,
@@ -3881,6 +4025,12 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
         "analyzer_spending": {
           "actual_cents": 360358,
           "expected_cents": 360358,
@@ -3931,6 +4081,12 @@
         "absolute_error_percent": 0.0808
       },
       "income": {
+        "actual_cents": 9126350,
+        "expected_cents": 9126350,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
         "actual_cents": 9126350,
         "expected_cents": 9126350,
         "error_cents": 0,

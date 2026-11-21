@@ -748,7 +748,7 @@ cases:
   - id: round9_how_much_came_in
     route: controller
     prompt: How much came in last month?
-    expected_phrases: [I don’t have income for June 2026]
+    expected_phrases: [Income for June 2026 is not known yet]
     forbidden_phrases: [you spent, flexible spending, purchases for this period]
     live_expected: [/income/]
     live_forbidden: [/\byou spent\b/, flexible spending]
@@ -756,7 +756,7 @@ cases:
   - id: round9_how_much_came_in_this_month
     route: controller
     prompt: How much came in this month?
-    expected_phrases: ["Your plan counts $8,000 coming in for July 2026", not a total of the deposits]
+    expected_phrases: ["You planned $8,000", No statements approved]
     forbidden_phrases: [you spent, flexible spending]
     live_expected: ["$8,000"]
     live_forbidden: [/\byou spent\b/, flexible spending]

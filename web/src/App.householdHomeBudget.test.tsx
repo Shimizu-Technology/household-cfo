@@ -449,3 +449,13 @@ it('shows a save error beside the Home view switch', () => {
   expect(error.parentElement).toBe(control.parentElement)
   expect(error.closest('.sr-only')).toBeNull()
 })
+
+it('shows approved income beside its plan with honest partial coverage', () => {
+  const actual_income = { actual_cents: 338000, partial: true, month_open: true, coverage_note: 'Only some accounts are covered. This month is still open.' }
+  const props = { dashboard: {...dashboard, month_answer: {...dashboard.month_answer!, actual_income, money_in_cents:660000}}, budget: {annual_plan: plan}, onAskMia: vi.fn(), onReviewTransactions: vi.fn(), onReviewMiaActions: vi.fn(), onReviewImports: vi.fn(), pendingImportCount: 0 } as unknown as ComponentProps<typeof HomeScreen>
+  const view = render(<HomeScreen {...props} />)
+  expect(screen.getByText('$3,380 in so far of $6,600 planned')).toBeTruthy()
+  expect(screen.getByText(actual_income.coverage_note)).toBeTruthy()
+  view.rerender(<HomeScreen {...props} dashboard={{...props.dashboard, month_answer:{...props.dashboard.month_answer!, actual_income:{...actual_income, actual_cents:null}}}} />)
+  expect(screen.getByText('Money in: Not known yet of $6,600 planned')).toBeTruthy()
+})

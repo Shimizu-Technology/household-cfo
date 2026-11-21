@@ -21,11 +21,11 @@ class ApiV1MiaAnswersTheQuestionTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
-  test "how much came in is answered with planned income under every reading and never with spending" do
+  test "how much came in is answered with unknown actual income and a separate plan under every reading and never with spending" do
     [ "How much came in last month?", "How much money came in in July?", "How much did we earn last month?" ].each do |message|
       each_reading(message) do |label|
-        assert_includes reply, "Your plan counts $8,000 coming in for July 2026", "#{label}: #{message}"
-        assert_includes reply, "not a total of the deposits on your statements", "#{label}: #{message}"
+        assert_includes reply, "Income for July 2026 is not known yet. You planned $8,000.", "#{label}: #{message}"
+        assert_includes reply, "No statements approved for this month yet.", "#{label}: #{message}"
         refute_match(/you spent|you’ve spent|flexible spending/i, reply, "#{label}: #{message}")
       end
     end
@@ -39,22 +39,22 @@ class ApiV1MiaAnswersTheQuestionTest < ActionDispatch::IntegrationTest
 
   test "income for a year adds the planned months, and a week says the plan is monthly" do
     post_message("How much have we brought in this year?")
-    assert_includes reply, "Your plan counts $16,000 coming in from July to August 2026."
+    assert_includes reply, "Income for July 2026 is not known yet. You planned $8,000."
     post_message("How much did we earn last year?")
-    assert_includes reply, "Your plan doesn’t have income for 2025."
+    assert_includes reply, "Income for January 2025 is not known yet."
     post_message("How much came in this week?")
-    assert_includes reply, "I only have your income by month, not by day or week. Your plan counts $8,000 coming in for August 2026."
+    assert_includes reply, "I only have your income by month, not by day or week. Income for August 2026 is not known yet. You planned $8,000."
   end
 
   test "a month she names or calls this month wins over so far and a year beside it" do
     post_message("How much has come in so far this month?")
-    assert_includes reply, "Your plan counts $8,000 coming in for August 2026."
+    assert_includes reply, "Income for August 2026 is not known yet. You planned $8,000."
     post_message("How much came in so far in July?")
-    assert_includes reply, "Your plan counts $8,000 coming in for July 2026."
+    assert_includes reply, "Income for July 2026 is not known yet. You planned $8,000."
     post_message("How much came in in December last year?")
-    assert_includes reply, "I don’t have income for December 2025."
+    assert_includes reply, "Income for December 2025 is not known yet."
     post_message("How much came in in 2026-07?")
-    assert_includes reply, "Your plan counts $8,000 coming in for July 2026."
+    assert_includes reply, "Income for July 2026 is not known yet. You planned $8,000."
   end
 
   test "money in versus money out is not an income-only question" do
@@ -64,7 +64,7 @@ class ApiV1MiaAnswersTheQuestionTest < ActionDispatch::IntegrationTest
 
   test "income before the plan starts says so instead of reporting spending" do
     post_message("How much came in in June?")
-    assert_includes reply, "Your plan starts in July 2026, so I don’t have income for June 2026."
+    assert_includes reply, "Income for June 2026 is not known yet."
     refute_match(/you spent/i, reply)
   end
 

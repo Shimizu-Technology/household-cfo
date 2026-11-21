@@ -13,6 +13,18 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     @identity = link(@source)
   end
 
+  test "actual income counts only current included positive income and keeps missing months unknown" do
+    fresh = source([ movement(338_000, type: "income"), movement(10_000, row: 2, type: "refund"), movement(20_000, row: 3, type: "transfer") ])
+    identity = link(fresh)
+    fresh[:events].each { |event| approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: event.event_type, purchase: nil, category: nil)) }
+    actual = HouseholdFinance::ActualIncome.new(@household)
+    assert_equal 338_000, actual.month(Date.new(2026, 7, 1))[:actual_cents]
+    assert actual.month(Date.new(2026, 7, 1))[:partial]
+    assert_nil actual.month(Date.new(2026, 6, 1))[:actual_cents]
+    answer = HouseholdFinance::MiaIncomeAnswer.new(@household, message: "How much did I make in July 2026?").response
+    assert_includes answer, "$3,380 came in"
+  end
+
   test "an approved line with a pending correction remains an individual question" do
     event = @source[:events].sole
     approve(stage(event))

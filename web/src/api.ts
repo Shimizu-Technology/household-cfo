@@ -468,6 +468,7 @@ export type MiaMonthAnswer = {
   main_income_missing?: boolean
   missing_plan_inputs?: Array<{ label: string; destination: 'profile' | 'budget' | 'debt' }>
   cushion_missing_inputs?: Array<{ label: string; destination: 'profile' | 'budget' | 'debt' | 'accounts' }>
+  actual_income?: ActualIncome
   money_in_cents: number | null
   planned_out_cents: number | null
   category_plan_cents?: number | null
@@ -488,6 +489,8 @@ export type MiaMonthAnswer = {
   surplus_tone?: StatusTone | null
   status_rule?: MethodStatusRule
 }
+
+export type ActualIncome = { actual_cents: number | null; partial: boolean; month_open: boolean; coverage_note: string }
 
 export type DashboardData = {
   month_answer?: MiaMonthAnswer
@@ -876,6 +879,7 @@ export type AnnualBudgetPlan = {
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
   plan_starts_on?: string
+  actual_income?: Record<number, ActualIncome>
   monthly_income: Record<number, number | null>
   monthly_debt_minimums: number
   monthly_debt_minimums_known?: boolean

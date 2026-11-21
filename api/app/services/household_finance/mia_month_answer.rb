@@ -104,6 +104,7 @@ module HouseholdFinance
           missing_plan_inputs: missing_plan_inputs(income, categories, debt),
           cushion_missing_inputs: cushion_missing_inputs(snapshot, income, categories, debt),
           year: year, month: month, period_label: Date.new(year, month, 1).strftime("%B %Y"),
+          actual_income: ActualIncome.new(household).month(Date.new(year, month, 1)),
           money_in_cents: income, planned_out_cents: planned, category_plan_cents: categories,
           before_debt_payments: !!before_debt,
           before_debt_out_cents: before_debt ? categories : nil,

@@ -1,3 +1,4 @@
+import { ActualIncomeLine } from './HomeScreen'
 import { plannedOutForMonth } from '../lib/plannedOutForMonth'
 import { useId, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey, DashboardData } from '../api'
@@ -69,6 +70,8 @@ export function BudgetPlanStrip({ plan, monthIndex, planKnown, confirmedFields =
   const left = answer ? (answer.plan_left_cents == null ? null : answer.plan_left_cents / 100) : income != null && planned != null ? subtractMoney(income, planned) : null
   return <section className={`budget-plan-strip ui-card${[income, planned, left].some(value => value == null || formatReviewMoney(Math.round(Math.abs(value) * 100)).length >= 9) ? ' is-long-money' : ''}`} aria-label={`${month?.label ?? 'Selected month'} plan position`}>
     <p className="budget-strip-period ui-label">{month && new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month.starts_on}T00:00:00Z`))}</p>
+    <ActualIncomeLine actual={plan.actual_income?.[monthIndex + 1]} plannedCents={income == null ? null : Math.round(income * 100)} />
+    {plan.actual_income?.[monthIndex + 1]?.actual_cents != null && income != null && <p style={{ fontVariantNumeric: 'tabular-nums' }}>Difference from plan: {formatReviewMoney(plan.actual_income[monthIndex + 1].actual_cents! - Math.round(income * 100))}</p>}
     <dl>
       <div><dt>Money in</dt><dd>{income == null ? 'Not entered' : formatReviewMoney(Math.round(income * 100))}</dd></div>
       <div><dt>Planned out</dt><dd>{planned == null ? 'Not entered' : formatReviewMoney(Math.round(planned * 100))}</dd></div>

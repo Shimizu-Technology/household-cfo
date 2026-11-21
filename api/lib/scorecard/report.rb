@@ -84,6 +84,7 @@ module Scorecard
       decisions = @simulator.decisions.fetch(month, {})
       { "total_spending" => metric(transactions.sum(&:total_amount_cents) - refunds.sum(&:amount_cents) + cash.values.sum, expected.fetch("total_spending_cents")),
         "spending_by_category" => categories, "income" => metric(income.sum { |row| row[:signed_amount_cents] }, expected.fetch("income_cents")),
+        "app_actual_income" => metric(budget.fetch(:actual_income).fetch(number).fetch(:actual_cents).to_i, expected.fetch("income_cents")),
         "analyzer_spending" => metric(analysis[:observed_spending_cents].to_i, expected.fetch("total_spending_cents")),
         "double_counts" => double_counts, "transfer_leakage_cents" => leaked_spending + leaked_income,
         "transfer_leakage_spending_cents" => leaked_spending, "transfer_leakage_income_cents" => leaked_income,
@@ -118,7 +119,7 @@ module Scorecard
     end
 
     def aggregate(months)
-      keys = %w[total_spending income analyzer_spending]
+      keys = %w[total_spending income app_actual_income analyzer_spending]
       result = keys.to_h { |key| [ key, metric(months.sum { |row| row.dig(key, "actual_cents") }, months.sum { |row| row.dig(key, "expected_cents") }) ] }
       result["spending_by_category"] = months.flat_map { |row| row.fetch("spending_by_category").keys }.uniq.to_h do |name|
         values = months.filter_map { |row| row.dig("spending_by_category", name) }

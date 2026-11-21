@@ -1,9 +1,7 @@
 # frozen_string_literal: true
 
 module HouseholdFinance
-  # "How much came in?" is answered with income, never with spending. Until
-  # approved statement deposits are totalled, the figure is the plan's, and the
-  # reply says so.
+  # Rails supplies approved income and plan comparisons.
   class MiaIncomeAnswer
     QUESTION = /\bhow much\b[^?.!]{0,30}\b(?:came|come|comes|coming)\s+in\b|\bhow much\b[^?.!]{0,30}\b(?:did|do|does|have|will)\s+(?:we|i|you)\s+(?:earn|make|bring\s+in|get\s+paid)\b|\bhow much\b[^?.!]{0,20}\b(?:did|have)\s+(?:we|i)\s+(?:earned|made|brought\s+in|gotten\s+paid|been\s+paid)\b|\bhow much\s+(?:money\s+)?(?:did|do)\s+(?:we|i)\s+(?:get\s+)?paid\b/i
     # A question about a purchase, a change to the plan or a "what if" is not a
@@ -13,8 +11,6 @@ module HouseholdFinance
     REPORTED_AMOUNT = /\$\s?\d|\b\d{1,3}(?:,\d{3})+(?:\.\d{2})?\b|\b\d+\.\d{2}\b/
     WEEK = /\b(?:this|last|past)\s+week\b|\btoday\b|\byesterday\b/i
     YEAR = /\b(?:this|last|past)\s+year\b|\byear[- ]to[- ]date\b|\bytd\b/i
-
-    STATEMENTS_NOTE = "I don’t add up the deposits on your statements yet."
 
     # Saved-records questions ("what's my income?") keep their own detailed answer,
     # but no income question is ever answered with spending.
@@ -62,33 +58,17 @@ module HouseholdFinance
       plan ||= AnnualBudgetManager.new(@household, year: date.year).read_only_plan_data
       facts = MiaMonthAnswer.new(@household, annual_plan: plan, month: date.month).call
       period = facts[:period_label]
-      if facts[:before_plan_start]
-        start = Date.iso8601(facts[:plan_starts_on]).strftime("%B %Y")
-        return "Your plan starts in #{start}, so I don’t have income for #{period}. #{STATEMENTS_NOTE}"
-      end
-      return "Your #{facts[:year]} plan isn’t set up yet, so I don’t have income for #{period}. #{STATEMENTS_NOTE}" unless facts[:plan_available]
-
-      income = facts[:money_in_cents]
-      return "Your plan doesn’t have your income for #{period} yet. Add it in My Money → Income and I can answer this. #{STATEMENTS_NOTE}" if income.nil?
-
-      "Your plan counts #{money(income)} coming in for #{period}. That’s what you planned, not a total of the deposits on your statements, so what actually arrived may be different."
+      actual = facts.fetch(:actual_income)
+      received = actual[:actual_cents]
+      plan_note = facts[:money_in_cents].nil? ? "There is no income plan for this month." : "You planned #{money(facts[:money_in_cents])}."
+      lead = received.nil? ? "Income for #{period} is not known yet." : "#{money(received)} came in for #{period} from the lines you approved."
+      "#{lead} #{plan_note} #{actual[:coverage_note]}"
     end
 
-    # "This year" runs through the current month; a past year is the whole year.
+    # Keep every month visible rather than hiding gaps in a year total.
     def year_response(today, year)
-      plan = AnnualBudgetManager.new(@household, year: year).read_only_plan_data
       last = year == today.year ? today.month : 12
-      months = (1..last).filter_map do |month|
-        facts = MiaMonthAnswer.new(@household, annual_plan: plan, month: month).call
-        [ month, facts[:money_in_cents] ] if facts[:plan_available] && !facts[:before_plan_start]
-      end
-      known = months.reject { |_, cents| cents.nil? }
-      return "Your plan doesn’t have income for #{year}. #{STATEMENTS_NOTE}" if known.empty?
-
-      span = known.one? ? Date.new(year, known.first[0], 1).strftime("%B %Y") : "#{Date::MONTHNAMES[known.first[0]]} to #{Date.new(year, known.last[0], 1).strftime('%B %Y')}"
-      missing = months.count { |month, cents| cents.nil? && month.between?(known.first[0], known.last[0]) }
-      gap = missing.positive? ? " #{missing} #{'month'.pluralize(missing)} in that time #{missing == 1 ? 'has' : 'have'} no income in your plan." : ""
-      "Your plan counts #{money(known.sum(&:last))} coming in #{known.one? ? "for" : "from"} #{span}.#{gap} That’s what you planned, not a total of the deposits on your statements, so what actually arrived may be different."
+      (1..last).map { |month| month_response(Date.new(year, month, 1)) }.join(" ")
     end
 
     def money(cents)
