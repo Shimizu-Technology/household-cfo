@@ -15,6 +15,7 @@ module Scorecard
       @included_legs = Set.new
       @same_charge_ids = Set.new
       @receipt_paths = {}
+      @coverage_answers = {}
     end
 
     def call(document, doc)
@@ -142,13 +143,29 @@ module Scorecard
         end
       end
       state = REVIEW::ApprovalState.new(@household, revision).call
+      covered = mappings.values.compact.map { |line| line["line_id"] }.uniq.length == doc.fetch("lines").length
+      @coverage_answers[revision] = [ doc, covered ? "nothing_missing" : "something_missing" ]
       if REVIEW::CoverageQuestion.text(revision, deficiencies: state[:deficiencies])
         count(doc, :coverage)
-        covered = mappings.values.compact.map { |line| line["line_id"] }.uniq.length == doc.fetch("lines").length
         approve(revision, lines: [], coverage_answer: covered ? "nothing_missing" : "something_missing",
           expected_coverage_id: REVIEW::CoverageQuestion.latest(revision)&.id)
       end
       review_receipts(document, doc) if doc["kind"] == "receipt"
+    end
+
+    # Later files can change transfer/match/group dependencies in an earlier
+    # statement's review digest. Revisit only stale answers after all line saves,
+    # using the same truth in both corrected and questions-only runs.
+    def reconfirm_stale_coverage
+      @coverage_answers.each do |revision, (doc, answer)|
+        latest = REVIEW::CoverageQuestion.latest(revision)
+        next unless latest
+        state = REVIEW::ApprovalState.new(@household, revision).call
+        next if latest.digest == state[:content_digest]
+
+        approve(revision, lines: [], coverage_answer: answer, expected_coverage_id: latest.id)
+        count(doc, :coverage_reconfirmation)
+      end
     end
 
     private

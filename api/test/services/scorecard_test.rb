@@ -46,6 +46,8 @@ class ScorecardTest < ActiveSupport::TestCase
     assert_equal false, report.send(:known_metric, 12_000, 20_000, partial: true)["known"]
     assert_equal true, report.send(:known_metric, 20_000, 20_000, partial: false)["known"]
     months = JSON.parse(Scorecard::Runner::TALUN.join("baseline.json").read).fetch("months").values
+    months.each { |month| month["app_actual_income"] = report.send(:known_metric, 20_000, 20_000, partial: false) }
+    assert_equal true, report.send(:aggregate, months).dig("app_actual_income", "known")
     months.first["app_actual_income"] = report.send(:known_metric, 12_000, 20_000, partial: true)
     assert_equal false, report.send(:aggregate, months).dig("app_actual_income", "known")
   end
