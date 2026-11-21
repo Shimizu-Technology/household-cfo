@@ -1,6 +1,6 @@
 import type { MethodOptionalProtectedCategory, MethodSettings } from '../api'
 import { Button } from './Button'
-import { coreProtected, defaultMethod, methodProblems, optionalProtected, priorityLabels, protectedLabels, splitLabels, windfallLabels } from '../lib/methodSettings'
+import { coreProtected, debtOrderChoices, defaultMethod, groupNameChoices, homeViewChoices, methodProblems, optionalProtected, priorityLabels, protectedLabels, splitLabels, windfallLabels } from '../lib/methodSettings'
 
 type Props = {
   method: MethodSettings
@@ -80,9 +80,29 @@ export function MethodSettingsEditor({ method, disabled, onChange }: Props) {
         </div>
         <small>Adds up to {[method.income_split.emergency_fund, method.income_split.debt, method.income_split.surplus].reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0)}%.</small>
       </fieldset>
+      <MethodChoice legend="Spending group names" name="group_names" choices={groupNameChoices} value={method.group_names} disabled={disabled} onChange={group_names => onChange({ ...method, group_names })} note="Names only. Categories and totals stay the same." />
+      <MethodChoice legend="Home leads with" name="home_view" choices={homeViewChoices} value={method.home_view} disabled={disabled} onChange={home_view => onChange({ ...method, home_view })} note="Each person can still switch Home for themselves." />
+      <MethodChoice legend="Debt payoff" name="debt_order" choices={debtOrderChoices} value={method.debt_order} disabled={disabled} onChange={debt_order => onChange({ ...method, debt_order })} note="Mia always keeps every minimum paid first." />
       {problems.length > 0 && <ul className="experience-method-problems" role="alert">{problems.map(problem => <li key={problem}>{problem}</li>)}</ul>}
       <Button variant="ghost" disabled={disabled || isDefault} onClick={() => onChange(defaultMethod)}>Use the usual method</Button>
     </article>
+  )
+}
+
+function MethodChoice<T extends string>({ legend, name, choices, value, disabled, onChange, note }: { legend: string; name: string; choices: Array<[T, string, string]>; value: T; disabled: boolean; onChange: (value: T) => void; note: string }) {
+  return (
+    <fieldset disabled={disabled}>
+      <legend>{legend}</legend>
+      <div className="experience-method-choices">
+        {choices.map(([key, label, detail]) => (
+          <label key={key}>
+            <input type="radio" name={`method-${name}`} value={key} checked={value === key} onChange={() => onChange(key)} />
+            <span><strong>{label}</strong><small>{detail}</small></span>
+          </label>
+        ))}
+      </div>
+      <small>{note}</small>
+    </fieldset>
   )
 }
 

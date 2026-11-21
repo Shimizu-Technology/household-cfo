@@ -74,8 +74,14 @@ module HouseholdFinance
         goal_portfolio: GoalPortfolio.new(household).as_json,
         cohort: cohort_context,
         capabilities: participant_capabilities,
+        home_view: home_view,
         brand: brand
       }
+    end
+
+    # Month or year first on Home: the program's default, or this person's own choice.
+    def home_view
+      HomeView.payload(method_settings, membership: user && household.household_memberships.find_by(user_id: user.id))
     end
 
     def participant_capabilities

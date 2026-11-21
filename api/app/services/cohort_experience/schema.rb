@@ -115,7 +115,7 @@ module CohortExperience
       input = value.respond_to?(:to_h) ? value.to_h.deep_stringify_keys : {}
       return MethodSettings.defaults unless input["schema_version"] == 5 && MethodSettings.errors(input["method"]).empty?
 
-      MethodSettings.normalize(input["method"])
+      MethodSettings.resolve(input["method"])
     end
 
     # Upgrading a draft is explicit; historical config bytes and digests stay unchanged.

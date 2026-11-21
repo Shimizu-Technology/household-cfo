@@ -1,11 +1,7 @@
 module HouseholdFinance
   class SnapshotBuilder
-    STACK_LABELS = {
-      "non_discretionary" => "Non-discretionary",
-      "discretionary" => "Discretionary",
-      "sinking_expected" => "Sinking Fund — Expected",
-      "sinking_unexpected" => "Sinking Fund — Unexpected"
-    }.freeze
+    # The default (plain) group names. A program may use Mrs. Mel's terms; see ExpenseGroups.
+    STACK_LABELS = ExpenseGroups.labels
 
     STACK_COLORS = {
       "non_discretionary" => "green",
@@ -82,7 +78,8 @@ module HouseholdFinance
       ExpenseItem::STACK_KEYS.map do |stack_key|
         allocations = current_allocations.select { |allocation| allocation.budget_category.stack_key == stack_key }
         {
-          label: STACK_LABELS.fetch(stack_key),
+          stack_key: stack_key,
+          label: ExpenseGroups.label(stack_key, method_settings),
           color: STACK_COLORS.fetch(stack_key),
           amount: dollars(stack_totals_cents.fetch(stack_key)),
           description: STACK_DESCRIPTIONS.fetch(stack_key),

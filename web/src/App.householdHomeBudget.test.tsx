@@ -396,3 +396,31 @@ it('shows a before-debt shortfall as a positive shortfall amount', () => {
   expect(screen.getByText('Shortfall · before debt payments').parentElement?.textContent).toContain('$300')
   expect(screen.getByText('Shortfall · before debt payments').parentElement?.textContent).not.toContain('-$300')
 })
+
+it('leads Home with the month by default and the year when the program or she chooses it, and saves her switch', () => {
+  const props = { dashboard, budget: { annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget'], onAskMia: vi.fn(), onReviewTransactions: vi.fn(), onReviewMiaActions: vi.fn(), onReviewImports: vi.fn(), pendingImportCount: 0 }
+  const order = (container: HTMLElement) => Array.from(container.querySelectorAll('.home-month-answer, .year-outlook')).map(element => element.classList.contains('year-outlook') ? 'year' : 'month')
+  const change = vi.fn()
+  const view = render(<HomeScreen {...props} onChangeHomeView={change} />)
+  expect(order(view.container)).toEqual(['month', 'year'])
+  const yearCard = screen.getByRole('region', { name: 'Year outlook' })
+  fireEvent.click(within(yearCard).getByRole('button', { name: 'Show the year first' }))
+  expect(change).toHaveBeenCalledWith('year')
+
+  view.rerender(<HomeScreen {...props} homeView="year" onChangeHomeView={change} />)
+  expect(order(view.container)).toEqual(['year', 'month'])
+  expect(view.container.querySelector('.home-screen--year-first')).toBeTruthy()
+  fireEvent.click(within(screen.getByRole('region', { name: 'Year outlook' })).getByRole('button', { name: 'Show this month first' }))
+  expect(change).toHaveBeenLastCalledWith('month')
+  // The money shown is the same either way.
+  expect(view.container.querySelector('.home-money-values')?.textContent).toContain('$4,020')
+
+  view.rerender(<HomeScreen {...props} homeView="year" onChangeHomeView={change} homeViewSaving />)
+  expect(screen.getByRole('button', { name: 'Show this month first' })).toHaveProperty('disabled', true)
+  // No saved choice to change (demo), or no year plan: no switch.
+  view.rerender(<HomeScreen {...props} homeView="year" />)
+  expect(screen.queryByRole('button', { name: /first$/ })).toBeNull()
+  view.rerender(<HomeScreen {...props} budget={{} as ComponentProps<typeof HomeScreen>['budget']} homeView="year" onChangeHomeView={change} />)
+  expect(screen.queryByRole('button', { name: /first$/ })).toBeNull()
+  expect(order(view.container)).toEqual(['month'])
+})

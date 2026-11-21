@@ -484,7 +484,7 @@ module HouseholdFinance
     end
 
     def stack_label(key)
-      SnapshotBuilder::STACK_LABELS.fetch(key.to_s, key.to_s.humanize)
+      ExpenseGroups.label(key, draft.household && CohortExperience::MethodSettings.for_household(draft.household))
     end
 
     def setup_coverage_after_apply

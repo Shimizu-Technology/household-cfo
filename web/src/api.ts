@@ -101,8 +101,13 @@ export type WorkspaceData = {
     status: AdminCohortStatus
   }
   capabilities: ExperienceCapabilities
+  /** What Home leads with: the program's method default, or this person's own saved choice. */
+  home_view?: HomeViewChoice
   brand: BrandRuntime
 }
+
+export type HomeView = 'month' | 'year'
+export type HomeViewChoice = { program: HomeView; chosen: HomeView | null; effective: HomeView }
 
 export type AccountType = 'checking' | 'savings' | 'emergency_fund' | 'retirement' | 'investment' | 'property' | 'other'
 export type AccountRecord = {
@@ -961,6 +966,7 @@ export type BudgetData = {
   total_monthly_outflow: number
   baseline_surplus: number
   stacks: Array<{
+    stack_key?: BudgetStackKey
     label: string
     color: string
     amount: number
@@ -2058,8 +2064,18 @@ export type MethodProtectedCategory = MethodCoreProtectedCategory | MethodOption
 export type MethodPriority = 'emergency_fund' | 'debt' | 'wealth' | 'experiences'
 export type MethodWindfallStep = 'emergency_fund' | 'consumer_debt' | 'surplus'
 
+export type MethodGroupNames = 'plain' | 'method'
+export type MethodDebtOrder = 'both' | 'snowball' | 'avalanche'
+
+/** Display choices added later in schema 5; a stored block without them reads as their defaults. */
+export type MethodDisplayChoices = {
+  group_names: MethodGroupNames
+  home_view: HomeView
+  debt_order: MethodDebtOrder
+}
+
 /** Mrs. Mel's coaching method for a group (schema 5). Older schemas read as the defaults. */
-export type MethodSettings = {
+export type MethodSettings = MethodDisplayChoices & {
   status: MethodStatusRule
   emergency_fund_months: number
   protected: MethodProtectedCategory[]
@@ -2068,6 +2084,9 @@ export type MethodSettings = {
   income_split: { emergency_fund: number; debt: number; surplus: number }
 }
 
+/** A saved draft or release may predate the display choices. */
+export type StoredMethodSettings = Omit<MethodSettings, keyof MethodDisplayChoices> & Partial<MethodDisplayChoices>
+
 export type ConfigurableCohortExperienceDraft = {
   schema_version: 4 | 5
   experience_mode: ExperienceMode
@@ -2075,7 +2094,7 @@ export type ConfigurableCohortExperienceDraft = {
   module_order?: ExperienceModuleId[]
   optional_modules: Record<ConfigurableExperienceModuleId, boolean>
   /** Schema 5 only. */
-  method?: MethodSettings
+  method?: StoredMethodSettings
 }
 
 /** Historical schemas retain their sealed meaning; schema 4 adds module visibility and order; schema 5 adds the method. */
@@ -4288,6 +4307,13 @@ export async function forgetHouseholdMemory(id: number): Promise<void> {
   return fetchJson<void>(`/api/v1/household_memories/${id}`, { method: 'DELETE' })
 }
 
+/** Saves what Home leads with for the signed-in person; null goes back to the program's default. */
+export async function updateHomeView(chosen: HomeView | null): Promise<{ home_view: HomeViewChoice }> {
+  return fetchJson('/api/v1/home_view', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ home_view: { chosen } }),
+  })
+}
+
 export async function setMiaPersonalizationPaused(paused: boolean): Promise<{ personalization: MiaMemoryData['personalization'] }> {
   return fetchJson('/api/v1/mia_memory_settings', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personalization: { paused } }),
@@ -5161,16 +5187,21 @@ export async function fetchSharedChallengeSource(enrollmentId: number, sourceId:
   })
 }
 
+/** A group's total by its key; the demo's sealed data names groups only by label. */
+function stackAmount(budget: BudgetData, key: BudgetStackKey, demoLabel: string) {
+  return budget.stacks.find((stack) => stack.stack_key ? stack.stack_key === key : stack.label === demoLabel)?.amount ?? 0
+}
+
 function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {
   return {
     household_name: profile.household.name,
     primary_goal: profile.household.primary_goal,
     primary_income: dashboard.summary.monthly_income,
     business_income: 0,
-    fixed_expenses: budget.stacks.find((stack) => stack.label === 'Non-discretionary')?.amount ?? 0,
-    flexible_spend: budget.stacks.find((stack) => stack.label === 'Discretionary')?.amount ?? 0,
-    expected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Expected')?.amount ?? 0,
-    unexpected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Unexpected')?.amount ?? 0,
+    fixed_expenses: stackAmount(budget, 'non_discretionary', 'Non-discretionary'),
+    flexible_spend: stackAmount(budget, 'discretionary', 'Discretionary'),
+    expected_sinking_fund: stackAmount(budget, 'sinking_expected', 'Sinking Fund — Expected'),
+    unexpected_sinking_fund: stackAmount(budget, 'sinking_unexpected', 'Sinking Fund — Unexpected'),
     emergency_fund: dashboard.accounts.find((account) => account.name === 'Emergency Fund')?.balance ?? 0,
     other_assets: wealth.summary.net_worth ?? 0,
     credit_card_debt: Math.abs(dashboard.accounts.find((account) => account.type === 'debt')?.balance ?? 0),

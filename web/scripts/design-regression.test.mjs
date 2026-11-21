@@ -108,8 +108,11 @@ assert.ok(app.includes('Budget impact if approved'), 'transaction review cards s
 assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')
 
 assert.ok(budgetVisuals.includes('Your spending groups'), 'the budget groups should explain the spending plan in everyday words')
+// The group names live in one place; plain words stay the default a program can change.
+const expenseGroups = readFileSync(resolve(__dirname, '../src/lib/expenseGroups.ts'), 'utf8')
+assert.ok(budgetVisuals.includes('useExpenseGroupNames') && expenseGroups.includes("createContext<MethodGroupNames>('plain')"), 'the budget groups should read the program’s names, plain words by default')
 for (const stackLabel of ['Must-pay bills', 'Flexible spending', 'Planned yearly costs', 'Surprise fund']) {
-  assert.ok(budgetVisuals.includes(stackLabel), `the visible budget cockpit should include the ${stackLabel} fallback label`)
+  assert.ok(expenseGroups.includes(stackLabel), `the visible budget cockpit should include the ${stackLabel} fallback label`)
 }
 assert.ok(app.includes('demoUploads.map') && app.includes('<h3>{upload.label}</h3>'), 'the visible demo Profile should render every approved upload label')
 for (const uploadLabel of ['Upload spreadsheet', 'Upload statement', 'Upload pay stub']) {

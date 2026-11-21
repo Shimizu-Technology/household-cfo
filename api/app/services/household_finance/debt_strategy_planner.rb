@@ -19,11 +19,22 @@ module HouseholdFinance
       text.match?(QUESTION_PATTERN) || (text.match?(/\bdebt\b/i) && text.match?(/\b(?:concrete|detailed|three-step|step-by-step)\b.{0,40}\bplan\b|\bplan\b.{0,80}\bdebt\b/i))
     end
 
-    def initialize(household, message, conversation_messages: [], ensure_plan: true)
+    DEBT_ORDERS = CohortExperience::MethodSettings::CHOICES.fetch("debt_order")
+
+    # debt_order: the program's payoff default. "both" (the default) lays snowball and
+    # avalanche side by side for her to choose; "snowball" or "avalanche" leads with that
+    # one and still names the other. nil reads the household's own program.
+    def initialize(household, message, conversation_messages: [], ensure_plan: true, debt_order: nil)
       @household = household
       @message = message.to_s.squish
       @conversation_messages = Array(conversation_messages)
       @ensure_plan = ensure_plan
+      @debt_order = debt_order
+    end
+
+    def debt_order
+      @debt_order = CohortExperience::MethodSettings.for_household(household).fetch("debt_order") unless DEBT_ORDERS.include?(@debt_order)
+      @debt_order
     end
 
     def call
@@ -61,11 +72,13 @@ module HouseholdFinance
 
       lines = []
       lines << source_line(approved_debts, scenario_debts, scenario_only_debts, debts)
+      snowball_line = "Snowball: #{strategy_target(snowball, include_apr: false)}" if snowball
+      lines << snowball_line if debt_order == "snowball"
       lines << "Avalanche: #{strategy_target(avalanche, include_apr: true)}" if avalanche
       lines << "At least one balance is not entered. Confirm every balance before I rank avalanche or snowball or recommend extra principal; a missing balance is not $0." unless balances_known
       lines << "Avalanche needs each outstanding debt's APR before I can rank the debts honestly." if balances_known && outstanding_debts.any? && !avalanche
       lines << "All listed balances are confirmed at $0; there is no outstanding target for extra principal. Verify current statements before treating a debt as settled." if balances_known && outstanding_debts.empty?
-      lines << "Snowball: #{strategy_target(snowball, include_apr: false)}" if snowball
+      lines << snowball_line unless debt_order == "snowball"
       minimum_label = debts.length == 2 ? "Keep both minimums current first" : "Keep every required minimum current first"
       lines << "#{minimum_label} (#{money(minimums)} total across the debts listed)."
       lines << "At least one monthly minimum is not entered, so that total is incomplete." unless debts.all? { |debt| debt_value_known?(debt, :minimum_payment) }
@@ -121,11 +134,11 @@ module HouseholdFinance
     end
 
     def numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known:, balances_known:)
-      target = avalanche || snowball
+      target = debt_order == "snowball" ? snowball || avalanche : avalanche || snowball
       extra = [ adjusted_surplus, 0 ].max
       target_line = target ? "#{debt_label(target)}" : "the selected target debt"
       unless cash_flow_known
-        return "1. Enter your monthly debt payments. 2. Protect essential bills and emergency runway. 3. After the baseline is complete, choose avalanche or snowball and set an extra payment that fits the verified surplus. No payment is made automatically."
+        return "1. Enter your monthly debt payments. 2. Protect essential bills and emergency runway. 3. After the baseline is complete, #{choose_line} and set an extra payment that fits the verified surplus. No payment is made automatically."
       end
       unless target
         return "1. Protect essential bills. 2. Keep emergency runway and near-term expenses funded. 3. No extra principal is needed for the currently recorded $0 balances; verify statements before changing required payments. No payment is made automatically." if balances_known
@@ -133,14 +146,49 @@ module HouseholdFinance
         return "1. Protect essential bills and every required minimum. 2. Verify current debt balances and APRs. 3. Choose a confirmed outstanding target before scheduling extra principal. No payment is made automatically."
       end
       if extra.positive?
-        remaining_after_minimum = [ debt_value(target, :balance_cents).to_i - debt_value(target, :minimum_payment_cents).to_i, 0 ].max
-        extra = [ extra, remaining_after_minimum ].min
+        return side_by_side_plan(avalanche, snowball, extra) if debt_order == "both" && avalanche && snowball && avalanche != snowball
+
+        extra = extra_cap(target, extra)
         return "1. Protect essential bills and every debt minimum. 2. Verify the latest amount due on #{target_line}. 3. Its recorded minimum already covers its recorded balance, so do not add extra principal to it from this model. No payment is made automatically." if extra.zero?
 
-        strategy = avalanche ? "choose avalanche for lower interest cost or snowball for the fastest closed balance" : "this is a snowball target; confirm missing APRs before choosing avalanche"
-        "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and known near-term expenses aside. 3. Send a fixed amount of up to #{money(extra)} from the current monthly surplus to #{target_line}; #{strategy}. This cap allows for its recorded minimum; verify the current statement or payoff amount because interest and new charges can change it. No payment is made automatically."
+        "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and known near-term expenses aside. 3. Send a fixed amount of up to #{money(extra)} from the current monthly surplus to #{target_line}; #{strategy_note(avalanche, snowball)}. This cap allows for its recorded minimum; verify the current statement or payoff amount because interest and new charges can change it. No payment is made automatically."
       else
         "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and pause new card spending. 3. Do not schedule extra principal while the adjusted baseline is not positive; contact issuers before a due date if a minimum is at risk, then restart with #{target_line} when cash flow recovers. No payment is made automatically."
+      end
+    end
+
+    # The default: both payoff orders with their own caps; she picks one.
+    def side_by_side_plan(avalanche, snowball, extra)
+      options = [ [ "Avalanche", avalanche, "lower interest cost" ], [ "Snowball", snowball, "the fastest closed balance" ] ].map do |name, debt, benefit|
+        cap = extra_cap(debt, extra)
+        next "#{name}: #{debt_label(debt)}'s recorded minimum already covers its recorded balance, so no extra principal goes there" if cap.zero?
+
+        "#{name}: up to #{money(cap)} to #{debt_label(debt)} for #{benefit}"
+      end
+      "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and known near-term expenses aside. 3. Choose one and send a fixed amount from the current monthly surplus. #{options.join('. ')}. Each cap allows for that debt's recorded minimum; verify the current statement or payoff amount because interest and new charges can change it. No payment is made automatically."
+    end
+
+    def extra_cap(debt, extra)
+      remaining_after_minimum = [ debt_value(debt, :balance_cents).to_i - debt_value(debt, :minimum_payment_cents).to_i, 0 ].max
+      [ extra, remaining_after_minimum ].min
+    end
+
+    def choose_line
+      case debt_order
+      when "snowball" then "start with snowball (smallest balance first) unless you prefer avalanche"
+      when "avalanche" then "start with avalanche (highest APR first) unless you prefer snowball"
+      else "choose avalanche or snowball"
+      end
+    end
+
+    def strategy_note(avalanche, snowball)
+      return "avalanche and snowball both start here" if avalanche && snowball && avalanche == snowball
+      return "this is a snowball target; confirm missing APRs before choosing avalanche" unless avalanche
+
+      case debt_order
+      when "snowball" then "your program starts with snowball (smallest balance first); avalanche would start with #{debt_label(avalanche)} for lower interest cost"
+      when "avalanche" then "your program starts with avalanche (highest APR first); snowball would start with #{debt_label(snowball)} for the fastest closed balance"
+      else "choose avalanche for lower interest cost or snowball for the fastest closed balance"
       end
     end
 
@@ -163,7 +211,9 @@ module HouseholdFinance
       else
         "Keep protected runway and known near-term bills intact before using any of the #{money(amount)} for principal."
       end
-      targets = [ avalanche && "avalanche targets #{debt_label(avalanche)}", snowball && "snowball targets #{debt_label(snowball)}" ].compact.join("; ")
+      targets = [ avalanche && "avalanche targets #{debt_label(avalanche)}", snowball && "snowball targets #{debt_label(snowball)}" ].compact
+      targets.reverse! if debt_order == "snowball"
+      targets = targets.join("; ")
       decision_note = if message.match?(/tax refund/i)
         "Treat the #{money(amount)} tax refund as available only after it clears; this plan does not determine tax eligibility or obligations. "
       else

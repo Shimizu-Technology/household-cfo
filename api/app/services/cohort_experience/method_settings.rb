@@ -3,7 +3,9 @@
 module CohortExperience
   # Mrs. Mel's method as program settings. A coach edits them in the program
   # tools draft and they reach participants only through Go live (schema 5).
-  # Anything older than schema 5 reads as these defaults.
+  # Anything older than schema 5 reads as these defaults. The display choices
+  # (OPTIONAL_KEYS) came later in schema 5: a block without them reads as their
+  # defaults and keeps its bytes and digest.
   module MethodSettings
     # Never suggested as cuts in any program. A coach can protect more, never fewer.
     CORE_PROTECTED = %w[housing utilities medical childcare_school debt_minimums family_support].freeze
@@ -14,6 +16,14 @@ module CohortExperience
     SPLIT_OPTIONS = %w[emergency_fund debt surplus].freeze
     STATUS_KEYS = %w[target_green_months target_yellow_months surplus_green_cents surplus_yellow_cents].freeze
     KEYS = %w[status emergency_fund_months protected priorities windfall income_split].freeze
+    # Expense group names, what Home leads with, and the debt payoff order Mia leads with.
+    CHOICES = {
+      "group_names" => %w[plain method].freeze,
+      "home_view" => %w[month year].freeze,
+      "debt_order" => %w[both snowball avalanche].freeze
+    }.freeze
+    OPTIONAL_KEYS = CHOICES.keys.freeze
+    OPTIONAL_DEFAULTS = CHOICES.transform_values(&:first).freeze
     # Only the people who own the household's picture choose its program.
     HOUSEHOLD_ROLES = %w[owner partner].freeze
 
@@ -49,7 +59,9 @@ module CohortExperience
       return [ "method must be an object" ] unless value.is_a?(Hash)
 
       input = value.deep_stringify_keys
-      return [ "method must contain exactly #{KEYS.join(', ')}" ] unless input.keys.sort == KEYS.sort
+      unless (KEYS - input.keys).empty? && (input.keys - KEYS - OPTIONAL_KEYS).empty?
+        return [ "method must contain #{KEYS.join(', ')} and may contain #{OPTIONAL_KEYS.join(', ')}" ]
+      end
 
       result = []
       status = input["status"]
@@ -75,6 +87,9 @@ module CohortExperience
       unless split.is_a?(Hash) && split.keys.sort == SPLIT_OPTIONS.sort && split.values.all? { |entry| entry.is_a?(Integer) && entry.between?(0, 100) } && split.values.sum == 100
         result << "method.income_split must be whole percentages that add up to 100"
       end
+      CHOICES.each do |key, options|
+        result << "method.#{key} must be one of #{options.join(', ')}" if input.key?(key) && !options.include?(input[key])
+      end
       result
     end
 
@@ -87,10 +102,11 @@ module CohortExperience
       value.is_a?(Array) && value.all?(String)
     end
 
-    # Canonical key order so digests do not depend on how a client ordered keys.
+    # Canonical key order so digests do not depend on how a client ordered keys. A display
+    # choice the block does not carry stays absent, so earlier schema 5 digests hold.
     def normalize(value)
       input = value.deep_stringify_keys
-      {
+      normalized = {
         "status" => STATUS_KEYS.index_with { |key| input.dig("status", key) },
         "emergency_fund_months" => input["emergency_fund_months"],
         "protected" => PROTECTED_OPTIONS & Array(input["protected"]),
@@ -98,16 +114,23 @@ module CohortExperience
         "windfall" => Array(input["windfall"]).dup,
         "income_split" => SPLIT_OPTIONS.index_with { |key| input.dig("income_split", key) }
       }
+      OPTIONAL_KEYS.each { |key| normalized[key] = input[key] if input.key?(key) }
+      normalized
+    end
+
+    # The full method a participant gets: absent display choices read as their defaults.
+    def resolve(value)
+      OPTIONAL_DEFAULTS.merge(normalize(value))
     end
 
     def defaults
-      DEFAULTS.deep_dup
+      DEFAULTS.deep_dup.merge(OPTIONAL_DEFAULTS)
     end
 
     # The method a participant has, from their experience capabilities. Never raises.
     def from_capabilities(capabilities)
       value = capabilities.to_h.with_indifferent_access[:method]
-      value.is_a?(Hash) && errors(value).empty? ? normalize(value) : defaults
+      value.is_a?(Hash) && errors(value).empty? ? resolve(value) : defaults
     rescue StandardError
       defaults
     end

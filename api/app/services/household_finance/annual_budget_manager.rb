@@ -19,6 +19,11 @@ module HouseholdFinance
       @year = year.to_i
     end
 
+    # The program's group names for rows that have no saved category yet.
+    def group_method
+      @group_method ||= CohortExperience::MethodSettings.for_household(household)
+    end
+
     def ensure_plan!
       return @budget_year if defined?(@budget_year) && @budget_year.present?
 
@@ -306,7 +311,7 @@ module HouseholdFinance
       end
       category_names = categories.map { |category| category.name.downcase }
       row_sources.concat(expenses.reject { |expense| category_names.include?(expense.label.downcase) }.map do |expense|
-        [ 0, expense.label, expense.stack_key, SnapshotBuilder::STACK_LABELS.fetch(expense.stack_key), expense.active, expense ]
+        [ 0, expense.label, expense.stack_key, ExpenseGroups.label(expense.stack_key, group_method), expense.active, expense ]
       end)
       rows = row_sources.map do |id, name, stack_key, stack_label, active, expense|
         cells = months.map do |month|

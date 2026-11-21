@@ -24,6 +24,7 @@ class BudgetCategory < ApplicationRecord
   end
 
   def stack_label
-    HouseholdFinance::SnapshotBuilder::STACK_LABELS.fetch(stack_key, stack_key.to_s.humanize.presence || "Custom")
+    # The household program's group names (plain words or Mrs. Mel's terms).
+    HouseholdFinance::ExpenseGroups.label(stack_key, household && CohortExperience::MethodSettings.for_household(household))
   end
 end

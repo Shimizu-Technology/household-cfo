@@ -133,9 +133,23 @@ module HouseholdFinance
         priority_order: @method_settings.fetch("priorities").map(&label),
         windfall_order: @method_settings.fetch("windfall").map(&label),
         new_monthly_income_split: @method_settings.fetch("income_split").to_h { |key, percent| [ label.call(key), "#{percent}%" ] },
-        new_monthly_income_split_rule: "Dollar amounts for a raise or new job come from Rails in a ready answer. Never work them out; without them, ask how much more lands each month."
+        new_monthly_income_split_rule: "Dollar amounts for a raise or new job come from Rails in a ready answer. Never work them out; without them, ask how much more lands each month.",
+        expense_group_names: ExpenseGroups.labels(@method_settings).values,
+        expense_group_rule: "Call the four spending groups only by these names.",
+        home_program_default: HOME_VIEW_FACTS.fetch(@method_settings.fetch("home_view")),
+        debt_payoff_order: DEBT_ORDER_FACTS.fetch(@method_settings.fetch("debt_order"))
       }
     end
+
+    HOME_VIEW_FACTS = {
+      "month" => "Home leads with this month; the year outlook is just below it. Each person can switch Home to year first.",
+      "year" => "Home leads with the year outlook; this month is just below it. Each person can switch Home to month first."
+    }.freeze
+    DEBT_ORDER_FACTS = {
+      "both" => "Show snowball (smallest balance first) and avalanche (highest APR first) side by side and let her choose.",
+      "snowball" => "Lead with snowball (smallest balance first); mention avalanche as the other choice.",
+      "avalanche" => "Lead with avalanche (highest APR first); mention snowball as the other choice."
+    }.freeze
 
     def monthly_surplus_rate_percent
       income = snapshot.fetch(:monthly_income_cents)
@@ -151,7 +165,7 @@ module HouseholdFinance
     def expense_stack_totals
       snapshot.fetch(:stack_totals_cents).each_with_object({}) do |(stack_key, cents), totals|
         entered = household.expense_items.where(stack_key: stack_key).exists? || household.budget_categories.where(stack_key: stack_key).exists?
-        totals[SnapshotBuilder::STACK_LABELS.fetch(stack_key)] = entered ? money(cents) : nil
+        totals[ExpenseGroups.label(stack_key, @method_settings)] = entered ? money(cents) : nil
       end
     end
 

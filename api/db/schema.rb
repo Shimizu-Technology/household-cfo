@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_20_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2345,11 +2345,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_20_120000) do
     t.string "role", default: "owner", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.string "home_view"
     t.index ["household_id", "user_id"], name: "index_household_memberships_on_household_id_and_user_id", unique: true
     t.index ["household_id"], name: "index_household_memberships_on_household_id"
     t.index ["role"], name: "index_household_memberships_on_role"
     t.index ["user_id"], name: "index_household_memberships_on_one_owner_per_user", unique: true, where: "((role)::text = 'owner'::text)"
     t.index ["user_id"], name: "index_household_memberships_on_user_id"
+    t.check_constraint "home_view IS NULL OR (home_view::text = ANY (ARRAY['month'::character varying, 'year'::character varying]::text[]))", name: "household_memberships_home_view_valid"
   end
 
   create_table "household_memories", force: :cascade do |t|

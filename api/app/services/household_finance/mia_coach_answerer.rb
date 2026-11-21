@@ -419,7 +419,8 @@ module HouseholdFinance
         household,
         message,
         conversation_messages: conversation_messages,
-        ensure_plan: ensure_plan
+        ensure_plan: ensure_plan,
+        debt_order: method_settings.fetch("debt_order")
       ).call
     end
 
@@ -730,23 +731,29 @@ module HouseholdFinance
       unexpected_cents = sum_month(active_rows(plan).select { |row| row.fetch(:stack_key) == "sinking_unexpected" }, target_month, :planned)
       month_name = month_label(plan, target_month)
 
+      expected, unexpected, flexible = group_phrase("sinking_expected"), group_phrase("sinking_unexpected"), group_phrase("discretionary")
       if normalized_message.match?(/pause.*unexpected/i)
-        return "Only pause the unexpected sinking fund as a named one-month triage move, not as an invisible cut. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or monthly debt payments, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
+        return "Only pause the #{unexpected} as a named one-month triage move, not as an invisible cut. Based on your active annual plan, #{month_name} has #{money(unexpected_cents)} planned for the #{unexpected} while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or monthly debt payments, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
       end
 
       if normalized_message.match?(/gifts?/i)
-        return "Planned gifts belong in planned yearly costs; surprise gifts belong in Discretionary. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and discretionary money should not jump ahead of readiness #{snapshot.fetch(:readiness_label)}. Next CFO move: create or use one gift category for known birthdays/holidays, then put last-minute gifts through the normal discretionary approval rule."
+        return "Planned gifts belong in #{expected}; surprise gifts belong in #{flexible}. Based on your active annual plan, #{month_name} has #{money(expected_cents)} planned for #{expected}, and #{flexible} should not jump ahead of readiness #{snapshot.fetch(:readiness_label)}. Next CFO move: create or use one gift category for known birthdays/holidays, then put last-minute gifts through the normal #{flexible} approval rule."
       end
 
       if normalized_message.match?(/fridge|appliance|home repair/i)
-        return "A likely fridge or home repair belongs in a surprise fund until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and purchases waiting for review are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
+        return "A likely fridge or home repair belongs in the #{unexpected} until you have a real quote. Based on your active annual plan, #{month_name} has #{money(unexpected_cents)} planned for the #{unexpected}, and purchases waiting for review are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what #{flexible} category pauses while you build or protect that amount."
       end
 
       if normalized_message.match?(/insurance renewal|renewal/i)
-        return "Insurance renewal belongs in planned yearly costs because you know it is coming. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned, but I still need the renewal amount to calculate the monthly set-aside. Next CFO move: divide the real renewal amount by the months left, then add or update the expected sinking-fund category before approving wants."
+        return "Insurance renewal belongs in #{expected} because you know it is coming. Based on your active annual plan, #{month_name} has #{money(expected_cents)} planned for #{expected}, but I still need the renewal amount to calculate the monthly set-aside. Next CFO move: divide the real renewal amount by the months left, then add or update a #{expected} category before approving wants."
       end
 
-      "This belongs in planned yearly costs if the date is known, and a surprise fund if the amount or timing is still uncertain. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and unexpected sinking funds have #{money(unexpected_cents)} planned. Next CFO move: send me the amount and due date, then place it in the right stack before discretionary spending gets approved."
+      "This belongs in #{expected} if the date is known, and the #{unexpected} if the amount or timing is still uncertain. Based on your active annual plan, #{month_name} has #{money(expected_cents)} planned for #{expected} and #{money(unexpected_cents)} planned for the #{unexpected}. Next CFO move: send me the amount and due date, then place it in the right group before any #{flexible} purchase gets approved."
+    end
+
+    # The program's expense group names (plain words or Mrs. Mel's terms), for a sentence.
+    def group_phrase(stack_key)
+      ExpenseGroups.phrase(stack_key, method_settings)
     end
 
     def car_registration_answer
@@ -788,13 +795,14 @@ module HouseholdFinance
         return "#{verdict.capitalize} for #{month_label}, based on your active annual plan. I can see #{money(planned_cents)} planned for car registration and #{money(remaining_cents)} remaining, while the registration amount you gave me is #{money(amount_cents)}. Purchases waiting for review and anything you have not reported are not counted in that answer. Next CFO move: confirm the due date and keep this funded before approving discretionary wants."
       end
 
-      "Car registration is an expected sinking-fund bill, not a random want. Based on your active annual plan for #{month_label}, I can see #{money(planned_cents)} planned and #{money(remaining_cents)} remaining for car registration, but I still need the actual amount and due date before I can say yes as a fact. Next CFO move: send me the registration amount and due date, then we will compare it to this category before touching discretionary money."
+      "Car registration belongs in #{group_phrase('sinking_expected')}; it is not a random want. Based on your active annual plan for #{month_label}, I can see #{money(planned_cents)} planned and #{money(remaining_cents)} remaining for car registration, but I still need the actual amount and due date before I can say yes as a fact. Next CFO move: send me the registration amount and due date, then we will compare it to this category before touching discretionary money."
     end
 
     def car_registration_without_category(plan, month_index, expected_total_cents, amount_cents)
       month_label = month_label(plan, month_index)
       amount_line = amount_cents&.positive? ? " The amount you gave me is #{money(amount_cents)}, so that needs to be protected before discretionary wants." : " I do not have the registration amount or due date yet, so I cannot honestly say yes/no as a fact."
-      "Car registration belongs in planned yearly costs; it should not be treated like a discretionary shoe or coffee decision. Based on your active annual plan for #{month_label}, I can see #{money(expected_total_cents)} planned across expected sinking funds, but I do not see a specific car registration line.#{amount_line} Next CFO move: add or rename a car registration category under planned yearly costs, then set the monthly amount from the real due amount divided by the months left."
+      expected = group_phrase("sinking_expected")
+      "Car registration belongs in #{expected}; it should not be treated like a discretionary shoe or coffee decision. Based on your active annual plan for #{month_label}, I can see #{money(expected_total_cents)} planned across #{expected}, but I do not see a specific car registration line.#{amount_line} Next CFO move: add or rename a car registration category under #{expected}, then set the monthly amount from the real due amount divided by the months left."
     end
 
     def readiness_plan_answer
