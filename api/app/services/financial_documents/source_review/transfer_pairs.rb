@@ -34,8 +34,11 @@ module FinancialDocuments
         end
       end
 
-      def initialize(household)
+      # unlinked_account_ids: accounts confirmed by the save in progress. She saw their lines before that, when they
+      # could not pair, so they are not offered as a pair here either: an answer to the question she saw is not stale.
+      def initialize(household, unlinked_account_ids: [])
         @household = household
+        @unlinked_account_ids = unlinked_account_ids.to_set
       end
 
       def candidate(event)
@@ -79,6 +82,7 @@ module FinancialDocuments
             next if blocked.include?(event.financial_extraction_revision_id)
             merchant = ParticipantPlan.merchant_for(event)
             next if event.signed_amount_cents.to_i.positive? && (self.class.person_wording?(event, merchant) || self.class.incoming_person_payment?(event, merchant))
+            next if @unlinked_account_ids.include?(event.financial_source_account_id)
             identity = identities[event.financial_source_account_id]
             head = heads[event.id]
             next if head&.source_review_drafts&.any? { |draft| draft.status == "pending" }

@@ -179,7 +179,7 @@ module FinancialDocuments
       attr_reader :household, :revision, :unlinked_account_ids
 
       def transfer_pairs
-        @transfer_pairs ||= TransferPairs.new(household)
+        @transfer_pairs ||= TransferPairs.new(household, unlinked_account_ids: unlinked_account_ids)
       end
 
       def everyday_policy

@@ -881,6 +881,60 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     end
   end
 
+  # The browser sends an account she has not confirmed yet with her first answer. That link must not turn the line she
+  # answered into a pair question she never saw, or every retry is refused as stale (October savings "Transfer from checking").
+  test "an answer saved with the account it confirms is not refused for a pair she was never shown" do
+    review = FinancialDocuments::SourceReview
+    answer = lambda do |src, id|
+      presenter = review::ParticipantPresenter.new(@household, src[:revision], user: @user)
+      shown = JSON.parse(JSON.generate(presenter.context(event_ids: src[:events].map(&:id)))).deep_symbolize_keys
+      item = shown[:plan][:attention].sole
+      accounts = shown[:accounts].select { |row| !row[:approved] && row[:choices] && !row[:needs_choice] }
+        .map { |row| { source_account_id: row[:source_account_id], expected_tracked_account_id: row.dig(:suggested, :id) } }
+      line = { event_id: item[:event_id], decision: id, shown: { event_type: item[:event_type], category_id: item[:category_id] }, expected_head: item[:expected_head] }
+      [ item, { lines: [ line ], accounts: accounts } ]
+    end
+    save = lambda do |src, input|
+      ApplicationRecord.transaction(requires_new: true) do
+        @household.with_lock { review::LineApprover.new(review::Domain.new(@household, user: @user), src[:revision], input).call }
+      end
+    end
+
+    checking = source([ movement(-2500, type: "transfer").merge(merchant: "Online transfer to savings") ])
+    link(checking)
+    savings = source([ movement(2500, type: "transfer").merge(merchant: "Online transfer from checking") ])
+    item, input = answer.call(savings, "as_read")
+    assert_equal "transfer", item[:kind]
+    assert_nil item[:transfer_pair]
+    assert_nil item[:expected_head][:account_version_id]
+    assert_equal 1, save.call(savings, input)[:approved]
+    saved = SourceReviewHead.find_by!(financial_source_event: savings[:events].sole).approved_version
+    assert_equal [ "include", "transfer", 2500 ], [ saved.disposition, saved.event_type, saved.signed_amount_cents ]
+
+    # Still refused when it really is stale: the account was confirmed in another window after she saw the line.
+    later = source([ movement(3100, type: "transfer").merge(merchant: "Online transfer from checking") ])
+    other_checking = source([ movement(-3100, type: "transfer").merge(merchant: "Online transfer to savings") ])
+    link(other_checking)
+    _, stale = answer.call(later, "as_read")
+    run_operation(OPS::AccountLink, account_input(later).merge(label: "Talun savings ending 4412"))
+    assert_raises(review::Domain::StaleReview) { save.call(later, stale) }
+    assert_nil SourceReviewHead.find_by(financial_source_event: later[:events].sole)&.approved_version
+    assert_equal :transfer_pair, review::ParticipantPlan.new(@household, later[:revision]).lines.sole.kind
+
+    # Your own account / someone else on a person payment, answered with the account it confirms.
+    { "own_account" => "transfer", "someone_else" => "purchase" }.each_with_index do |(id, type), index|
+      amount = 4100 + index
+      wallet = source([ movement(amount, type: "transfer").merge(merchant: "Transfer from checking") ])
+      run_operation(OPS::AccountLink, account_input(wallet).merge(label: "Talun wallet #{index}"))
+      sent = source([ movement(-amount, type: "purchase").merge(merchant: "Zelle to Lina Talun") ])
+      item, input = answer.call(sent, id)
+      assert_equal "person_payment", item[:kind]
+      assert_nil item[:transfer_pair]
+      assert_equal 1, save.call(sent, input)[:approved]
+      assert_equal type, SourceReviewHead.find_by!(financial_source_event: sent[:events].sole).approved_version.event_type
+    end
+  end
+
   test "participant pairs opposing reviewed accounts and can unpair without spending" do
     debit = source([ movement(-2500, type: "purchase").merge(merchant: "Zelle to Lina Talun") ])
     credit = source([ movement(2500, type: "transfer") ])
