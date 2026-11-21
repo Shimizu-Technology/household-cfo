@@ -183,6 +183,7 @@ import {
 import type {
   AnnualBudgetPlan,
   AppData,
+  HomeViewChoice,
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
@@ -2069,10 +2070,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     prepareMiaUpdate(`Please draft a fresh version of this change: ${draft.title}`)
   }
 
+  const applyHomeViewChoice = useCallback((choice: HomeViewChoice) => setData(current => current ? { ...current, workspace: { ...current.workspace, home_view: choice } } : current), [setData])
   const { changeHomeView, homeViewSaving, homeViewError } = useHomeView({
     choice: data?.workspace.home_view,
-    generationRef: financialMutationGenerationRef,
-    onChoice: choice => setData(current => current ? { ...current, workspace: { ...current.workspace, home_view: choice } } : current),
+    onChoice: applyHomeViewChoice,
     announce: setRouteAnnouncement,
   })
 

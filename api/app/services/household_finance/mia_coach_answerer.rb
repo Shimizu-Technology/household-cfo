@@ -732,7 +732,7 @@ module HouseholdFinance
       month_name = month_label(plan, target_month)
 
       expected, unexpected, flexible = group_phrase("sinking_expected"), group_phrase("sinking_unexpected"), group_phrase("discretionary")
-      if normalized_message.match?(/pause.*(?:unexpected|\bsurprise fund\b)/i)
+      if normalized_message.match?(/\bpause.*(?:unexpected|\bsurprise fund\b)/i)
         return "Only pause the #{unexpected} as a named one-month triage move, not as an invisible cut. Based on your active annual plan, #{month_name} has #{money(unexpected_cents)} planned for the #{unexpected} while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or monthly debt payments, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
       end
 

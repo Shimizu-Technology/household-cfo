@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { updateHomeView, type HomeViewChoice } from '../api'
@@ -10,15 +10,16 @@ const month: HomeViewChoice = { chosen: null, effective: 'month', program: 'mont
 const year: HomeViewChoice = { ...month, chosen: 'year', effective: 'year' }
 const announce = vi.fn()
 function Harness({ refresh }: { refresh?: Promise<HomeViewChoice> }) {
-  const [choice, onChoice] = useState(month)
-  const generationRef = useRef(0)
-  const { changeHomeView, homeViewError, homeViewSaving } = useHomeView({ choice, generationRef, onChoice, announce })
-  return <><p>{choice.effective}</p><button disabled={homeViewSaving} onClick={() => void changeHomeView('year')}>Year first</button>{homeViewError && <p>{homeViewError}</p>}<button onClick={() => {
-    const captured = generationRef.current
-    void refresh?.then(payload => { if (captured === generationRef.current) onChoice(payload) })
+  const [choice, setChoice] = useState(month)
+  const [money, setMoney] = useState('old money')
+  const onChoice = useCallback((next: HomeViewChoice) => setChoice(next), [])
+  const { changeHomeView, homeViewError, homeViewSaving } = useHomeView({ choice, onChoice, announce })
+  return <><p>{choice.effective}</p><p>{money}</p><button disabled={homeViewSaving} onClick={() => void changeHomeView('year')}>Year first</button>{homeViewError && <p>{homeViewError}</p>}<button onClick={() => {
+    // A reload started before the save: it carries fresh money and the old preference.
+    void refresh?.then(payload => { setMoney('fresh money'); setChoice(payload) })
   }}>Refresh workspace</button></>
 }
-it('invalidates a workspace payload started before the Home save', async () => {
+it('applies a workspace reload started before the Home save but keeps her saved choice', async () => {
   let resolve!: (choice: HomeViewChoice) => void
   const refresh = new Promise<HomeViewChoice>(done => { resolve = done })
   vi.mocked(updateHomeView).mockResolvedValue({ home_view: year })
@@ -27,6 +28,7 @@ it('invalidates a workspace payload started before the Home save', async () => {
   fireEvent.click(screen.getByText('Year first'))
   await waitFor(() => expect(announce).toHaveBeenCalledWith('Home now shows your year first.'))
   await act(async () => resolve(month))
+  expect(screen.getByText('fresh money')).toBeTruthy()
   expect(screen.getByText('year')).toBeTruthy()
 })
 it('reverts with a visible error and live announcement, clearing the error on retry', async () => {

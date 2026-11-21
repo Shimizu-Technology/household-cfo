@@ -10,6 +10,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, message).call, "named one-month triage move"
     end
     assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, "Can I pause surprise gifts?").call, "Planned gifts belong"
+    refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, "Can I unpause my surprise fund?").call.to_s, "named one-month triage move"
   end
 
   test "known zero debt never bypasses the missing cash guard for a combined purchase question" do
