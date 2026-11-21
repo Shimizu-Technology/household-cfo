@@ -1,3 +1,4 @@
+import { useHomeView } from './lib/useHomeView'
 import { localTestAuth } from './lib/localTestAuth'
 import { cashCoverage } from './lib/cashCoverage'
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
@@ -177,13 +178,11 @@ import {
   updateIncomeSource,
   updateIncomeScheduleEntry,
   updateTransactionDraft,
-  updateHomeView,
   uploadDocumentImport,
 } from './api'
 import type {
   AnnualBudgetPlan,
   AppData,
-  HomeView,
   HomeViewChoice,
   BudgetCategoryMonth,
   BudgetCategoryRow,
@@ -661,7 +660,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const profileFocusSequenceRef = useRef(0)
   const [active, setActive] = useState(sectionFromLocation)
   const [routeAnnouncement, setRouteAnnouncement] = useState('')
-  const [homeViewSaving, setHomeViewSaving] = useState(false)
   const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<UnavailableModuleNotice | null>(null)
   const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
   const shellAccountMenuRef = useRef<HTMLDetailsElement | null>(null)
@@ -2072,24 +2070,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     prepareMiaUpdate(`Please draft a fresh version of this change: ${draft.title}`)
   }
 
-  // Her own choice of what Home leads with. Shown at once; put back if it can't be saved.
-  async function changeHomeView(view: HomeView) {
-    const before = data?.workspace.home_view
-    if (!before || homeViewSaving) return
-    const withChoice = (choice: HomeViewChoice) => setData(current => current ? { ...current, workspace: { ...current.workspace, home_view: choice } } : current)
-    withChoice({ ...before, chosen: view, effective: view })
-    setHomeViewSaving(true)
-    try {
-      const saved = await updateHomeView(view)
-      withChoice(saved.home_view)
-      setRouteAnnouncement(view === 'year' ? 'Home now shows your year first.' : 'Home now shows this month first.')
-    } catch {
-      withChoice(before)
-      setRouteAnnouncement('Home view could not be saved right now. Please try again.')
-    } finally {
-      setHomeViewSaving(false)
-    }
-  }
+  const applyHomeViewChoice = useCallback((choice: HomeViewChoice) => setData(current => current ? { ...current, workspace: { ...current.workspace, home_view: choice } } : current), [setData])
+  const { changeHomeView, homeViewSaving, homeViewError } = useHomeView({
+    choice: data?.workspace.home_view,
+    onChoice: applyHomeViewChoice,
+    announce: setRouteAnnouncement,
+  })
 
   function prepareMiaUpdate(prompt: string) {
     if (question.trim() || pendingMiaAttachments.length > 0) {
@@ -4391,6 +4377,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               homeView={data.workspace.home_view?.effective ?? 'month'}
               onChangeHomeView={isRealWorkspace && data.workspace.home_view ? view => void changeHomeView(view) : undefined}
               homeViewSaving={homeViewSaving}
+              homeViewError={homeViewError}
             />
           )}
         </>

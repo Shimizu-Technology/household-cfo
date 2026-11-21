@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import userEvent from '@testing-library/user-event'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
@@ -423,4 +424,28 @@ it('leads Home with the month by default and the year when the program or she ch
   view.rerender(<HomeScreen {...props} budget={{} as ComponentProps<typeof HomeScreen>['budget']} homeView="year" onChangeHomeView={change} />)
   expect(screen.queryByRole('button', { name: /first$/ })).toBeNull()
   expect(order(view.container)).toEqual(['month'])
+})
+
+it('keeps keyboard focus on the Home switch when either view moves first', async () => {
+  const user = userEvent.setup()
+  const props = { dashboard, budget: { annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget'], onAskMia: vi.fn(), onReviewTransactions: vi.fn(), onReviewMiaActions: vi.fn(), onReviewImports: vi.fn(), pendingImportCount: 0 }
+  const change = vi.fn()
+  const view = render(<HomeScreen {...props} onChangeHomeView={change} />)
+  screen.getByRole('button', { name: 'Show the year first' }).focus()
+  await user.keyboard('{Enter}')
+  expect(change).toHaveBeenLastCalledWith('year')
+  view.rerender(<HomeScreen {...props} homeView="year" onChangeHomeView={change} />)
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show this month first' }))
+  await user.keyboard('{Enter}')
+  expect(change).toHaveBeenLastCalledWith('month')
+  view.rerender(<HomeScreen {...props} homeView="month" onChangeHomeView={change} />)
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show the year first' }))
+})
+
+it('shows a save error beside the Home view switch', () => {
+  render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onChangeHomeView={vi.fn()} homeViewError="Home view could not be saved right now. Please try again." />)
+  const control = screen.getByRole('button', { name: 'Show the year first' })
+  const error = screen.getByText('Home view could not be saved right now. Please try again.')
+  expect(error.parentElement).toBe(control.parentElement)
+  expect(error.closest('.sr-only')).toBeNull()
 })

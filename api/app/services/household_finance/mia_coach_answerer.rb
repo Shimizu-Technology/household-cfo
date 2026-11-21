@@ -62,7 +62,7 @@ module HouseholdFinance
     INCOME_SPLIT_WORDS = { "emergency_fund" => "to the emergency fund", "debt" => "to extra debt payments", "surplus" => "kept as surplus" }.freeze
     EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b|\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i.freeze
     DEBT_DECISION_PATTERN = /\b(?:skip|miss)\b.*\b(?:credit card|debt|payment|minimum)\b|\b(?:payday loan|balance transfer|consolidat|highest interest|smallest balance|close old credit cards?|credit score|minimum went up)\b/i.freeze
-    SINKING_FUND_PATTERN = /\b(?:sinking fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|unexpected sinking|expected sinking|home repair)\b/i.freeze
+    SINKING_FUND_PATTERN = /\b(?:sinking fund|surprise fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|unexpected sinking|expected sinking|home repair)\b/i.freeze
     LENDING_PATTERN = /\b(?:lend|loan)\b.*\bmoney\b|\bpay me back\b/i.freeze
     MEMORY_RECALL_PATTERN = /\b(?:forgot|remember)\b.*\b(?:decided|plan)\b|\bwhat was the plan\b|\blast time\b/i.freeze
     INVESTMENT_PATTERN = /\b(?:stocks?|crypto|bitcoin|invest(?:ing|ment)?|risky products?)\b/i.freeze
@@ -732,7 +732,7 @@ module HouseholdFinance
       month_name = month_label(plan, target_month)
 
       expected, unexpected, flexible = group_phrase("sinking_expected"), group_phrase("sinking_unexpected"), group_phrase("discretionary")
-      if normalized_message.match?(/pause.*unexpected/i)
+      if normalized_message.match?(/\bpause.*(?:unexpected|\bsurprise fund\b)/i)
         return "Only pause the #{unexpected} as a named one-month triage move, not as an invisible cut. Based on your active annual plan, #{month_name} has #{money(unexpected_cents)} planned for the #{unexpected} while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or monthly debt payments, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
       end
 

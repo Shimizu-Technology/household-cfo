@@ -355,6 +355,32 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     end
   end
 
+  test "a real category named Discretionary survives method group naming" do
+    travel_to Time.zone.local(2026, 11, 5, 12) do
+      @category.update!(name: "Discretionary")
+      purchase(Date.new(2026, 10, 5), "Ross", 10_000)
+      settings = CohortExperience::MethodSettings.for_household(@household).merge("group_names" => "method")
+      CohortExperience::MethodSettings.use_viewer(@household.id) { { method: settings } }
+      begin
+        answer = SpendingPatterns::Answerer.new(household: @household, message: "What spending patterns do you see?",
+          persona: Mia::Persona.neutral, history: [], approved_content: []).call
+        assert_includes answer, "largest Discretionary category was Discretionary"
+      ensure
+        CohortExperience::MethodSettings::Current.reset
+      end
+    end
+  end
+
+  test "pattern provider must use the selected phrase in the merchant observation" do
+    reference = "In Oct, Ross ($100) was your biggest Discretionary stop. Look at what you bought. Would you feel comfortable looking at Ross?"
+    packet = { fallback_response: reference, verified_facts: { group_phrase: "Discretionary", merchants: [ { label: "Ross", total_cents: 10_000 } ], choices: [] } }
+    narrator = SpendingPatterns::Narrator.new(user_message: "What spending patterns do you see?", answer_packet: packet, persona: Mia::Persona.neutral)
+    assert_includes narrator.send(:narrator_contract), "biggest Discretionary stops"
+    assert_nil narrator.send(:patterns_rejection, reference)
+    assert_equal :missing_pattern_group_phrase, narrator.send(:patterns_rejection, reference.sub("Discretionary", "flexible spending"))
+    assert_equal :missing_pattern_group_phrase, narrator.send(:patterns_rejection, reference.sub("Discretionary stop", "flexible spending stop").sub("Look at what you bought", "Discretionary is your group"))
+  end
+
   test "partial pattern coverage joins the merchant clause grammatically for one or several months" do
     travel_to Time.zone.local(2026, 11, 2, 12) do
       purchase(Date.new(2026, 10, 5), "Ross", 10_000)

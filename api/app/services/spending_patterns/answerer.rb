@@ -149,7 +149,10 @@ module SpendingPatterns
       end
       flexible = merchants.map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
       group = HouseholdFinance::ExpenseGroups.phrase("discretionary", CohortExperience::MethodSettings.for_household(@household))
-      category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") || name.casecmp?(group) }
+      # Setup files leftover flexible money under a category literally named "Flexible spending"
+      # (SetupUpdater), so naming it would read "your largest flexible spending category was
+      # Flexible spending". A category she named after her method's group words stays listed.
+      category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") }
       observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? "was your biggest #{group} stop" : "were your biggest #{group} stops"}."
       observed = "#{observed} Your largest #{group} #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
       observed = "#{observed} #{protected_note}" if self.class.cut_question?(@message) && self.class.bill_free_list?(merchants, category_names, choices, @patterns[:small_purchase_clusters].first)
@@ -165,7 +168,7 @@ module SpendingPatterns
       narrator = Narrator.new(user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
         answer_packet: { kind: "household_patterns", write_state: "no_write", fallback_response: pattern_reference(observed, waterfall, estimate, question),
           available_product_modules: @available_product_modules,
-          verified_facts: { merchants: merchants, category_names: category_names, cluster: cluster, choices: choices, months_with_purchases: present, missing_months: missing } })
+          verified_facts: { group_phrase: group, merchants: merchants, category_names: category_names, cluster: cluster, choices: choices, months_with_purchases: present, missing_months: missing } })
       answer = narrator.call
       @supplied_content_context = narrator.supplied_content_context
       period.present? && @patterns[:observed_spending_cents] ? "Your reviewed purchases for this period total #{money(@patterns[:observed_spending_cents])}. #{answer}" : answer

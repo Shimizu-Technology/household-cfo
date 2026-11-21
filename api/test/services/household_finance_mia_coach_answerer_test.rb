@@ -1,6 +1,18 @@
 require "test_helper"
 
 class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
+  test "surprise fund questions and pauses use the unexpected group without capturing surprise gifts" do
+    household = create_yellow_household
+    [ "What is my surprise fund?", "What is my Sinking Fund — Unexpected?" ].each do |message|
+      assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, message).call, "timing is still uncertain"
+    end
+    [ "Can I pause my surprise fund?", "Can I pause my Sinking Fund — Unexpected?" ].each do |message|
+      assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, message).call, "named one-month triage move"
+    end
+    assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, "Can I pause surprise gifts?").call, "Planned gifts belong"
+    refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, "Can I unpause my surprise fund?").call.to_s, "named one-month triage move"
+  end
+
   test "known zero debt never bypasses the missing cash guard for a combined purchase question" do
     household = create_yellow_household
     household.debts.destroy_all
