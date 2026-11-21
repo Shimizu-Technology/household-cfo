@@ -292,12 +292,12 @@ module Demo
           opening_cents: opening, income_cents: income, income_basis: "planned", approved_so_far_cents: nil,
           outflow_cents: out, spending_plan_known: true, ending_cents: cash, bills: [],
           reasons: rows.sort_by { |row| -row[:months][index][:planned] }.first(3).map { |row| row[:name] },
-          includes_estimates: false, higher_costs: HouseholdFinance::Money.cents(month[:planned_outflow]) > HouseholdFinance::Money.cents(CATEGORY_PLAN + MONTHLY_DEBT_MINIMUMS) }
+          includes_estimates: false, estimate_reasons: [], higher_costs: HouseholdFinance::Money.cents(month[:planned_outflow]) > HouseholdFinance::Money.cents(CATEGORY_PLAN + MONTHLY_DEBT_MINIMUMS) }
       end
       short = months.find { |month| month[:ending_cents].negative? }
       { starting_cash_cents: starting, starting_on: (on.beginning_of_month - 1).iso8601,
         starting_note: "Starting from your cash balances on #{(on.beginning_of_month - 1).strftime('%B %-d')}.",
-        months: months, first_short_month: short, status: short ? "short" : "no_short_month", missing: [], bills: [],
+        months: months, first_short_month: short, status: short ? "short" : "no_short_month", estimate_reasons: [], missing: [], bills: [],
         debt_bills: [ { name: "Monthly debt payments", amount_cents: HouseholdFinance::Money.cents(MONTHLY_DEBT_MINIMUMS) } ] }
     end
 

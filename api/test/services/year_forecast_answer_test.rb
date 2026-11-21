@@ -42,9 +42,13 @@ class YearForecastAnswerTest < ActiveSupport::TestCase
 
   test "the year answer words Rails facts without the technical rule" do
     forecast = { first_short_month: { label: "December", ending_cents: -78_000, reasons: [ "Talun repair" ], includes_estimates: true },
-      status: "short", starting_note: "Starting from your cash balances on November 14.", starting_cash_cents: 320_000, months: [] }
+      status: "short", starting_note: "Starting from your cash balances on November 14.", starting_cash_cents: 320_000, months: [],
+      estimate_reasons: [ "estimated pay for the rest of this month" ] }
     answer = answer("Will we make it through the year?", forecast: forecast)
-    assert_equal "December is the first month that runs short: cash would end about $780 below zero. Costs that month include Talun repair. Some of that month’s amounts are estimates. Starting from your cash balances on November 14.", answer
+    assert_equal "December is the first month that runs short: cash would end about $780 below zero. Costs that month include Talun repair. This rests on estimates: estimated pay for the rest of this month. Starting from your cash balances on November 14.", answer
+    no_short = { first_short_month: nil, status: "no_short_month", starting_note: "Starting from your cash balances on November 14.", starting_cash_cents: 320_000,
+      months: [ { label: "December", ending_cents: 170_000, includes_estimates: true } ], estimate_reasons: [ "debt payments that may already be paid this month" ] }
+    assert_equal "No month runs short through December in this plan; December would end with about $1,700. This rests on estimates: debt payments that may already be paid this month. Starting from your cash balances on November 14.", answer("Will we make it through the year?", forecast: no_short)
     unknown = answer("Will we make it through December?", forecast: { status: "unknown", starting_cash_cents: nil, missing: [ "your monthly debt payments" ],
       starting_note: "Your cash balances are from September 30. Update them in My Money to see ending cash.", months: [] })
     assert_equal "I can’t tell yet whether you’ll make it through December. Your cash balances are from September 30. Update them in My Money to see ending cash. Still needed: your monthly debt payments.", unknown

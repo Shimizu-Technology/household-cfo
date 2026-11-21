@@ -32,7 +32,7 @@ it('asks her to choose a category, says plainly when a bill is outside every pla
   fireEvent.change(within(form).getByLabelText('Category'), { target: { value: 'none' } })
   expect(within(form).getByText(/isn’t part of any category plan, so it adds to your planned costs/)).toBeTruthy()
   fireEvent.change(within(form).getByLabelText('Category'), { target: { value: '3' } })
-  expect(within(form).getByText(/the monthly set-aside stays in your savings and the bill counts when it’s due/)).toBeTruthy()
+  expect(within(form).getByText(/The bill counts when it’s due, and the part of the monthly plan it covers stays in your savings. Any part your saved bills don’t cover still counts every month./)).toBeTruthy()
   fireEvent.submit(form)
   await waitFor(() => expect(changed).toHaveBeenCalledOnce())
   expect(saveBill).toHaveBeenCalledWith(null, expect.objectContaining({ name: 'School fee', amount: '200', due_on: '2027-01-05', budget_category_id: 3, repeat_months: null }))
@@ -115,4 +115,12 @@ it('labels every month in plain words that also read on a phone', () => {
   expect(screen.getByRole('status').textContent).toContain('December may run short: cash would end about $200 below zero.')
   expect(screen.queryByText(/approved actual|liquid/)).toBeNull()
   expect(Array.from(document.querySelectorAll('.forecast-table td')).every(cell => cell.getAttribute('data-label'))).toBe(true)
+})
+
+it('says which estimates an answer rests on, even when no month runs short', () => {
+  const midmonth = month({ from_on: '2026-11-14', income_basis: 'estimated_after_balance', includes_estimates: true, estimate_reasons: ['estimated pay for the rest of this month', 'estimated bill amounts', 'debt payments that may already be paid this month'] })
+  const view = render(<BillsForecast plan={plan({ months: [midmonth], estimate_reasons: midmonth.estimate_reasons })} />)
+  expect(screen.getByRole('status').textContent).toBe('No month runs short through December. This rests on estimates: estimated pay for the rest of this month, estimated bill amounts, and debt payments that may already be paid this month.')
+  view.rerender(<BillsForecast plan={plan()} />)
+  expect(screen.getByRole('status').textContent).toBe('No month runs short through December.')
 })

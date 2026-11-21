@@ -43,6 +43,57 @@ class YearForecastTest < ActiveSupport::TestCase
     assert_equal 22_500, forecast[:months][0][:outflow_cents], "with no saved bill the set aside still counts, so the cost is not lost"
   end
 
+  # Car plan $250 a month: registration $125 + insurance $75 + repairs $50. Only the $1,500 yearly registration is saved,
+  # so $1,500 / 12 = $125 of the plan is covered and the other $125 a month still leaves.
+  test "a sinking category counts the part of its plan its saved bills don't cover" do
+    car = @household.budget_categories.create!(name: "Car", stack_key: "sinking_expected")
+    @rows << row(car, 250)
+    @household.bills.create!(name: "Car registration", amount_cents: 150_000, due_on: "2026-03-10", repeat_months: 12, budget_category: car)
+    result = forecast
+    # January: $1,000 + $200 - ($100 utilities + $125 uncovered car) = $975; February $950; March adds the $1,500 bill: -$575.
+    assert_equal [ 97_500, 95_000, -57_500 ], result[:months].first(3).map { |month| month[:ending_cents] }
+    assert_equal [ 22_500, 22_500, 172_500 ], result[:months].first(3).map { |month| month[:outflow_cents] }
+    assert_equal 12 * 22_500 + 150_000, result[:months].sum { |month| month[:outflow_cents] }
+  end
+
+  # Surprise fund $100 a month; one saved $690 repair in September covers $690 / 12 = $57.50 a month. The other $42.50
+  # still counts every month, before and after the repair, so future surprises aren't erased.
+  test "one saved surprise repair covers only its share of the surprise fund" do
+    surprises = @household.budget_categories.create!(name: "Surprises", stack_key: "sinking_unexpected")
+    @rows << row(surprises, 100)
+    @household.bills.create!(name: "Talun repair", amount_cents: 69_000, due_on: "2026-09-22", budget_category: surprises)
+    months = forecast[:months]
+    assert_equal 14_250, months[0][:outflow_cents]
+    assert_equal 105_750, months[0][:ending_cents]
+    assert_equal 10_000 + 4_250 + 69_000, months[8][:outflow_cents]
+    assert_equal 14_250, months[9][:outflow_cents]
+    # $1,000 + 12 x $200 - 12 x $142.50 - $690 = $1,000.
+    assert_equal 100_000, months[11][:ending_cents]
+  end
+
+  # A balance dated November 30 already holds all of November: no income, bills, plan or debt payment counts again.
+  test "a balance dated the month's last day starts the forecast with the next month" do
+    @household.household_profile.update!(debt_summary_minimum_payment_cents: 4_500)
+    @household.income_sources.create!(label: "Talun pay", amount_cents: 20_000, cadence: "monthly", source_type: "job")
+    @household.accounts.first.update!(balance_as_of_on: "2026-11-30")
+    @household.bills.create!(name: "Talun fee", amount_cents: 2_000, due_on: "2026-11-05")
+    result = forecast(today: Date.new(2026, 11, 30))
+    december = result[:months].sole
+    assert_equal "December", december[:label]
+    assert_nil december[:from_on]
+    assert_equal 100_000, december[:opening_cents]
+    # December: $1,000 + $200 - ($100 utilities + $45 debt + $20 fee still waiting for her answer) = $1,035.
+    assert_equal 16_500, december[:outflow_cents]
+    assert_equal 103_500, december[:ending_cents]
+    assert december[:bills].find { |bill| bill[:name] == "Talun fee" }[:was_this_paid]
+    assert_empty result[:estimate_reasons]
+    assert_equal "Starting from your cash balances on November 30.", result[:starting_note]
+
+    @household.accounts.first.update!(balance_as_of_on: "2026-12-31")
+    december = forecast(today: Date.new(2026, 12, 31))[:months].sole
+    assert_equal [ 0, 2_000, 98_000 ], december.values_at(:income_cents, :outflow_cents, :ending_cents), "the last day of the year: only the unanswered fee is left"
+  end
+
   test "unknown cash stays unknown" do
     @household.accounts.first.update!(balance_known: false, balance_cents: 0, balance_as_of_on: nil)
     assert_nil forecast[:starting_cash_cents]
@@ -81,6 +132,29 @@ class YearForecastTest < ActiveSupport::TestCase
     assert_equal 102_322, january[:ending_cents]
     assert_equal 112_322, result[:months][1][:ending_cents]
     assert_equal "Starting from your cash balances on January 15.", result[:starting_note]
+  end
+
+  # Debt due dates aren't saved, so a midmonth month still counts the $45 minimum but says it may already be paid.
+  test "a midmonth balance counts debt minimums in full and says they may already be paid" do
+    @household.household_profile.update!(debt_summary_minimum_payment_cents: 4_500)
+    @household.income_sources.create!(label: "Talun pay", amount_cents: 20_000, cadence: "monthly", source_type: "job")
+    @household.accounts.first.update!(balance_as_of_on: "2026-01-15")
+    @household.bills.first.update!(estimate: true)
+    @rows[0][:months][0][:actual] = 30
+    result = forecast(today: Date.new(2026, 1, 20))
+    january, february = result[:months]
+    # $1,000 + $103.22 estimated pay - ($80 power, above the $70 of plan left, + $45 debt) = $978.22.
+    assert_equal 12_500, january[:outflow_cents]
+    assert_equal 97_822, january[:ending_cents]
+    assert_equal [ "estimated pay for the rest of this month", "estimated bill amounts", "debt payments that may already be paid this month" ], january[:estimate_reasons]
+    assert january[:includes_estimates]
+    assert_equal [ "estimated bill amounts" ], february[:estimate_reasons]
+    assert_equal "no_short_month", result[:status]
+    assert_equal january[:estimate_reasons], result[:estimate_reasons]
+    # February to December each add $200 - $100 - $45 = $55: $978.22 + 11 x $55 = $1,583.22.
+    assert_equal 158_322, result[:months].last[:ending_cents]
+    answer = HouseholdFinance::YearForecastAnswer.new(@household, "Will we make it through the year?", forecast: result, today: Date.new(2026, 1, 20)).call
+    assert_equal "No month runs short through December in this plan; December would end with about $1,583.22. This rests on estimates: estimated pay for the rest of this month, estimated bill amounts, and debt payments that may already be paid this month. Starting from your cash balances on January 15.", answer
   end
 
   test "a midmonth balance with statements through that day counts only the plan's income still to come" do
