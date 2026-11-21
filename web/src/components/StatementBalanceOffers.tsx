@@ -78,14 +78,14 @@ function OfferCard({ offer, onApplied, onDismiss, onStale, blockedReason }: {
     <p className="statement-balance-question">{offerQuestion(offer, choice)}</p>
     {chosen && <p className="statement-balance-now">Now: {currentBalance(chosen)}</p>}
     {!linked && options.length > 0 && <fieldset className="statement-balance-choices" disabled={saving}>
-      <legend>{offer.kind === 'debt' ? 'Which card is this?' : 'Which account is this?'}</legend>
+      <legend>{offer.kind === 'debt' ? 'Which debt is this?' : 'Which account is this?'}</legend>
       {options.map((row) => <label className="ui-check" key={row.id}>
         <input type="radio" name={name} checked={choice === row.id} onChange={() => setChoice(row.id)} />
         <span>{row.label} <span className="statement-balance-amount">({currentBalance(row)})</span></span>
       </label>)}
       {offer.can_add_new && <label className="ui-check">
         <input type="radio" name={name} checked={choice === 'new'} onChange={() => setChoice('new')} />
-        <span>{offer.kind === 'debt' ? 'Add it as a new card' : 'Add it as a new account'}</span>
+        <span>{offer.kind === 'debt' ? 'Add it as a new debt' : 'Add it as a new account'}</span>
       </label>}
     </fieldset>}
     {choice === 'new' && offer.new_type_options.length > 0 && <label className="statement-balance-type">
@@ -99,7 +99,7 @@ function OfferCard({ offer, onApplied, onDismiss, onStale, blockedReason }: {
     {blockedReason && <p className="statement-balance-now">{blockedReason}</p>}
     <div className="statement-balance-actions">
       <button type="button" className="ui-btn ui-btn--primary" disabled={saving || choice == null || !!blockedReason || needsType} onClick={approve}>
-        {saving ? 'Saving…' : choice === 'new' ? (offer.kind === 'debt' ? 'Add card' : 'Add account') : 'Update balance'}
+        {saving ? 'Saving…' : choice === 'new' ? (offer.kind === 'debt' ? 'Add debt' : 'Add account') : 'Update balance'}
       </button>
       <button type="button" className="ui-btn ui-btn--text" disabled={saving} onClick={onDismiss}>Not now</button>
     </div>

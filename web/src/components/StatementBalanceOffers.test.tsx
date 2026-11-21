@@ -83,20 +83,20 @@ describe('StatementBalanceOffers', () => {
     expect(screen.queryByText(/Update Checking/)).toBeNull()
   })
 
-  it('asks which card a statement belongs to before it can be approved, and says the amount is owed', async () => {
+  it('asks which debt a statement belongs to before it can be approved, and says the amount is owed', async () => {
     apiMocks.fetchStatementBalanceOffers.mockResolvedValue([card])
     apiMocks.applyStatementBalance.mockResolvedValue([])
     render(<StatementBalanceOffers onChanged={vi.fn().mockResolvedValue(undefined)} />)
 
-    expect(await screen.findByText('Your Oct 31 statement for Mainland Visa ····6074 shows $4,296.96 owed. Which card is it?')).toBeTruthy()
+    expect(await screen.findByText('Your Oct 31 statement for Mainland Visa ····6074 shows $4,296.96 owed. Which debt is it?')).toBeTruthy()
     const approve = screen.getByRole('button', { name: 'Update balance' }) as HTMLButtonElement
     expect(approve.disabled).toBe(true)
 
     fireEvent.click(screen.getByLabelText(/Mainland Visa \(\$4,000\)/))
     expect(screen.getByText('Update Mainland Visa to $4,296.96 owed from your Oct 31 statement?')).toBeTruthy()
-    fireEvent.click(screen.getByLabelText('Add it as a new card'))
+    fireEvent.click(screen.getByLabelText('Add it as a new debt'))
     expect(screen.getByText('Add Mainland Visa ····6074 to your debts with $4,296.96 owed from your Oct 31 statement?')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Add card' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add debt' }))
     await waitFor(() => expect(apiMocks.applyStatementBalance).toHaveBeenCalledWith(card, 'new', expect.any(String), 'credit_card'))
   })
 
@@ -161,7 +161,7 @@ describe('StatementBalanceOffers', () => {
     apiMocks.fetchStatementBalanceOffers.mockResolvedValue([loan])
     apiMocks.applyStatementBalance.mockResolvedValue([])
     render(<StatementBalanceOffers onChanged={vi.fn().mockResolvedValue(undefined)} />)
-    const add = await screen.findByRole('button', { name: 'Add card' }) as HTMLButtonElement
+    const add = await screen.findByRole('button', { name: 'Add debt' }) as HTMLButtonElement
     expect(add.disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('What kind of debt is this?'), { target: { value: 'auto_loan' } })
     expect(add.disabled).toBe(false)
