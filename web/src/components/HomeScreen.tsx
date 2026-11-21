@@ -3,7 +3,7 @@ import { formatRunway } from '../lib/runway'
 import { YearOutlook } from './YearOutlook'
 import { guamTodayIso } from '../lib/householdDate'
 import { formatReviewMoney } from '../lib/reviewMoney'
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useBrand } from '../contexts/brandContextValue'
 
 // First reveal belongs to this page lifetime, so tab remounts do not replay it.
@@ -33,9 +33,10 @@ type HomeScreenProps = {
   /** Saves her own choice; absent, Home shows no switch. */
   onChangeHomeView?: (view: HomeView) => void
   homeViewSaving?: boolean
+  homeViewError?: string | null
 }
 
-export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAddPurchase, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true, homeView = 'month', onChangeHomeView, homeViewSaving = false }: HomeScreenProps) {
+export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAddPurchase, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true, homeView = 'month', onChangeHomeView, homeViewSaving = false, homeViewError = null }: HomeScreenProps) {
   const { assistantName } = useBrand()
   const screenRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -68,10 +69,17 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
     ? Math.max(0, answer.category_left_cents) + Math.max(0, (answer.planned_out_cents ?? 0) - answer.category_plan_cents)
     : Math.max(0, (answer?.planned_out_cents ?? 0) - spent)
   const barStyle = { '--spent': `${income > 0 ? spent / income * 100 : 0}%`, '--planned': `${income > 0 ? Math.min(income - spent, stillPlanned) / income * 100 : 0}%` } as CSSProperties
+  const switchRef = useRef<HTMLButtonElement>(null)
+  const restoreSwitchFocus = useRef(false)
+  useLayoutEffect(() => {
+    if (homeViewSaving || !restoreSwitchFocus.current) return
+    restoreSwitchFocus.current = false
+    if (document.activeElement === document.body || document.activeElement === switchRef.current) switchRef.current?.focus()
+  }, [homeView, homeViewSaving])
   const yearFirst = plan != null && homeView === 'year'
   // Her own choice, saved to her account; it sits with the year so it reads as "this card first".
-  const viewSwitch = onChangeHomeView && <button type="button" className="ui-btn ui-btn--tonal ui-btn--full home-view-switch" disabled={homeViewSaving} onClick={() => onChangeHomeView(yearFirst ? 'month' : 'year')}>{yearFirst ? 'Show this month first' : 'Show the year first'}</button>
-  const yearOutlook = plan && <YearOutlook plan={plan} currentMonth={answer?.month ?? actionCenter.current_month_index + 1} moneyKnown={incomeKnown && planKnown && answer?.money_in_cents != null && answer?.planned_out_cents != null} footer={viewSwitch} />
+  const viewSwitch = onChangeHomeView && <><button ref={switchRef} type="button" className="ui-btn ui-btn--tonal ui-btn--full home-view-switch" disabled={homeViewSaving} onClick={() => { restoreSwitchFocus.current = document.activeElement === switchRef.current; onChangeHomeView(yearFirst ? 'month' : 'year') }}>{yearFirst ? 'Show this month first' : 'Show the year first'}</button>{homeViewError && <p className="form-error">{homeViewError}</p>}</>
+  const yearOutlook = plan && <YearOutlook key="year-outlook" plan={plan} currentMonth={answer?.month ?? actionCenter.current_month_index + 1} moneyKnown={incomeKnown && planKnown && answer?.money_in_cents != null && answer?.planned_out_cents != null} footer={viewSwitch} />
   const miaName = `Tell ${assistantName} what changed`
   const miaContent = <><span className="ui-monogram" aria-hidden="true" data-initial={Array.from(assistantName)[0]} /><span className="ui-row__body"><span className="ui-row__title">{miaName}</span></span><Chevron /></>
   return <div className="home-layout"><section ref={screenRef} className={`screen-grid home-screen${yearFirst ? ' home-screen--year-first' : ''}`}>
