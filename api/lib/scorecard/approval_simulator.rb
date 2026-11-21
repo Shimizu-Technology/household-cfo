@@ -316,7 +316,7 @@ module Scorecard
 
     def answer_for(line, answer, month)
       row = line.event
-      base = { event_id: row.id, shown: { event_type: row.event_type, category_id: line.category_id }, expected_head: line.expected_head }
+      base = { event_id: row.id, shown: { event_type: line.saved&.event_type || row.event_type, category_id: line.category_id }, expected_head: line.expected_head }
       unless answer
         # An unmapped proposal must remain visible in the question-only output
         # when the app accepts it; the answer key cannot silently remove it.

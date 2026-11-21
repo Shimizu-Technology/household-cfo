@@ -343,7 +343,7 @@ module FinancialDocuments
         when "same_purchase" then base.merge(disposition: "match", matched_transaction_id: line.purchase_match&.transaction&.id, budget_category_id: nil, overlap_disposition: "match")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
         else
-          facts = edited_facts(base, edit, saved: saved&.disposition == "include")
+          facts = edited_facts(base, edit, saved: saved&.disposition == "include", received_event_id: (line.event.id if line.kind == :money_in_source))
           if !line.done && TransferPairs.person_wording?(line.event, line.merchant) && facts[:signed_amount_cents].to_i.negative?
             # Spending in a category she chose is ordinary spending; only "someone else" (no category) is family support.
             if facts[:event_type] == "purchase" && facts[:budget_category_id].nil?
@@ -370,7 +370,7 @@ module FinancialDocuments
       end
 
       # saved: base holds what she saved, not the statement as first read.
-      def edited_facts(base, edit, saved: false)
+      def edited_facts(base, edit, saved: false, received_event_id: nil)
         kind = edit[:kind].to_s
         type = KINDS.fetch(kind) { raise ArgumentError, "Choose what this line was" }
         # "Spending" covers fees, interest and cash withdrawals too: choosing a category for one must not turn it into a purchase.
@@ -400,6 +400,7 @@ module FinancialDocuments
         purchase = saved && signed == base[:signed_amount_cents] && base[:purchase_amount_cents].present? ? base[:purchase_amount_cents] : cents
         # A refund carries a category only when she says which one it goes back to; otherwise it follows the purchase it refunds.
         refund = type == "refund" && signed.positive?
+        base = base.merge(external_reference: "received:#{received_event_id}") if received_event_id && kind == "money_in"
         base.merge(disposition: "include", event_type: type, signed_amount_cents: signed, posted_on: posted_on, merchant: merchant,
           purchase_amount_cents: expense ? purchase : nil, budget_category_id: expense || refund ? edit[:category_id].presence&.to_i : nil, overlap_disposition: same_charge ? "distinct" : "new")
       end

@@ -6,7 +6,7 @@ module FinancialDocuments
     # Nothing here approves anything; unknown stays unknown and becomes a question.
     class ParticipantPlan
       # as_before: the category is only what she chose for this merchant on an earlier statement; the reader guessed nothing.
-      # saved: the approved version of a line saved with no category, so she is shown (and changes) what she saved.
+      # saved: the approved facts for a reopened income or uncategorized line, or a pending correction.
       # refund_to: for a refund whose purchase was found, the categories it goes back to (shown, never saved on the line).
       # purchase_match: a purchase she already confirmed (a receipt, chat, form or Plaid purchase) this bank line may be.
       Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :saved, :expected_head, :refund_to, :purchase_match, :pair, keyword_init: true) do
@@ -55,8 +55,8 @@ module FinancialDocuments
       }.freeze
       # Answers that leave a line unfinished: it counts nowhere until the rest of its question is answered.
       UNFINISHED_REFERENCES = %w[unpaired-transfer: ownership-needed: overlap-cleared:].freeze
-      # Pay, bonuses, benefits, pensions, tax refunds and interest are money she earned or received.
-      EARNED_INCOME = /\b(?:payroll|pay|pay\s*check|salary|salaries|wages?|bonus(?:es)?|commissions?|stipend|direct\s+dep(?:osit)?|dir\s+dep|pension|annuity|social\s+security|soc\s+sec|ssa|ssi|ssdi|tax\s+ref(?:und)?|unemployment|benefits?|dividends?|interest)\b/i
+      # Payroll (including net pay), bonuses, benefits, pensions, tax refunds and interest are earned or received.
+      EARNED_INCOME = /\b(?:payroll|net\s+pay|pay\s*check|salary|salaries|wages?|bonus(?:es)?|commissions?|stipend|direct\s+dep(?:osit)?|dir\s+dep|pension|annuity|social\s+security|soc\s+sec|ssa|ssi|ssdi|tax\s+ref(?:und)?|unemployment|benefits?|dividends?|interest)\b/i
       # Words that can mean her own money coming back from another account, a wallet or cash she put in.
       OWN_MONEY = /\b(?:cash|atm|branch|teller|mobile|remote|check|counter)\s+deposit\b|\bdeposit\s+(?:from|at)\b|\bfrom\s+(?:my\s+|own\s+)?(?:savings|checking|share|account|acct)\b|\btransfers?\b|\bown\b|\bpay\s*pal\b|\b(?:google|samsung|amazon)\s+pay\b|\bvenmo\b|\bcash\s*app\b|\bzelle\b|\bapple\s+(?:cash|pay)\b/i
 
@@ -147,8 +147,8 @@ module FinancialDocuments
 
       # Money in read as income counts as income only when it plainly is pay, a benefit or interest. Anything that could be
       # her own money coming back ("ATM deposit", "Deposit from savings", "ACH credit PayPal", a deposit with no payer) is asked.
-      def self.money_in_question?(event, merchant, event_type: event.event_type, amount: event.signed_amount_cents)
-        return false unless event.row_kind == "posted" && event_type == "income" && amount.to_i.positive?
+      def self.money_in_question?(event, merchant, event_type: event.event_type, amount: event.signed_amount_cents, row_kind: event.row_kind)
+        return false unless row_kind == "posted" && event_type == "income" && amount.to_i.positive?
         text = [ merchant, event.financial_source_evidence&.payload&.dig("raw_description") ].compact.join(" ")
         !text.match?(EARNED_INCOME) || text.match?(OWN_MONEY)
       end
@@ -156,7 +156,7 @@ module FinancialDocuments
       # Old approvals remain immutable, but do not answer a newly required ownership question.
       def self.unanswered_money_in?(version)
         version.disposition == "include" && !version.external_reference.to_s.start_with?("received:") &&
-          money_in_question?(version.financial_source_event, version.merchant, event_type: version.event_type, amount: version.signed_amount_cents)
+          money_in_question?(version.financial_source_event, version.merchant, event_type: version.event_type, amount: version.signed_amount_cents, row_kind: "posted")
       end
 
       # Lines whose answer is whose money it was: a payment to or from a person, or money in that may be her own.
@@ -246,7 +246,7 @@ module FinancialDocuments
           kind, category_id = :correction, proposed.budget_category_id if pending
           Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && chosen.present?,
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id }.merge(pending ? { pending_digest: pending.digest } : {}),
-            done: !pending && done?(heads[event.id]&.approved_version), without_category: without_category, saved: proposed || (heads[event.id].approved_version if without_category), purchase_match: purchase_match)
+            done: !pending && done?(heads[event.id]&.approved_version), without_category: without_category, saved: proposed || (heads[event.id]&.approved_version if without_category || kind == :money_in_source), purchase_match: purchase_match)
         end.tap { |lines| refund_lines!(lines, heads, earlier, categories) }
       end
 

@@ -37,6 +37,7 @@ module HouseholdFinance
       incomplete = deposit_ids.empty? || covered < deposit_ids.length || unrepresented_accounts?
       partial = waiting.positive? || incomplete
       actual = (rows.any? || seen) && !(partial && total.zero?) ? total : nil
+      actual = nil if first > @today
       open = @today.between?(first, last)
       note = if first > @today
         "This month has not started yet."

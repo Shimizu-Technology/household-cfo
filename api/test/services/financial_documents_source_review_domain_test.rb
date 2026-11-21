@@ -94,6 +94,67 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_includes july[:coverage_note], "2 deposits still need your answer in Review"
   end
 
+  test "round4 bill pay asks while specific payroll is ready" do
+    [ [ "ACH CREDIT BILL PAY", :money_in_source ], [ "Orchid Demo PAYROLL", nil ], [ "Orchid Demo NET PAY", nil ] ].each do |merchant, kind|
+      src = source([ movement(40_000, type: "income").merge(merchant: merchant) ])
+      link(src)
+      actual = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole.kind
+      kind ? assert_equal(kind, actual) : assert_nil(actual)
+    end
+  end
+
+  test "round4 approved include facts reopen even when the source was not posted" do
+    src = source([ movement(40_000, type: "income").merge(merchant: "ATM DEPOSIT", row_kind: "unresolved") ])
+    event = src[:events].sole
+    identity = link(src)
+    refute FinancialDocuments::SourceReview::ParticipantPlan.money_in_question?(event, "ATM DEPOSIT")
+    approve(stage(event, identity: identity, amount: 42_000, event_type: "income", merchant: "Iris Demo deposit", purchase: nil, category: nil))
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+    assert_equal :money_in_source, line.kind
+    assert_equal 1, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:waiting_deposits]
+  end
+
+  test "round4 reopened income shows approved facts and an edit records the received answer" do
+    src = source([ movement(40_000, type: "income").merge(merchant: "ATM DEPOSIT") ])
+    identity = link(src)
+    approve(stage(src[:events].sole, identity: identity, amount: 42_000, event_type: "income", merchant: "Iris Demo deposit", posted_on: "2026-07-09", purchase: nil, category: nil))
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+    row = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, src[:revision], user: @user).plan_summary[:attention].sole
+    assert_equal [ 42_000, "2026-07-09", "Iris Demo deposit", "income" ], row.values_at(:amount_cents, :posted_on, :merchant, :event_type)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    input = { lines: [ { event_id: line.event.id, decision: "edited", expected_head: line.expected_head,
+      edit: { kind: "money_in", amount_cents: 43_000, posted_on: "2026-07-10", merchant: "PAY PAL Iris Demo" } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], input).call }
+    version = SourceReviewHead.find_by!(financial_source_event: line.event).approved_version
+    assert_equal "received:#{line.event.id}", version.external_reference
+    assert FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole.done
+    assert_equal 43_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "round4 simulator money in edit finishes the ownership question" do
+    require Rails.root.join("lib/scorecard/approval_simulator")
+    src = source([ movement(40_000, type: "income").merge(merchant: "PAY PAL Iris Demo") ])
+    link(src)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+    key = Object.new
+    key.define_singleton_method(:event) { |_| { "event_kind" => "income" } }
+    simulator = Scorecard::ApprovalSimulator.new(household: @household, user: @user, answer_key: key, categories: {})
+    entry = simulator.send(:answer_for, line, { "leg_id" => "invented-paypal", "signed_amount_cents" => 42_000, "date" => "2026-07-09" }, "2026-07")
+    assert_equal "edited", entry[:decision]
+    assert_equal "money_in", entry[:edit][:kind]
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: [ entry ] }).call }
+    assert FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole.done
+    assert_equal 42_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "round4 future income stays unknown even with approved payroll" do
+    src = source([ movement(40_000, type: "income").merge(merchant: "Iris Demo payroll") ])
+    identity = link(src)
+    approve_statement(src, identity)
+    assert_nil HouseholdFinance::ActualIncome.new(@household, today: Date.new(2026, 6, 30)).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
   test "wallet names with pay ask the money in question" do
     [ "Google Pay", "Samsung Pay", "Amazon Pay", "PAY PAL" ].each do |wallet|
       src = source([ movement(40_000, type: "income").merge(merchant: "#{wallet} Orchid Demo") ])

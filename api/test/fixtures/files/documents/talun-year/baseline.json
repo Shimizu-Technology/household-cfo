@@ -113,7 +113,7 @@
         "expected_cents": 768500,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 358586,
@@ -279,7 +279,7 @@
         "expected_cents": 750000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 366838,
@@ -441,7 +441,7 @@
         "expected_cents": 782750,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 360591,
@@ -627,7 +627,7 @@
         "expected_cents": 750000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 339897,
@@ -785,7 +785,7 @@
         "expected_cents": 750000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 378889,
@@ -946,7 +946,7 @@
         "expected_cents": 759600,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 371534,
@@ -1125,7 +1125,7 @@
         "expected_cents": 750000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 359348,
@@ -1283,7 +1283,7 @@
         "expected_cents": 794200,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 359550,
@@ -1441,7 +1441,7 @@
         "expected_cents": 750000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 428752,
@@ -1597,7 +1597,7 @@
         "expected_cents": 750000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 379796,
@@ -1770,7 +1770,7 @@
         "expected_cents": 771300,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 360156,
@@ -1928,7 +1928,7 @@
         "expected_cents": 750000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 360358,
@@ -1998,7 +1998,7 @@
       "expected_cents": 9126350,
       "error_cents": 0,
       "absolute_error_percent": 0.0,
-      "known": true
+      "known": false
     },
     "spending_by_category": {
       "Housing": {
@@ -2285,7 +2285,7 @@
           "expected_cents": 768500,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 358586,
@@ -2450,7 +2450,7 @@
           "expected_cents": 750000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 369013,
@@ -2609,7 +2609,7 @@
           "expected_cents": 782750,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 360591,
@@ -2793,7 +2793,7 @@
           "expected_cents": 750000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 341296,
@@ -2948,7 +2948,7 @@
           "expected_cents": 750000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 378889,
@@ -3106,7 +3106,7 @@
           "expected_cents": 759600,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 371534,
@@ -3283,7 +3283,7 @@
           "expected_cents": 750000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 359348,
@@ -3439,7 +3439,7 @@
           "expected_cents": 794200,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 359550,
@@ -3595,7 +3595,7 @@
           "expected_cents": 750000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 428752,
@@ -3749,7 +3749,7 @@
           "expected_cents": 750000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 379796,
@@ -3920,7 +3920,7 @@
           "expected_cents": 771300,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 360156,
@@ -4076,7 +4076,7 @@
           "expected_cents": 750000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 360358,
@@ -4144,7 +4144,7 @@
         "expected_cents": 9126350,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "spending_by_category": {
         "Housing": {

@@ -84,7 +84,7 @@ module Scorecard
       decisions = @simulator.decisions.fetch(month, {})
       { "total_spending" => metric(transactions.sum(&:total_amount_cents) - refunds.sum(&:amount_cents) + cash.values.sum, expected.fetch("total_spending_cents")),
         "spending_by_category" => categories, "income" => metric(income.sum { |row| row[:signed_amount_cents] }, expected.fetch("income_cents")),
-        "app_actual_income" => known_metric(budget.fetch(:actual_income).fetch(number).fetch(:actual_cents), expected.fetch("income_cents")),
+        "app_actual_income" => known_metric(budget.fetch(:actual_income).fetch(number).fetch(:actual_cents), expected.fetch("income_cents"), partial: budget.fetch(:actual_income).fetch(number).fetch(:partial)),
         "analyzer_spending" => metric(analysis[:observed_spending_cents].to_i, expected.fetch("total_spending_cents")),
         "double_counts" => double_counts, "transfer_leakage_cents" => leaked_spending + leaked_income,
         "transfer_leakage_spending_cents" => leaked_spending, "transfer_leakage_income_cents" => leaked_income,
@@ -138,8 +138,8 @@ module Scorecard
     end
 
     # Unknown is never $0: an unknown month misses everything expected for it and says it is not known.
-    def known_metric(actual, expected)
-      return metric(actual, expected).merge("known" => true) unless actual.nil?
+    def known_metric(actual, expected, partial: false)
+      return metric(actual, expected).merge("known" => !partial) unless actual.nil?
 
       { "actual_cents" => nil, "expected_cents" => expected, "error_cents" => -expected, "absolute_error_percent" => expected.zero? ? 0.0 : 100.0, "known" => false }
     end

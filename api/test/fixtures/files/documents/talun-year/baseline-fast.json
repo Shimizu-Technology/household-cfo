@@ -113,7 +113,7 @@
         "expected_cents": 585000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 277932,
@@ -843,7 +843,7 @@
         "expected_cents": 420000,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 277983,
@@ -1572,7 +1572,7 @@
         "expected_cents": 351300,
         "error_cents": 0,
         "absolute_error_percent": 0.0,
-        "known": true
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 53470,
@@ -2062,7 +2062,7 @@
           "expected_cents": 585000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 277932,
@@ -2791,7 +2791,7 @@
           "expected_cents": 420000,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 277983,
@@ -3518,7 +3518,7 @@
           "expected_cents": 351300,
           "error_cents": 0,
           "absolute_error_percent": 0.0,
-          "known": true
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 53470,
