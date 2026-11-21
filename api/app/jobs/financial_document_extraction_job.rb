@@ -7,7 +7,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   ATTEMPT_METADATA_STRING_LENGTH = 120
   ATTEMPT_USAGE_KEYS = %w[prompt_tokens completion_tokens total_tokens].freeze
-  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at transaction_draft_count transaction_match_count no_reviewable_transactions routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination source_accounting_revision_id source_accounting_contract_version source_accounting_review_pending source_reconciliation extraction_parser_version extraction_template extraction_financial_row_count extraction_informational_row_count extraction_printed_arithmetic_verified extraction_progress].freeze
+  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at transaction_draft_count transaction_match_count no_reviewable_transactions routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination source_accounting_revision_id source_accounting_contract_version source_accounting_review_pending source_reconciliation extraction_parser_version extraction_template extraction_financial_row_count extraction_informational_row_count extraction_printed_arithmetic_verified extraction_progress local_stack_replay recorded_fixture].freeze
   STALE_PROCESSING_AFTER = 15.minutes
 
   def perform(financial_document_import_id, dispatch_id = nil, generation = nil)
@@ -50,7 +50,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
       extractor = build_extractor
       attempt = document_import.attempts.create!(
-        provider: "openrouter",
+        provider: ENV["LOCAL_STACK_REPLAY"] == "1" ? "recorded" : "openrouter",
         model: extractor.model,
         status: "processing",
         prompt_version: FinancialDocuments::Extractor::PROMPT_VERSION,
@@ -87,6 +87,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
   private
 
   def build_extractor
+    return FinancialDocuments::LocalStackReplayExtractor.new if ENV["LOCAL_STACK_REPLAY"] == "1"
+
     FinancialDocuments::Extractor.new
   end
 
@@ -152,6 +154,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
         "extraction_informational_row_count" => parser_backed ? result.metadata[:informational_row_count] : nil,
         "extraction_printed_arithmetic_verified" => parser_backed ? result.metadata[:printed_arithmetic_verified] == true : nil,
         "extraction_mode" => result.metadata[:extraction_mode],
+        "local_stack_replay" => result.metadata[:local_stack_replay] == true ? true : nil,
+        "recorded_fixture" => sanitized_metadata_string(result.metadata[:recorded_fixture]),
         "extraction_page_count" => result.metadata[:page_count],
         "extraction_batch_count" => result.metadata[:batch_count],
         "last_extracted_at" => Time.current.iso8601,

@@ -77,3 +77,20 @@ LOCAL_STACK_WEB_BUILD=1 bin/local-stack up
 ```
 
 The launcher builds with the same isolated API and test sign-in settings, then serves `vite preview` on the selected web port. This does not publish a deploy. Restore `web/public/sitemap.xml` after the build.
+
+## Replay the fictional Talun documents without a live reader
+
+```bash
+bin/local-stack down
+LOCAL_STACK_REPLAY=1 bin/local-stack up
+```
+
+Keep `LOCAL_STACK_REPLAY=1` on subsequent `run` commands and when restarting this stack. `up` must restart the API for a mode change to take effect. For browser acceptance, combine it with `LOCAL_STACK_WEB_BUILD=1`.
+
+Replay mode skips the key file and the provider credit-check request entirely. The API refuses replay outside the guarded test local stack, or with any live reader key configured. Its existing database, storage, email and network guards still apply; the reader cannot fall back to a live call. This mode cannot boot in production.
+
+Upload an **unchanged original** from `api/test/fixtures/files/documents/talun-year/`, choosing Statement or Receipt to match the fixture. The upload bytes must match the committed manifest checksum and have a committed recording. A renamed original works; edited files, excerpts and other documents fail with **“This file has no recording. Nothing changed.”** This applies to CSVs too while replay is enabled. To return to ordinary offline CSV/native-PDF reading, stop the stack and restart without the flag.
+
+The real upload, private local storage, extraction dispatch/job, native parsers, normalization and review persistence all run. Only the provider response is replayed, using `Scorecard::RecordedExtractor` with a local adapter. The adapter checks exact source bytes, document kind, model and prompt versions, and provider-section order. It permits the current date, participant categories and upload context to differ from the scorecard's pinned prompt, so it does not enforce the scorecard's full request digest. The scorecard itself retains its strict digest check. No answer-key line values are used to generate output, and no recording is created or refreshed. Extraction metadata marks `local_stack_replay: true` and the fixture while retaining the original parser mode; any provider usage values belong to the recording, not a new billed request.
+
+For example, upload `checking-2026-01.pdf`, then `all-accounts-2026-01-to-06.csv` to check cross-format duplicate review. For the voucher receipt match, use `checking-2026-06.pdf` and `receipt-voucher-2026-06-23.jpg`. Recordings reproduce the reader's proposals, including mistakes; participants must still review them. Replay does not establish live-reader accuracy.
