@@ -155,7 +155,7 @@ class ApiV1CoachDailyRosterTest < ActionDispatch::IntegrationTest
     batch = -> { ChallengePrivacy::SharedReader.daily_batch(@savings_cohort.reload, user: @savings_owner).fetch(@savings_user.id) }
     # The roster row adds her own calendar (length and check-in days she joined with).
     assert_equal single.basic, batch.call.except(:shared_items, :challenge)
-    assert_equal({ day: @savings_enrollment.challenge_day, length_days: 90, checkpoint_days: [ 30, 60, 90 ] }, batch.call[:challenge])
+    assert_equal({ day: @savings_enrollment.challenge_day, length_days: 90, checkpoint_days: [ 30, 60, 90 ], finished: false }, batch.call[:challenge])
     assert_empty batch.call[:shared_items], "No grant cannot expose an item"
     grant = ChallengePrivacyGrant.create!(savings_enrollment: @savings_enrollment, household: @savings_household,
       participant_user: @savings_user, recipient_user: @savings_owner, kind: "selected_details", granted: true, policy_version: "1", expires_at: 1.hour.from_now,

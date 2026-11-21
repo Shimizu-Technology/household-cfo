@@ -15,10 +15,24 @@ module ChallengePrivacy
       end
     end
 
+    # The days a group can report on: its live check-in days, every day on a schedule
+    # someone in the group joined under (each enrollment keeps the days it started
+    # with), and any day already sealed, so a saved report always stays reachable.
+    def self.reportable_days(cohort)
+      enrolled = SavingsEnrollment.counted.where(cohort: cohort).distinct.pluck(:checkpoint_days).flatten
+      sealed = ChallengeSponsorExport.where(cohort: cohort, policy_version: POLICY_VERSION).pluck(:checkpoint_day)
+      (SavingsChallenge::Rules.for_cohort(cohort).checkpoint_days | enrolled | sealed).sort
+    end
+
+    def self.day_choice_text(days)
+      words = days.map(&:to_s)
+      "Day #{words.length == 1 ? words.first : "#{words[0..-2].join(', ')} or #{words.last}"}"
+    end
+
     def initialize(cohort, user:, adapter: CheckpointAdapter.new) = (@cohort, @user, @adapter = cohort, user, adapter)
     def approve(checkpoint_day:, resolved_cutoff_on:, policy_version: POLICY_VERSION)
-      rules = SavingsChallenge::Rules.for_cohort(@cohort)
-      raise ArgumentError, "Use only the group's #{rules.checkpoint_text} exports" unless rules.checkpoint?(checkpoint_day) && policy_version == POLICY_VERSION
+      days = self.class.reportable_days(@cohort)
+      raise ArgumentError, "Use only the group's #{self.class.day_choice_text(days)} exports" unless days.include?(checkpoint_day) && policy_version == POLICY_VERSION
       cutoff = Date.iso8601(resolved_cutoff_on.to_s)
       raise ArgumentError, "Day #{checkpoint_day} ends on #{cutoff.iso8601}. You can seal this report from that date on." if cutoff > Date.current
       ApplicationRecord.transaction do
@@ -32,12 +46,16 @@ module ChallengePrivacy
         @adapter.validate_cutoff!(@cohort, checkpoint_day: checkpoint_day, cutoff_on: cutoff) if @adapter.respond_to?(:validate_cutoff!)
         provenance = current_provenance
         raise Access::Denied, "Sponsor reporting is limited to the thirty-person pilot" if provenance[:participants].length > 30
-        observations = eligible_enrollments.map { |enrollment| checkpoint(enrollment, checkpoint_day, cutoff) }
-        prior = ChallengeSponsorExport.where(cohort: @cohort, policy_version: policy_version).order(:checkpoint_day).last
-        raise Access::Denied, "Fixed sponsor checkpoints must be sealed in increasing day order" if prior && prior.checkpoint_day >= checkpoint_day
+        eligible = eligible_enrollments
+        observations = eligible.map { |enrollment| checkpoint(enrollment, checkpoint_day, cutoff) }
         raise Access::Denied, "Each participant requires a distinct checkpoint identity" unless observations.pluck(:checkpoint_id).uniq.length == observations.length
-        transitions = prior && changed_observations(prior.private_provenance["observations"], observations)
-        report = build_report(observations, provenance, checkpoint_day, cutoff, suppress_changes: transitions && transitions.between?(1, 4))
+        # Days on different schedules can be sealed in any order, so compare with every
+        # saved report: a reader holding two reports that differ by one to four people
+        # could pick those people out.
+        priors = ChallengeSponsorExport.where(cohort: @cohort, policy_version: policy_version).order(:checkpoint_day).to_a
+        differencing = priors.any? { |prior| changed_observations(prior.private_provenance["observations"], observations).between?(1, 4) }
+        report = build_report(observations, provenance, checkpoint_day, cutoff, suppress_changes: differencing,
+          rules: eligible.filter_map { |enrollment| enrollment.rules if enrollment.rules.checkpoint?(checkpoint_day) })
         sealed = provenance.merge(observations: observations)
         record = ChallengeSponsorExport.create!(identity.merge(approved_by_user: @user, resolved_cutoff_on: cutoff, private_provenance: sealed,
           report: report, digest: fingerprint(report), created_at: Time.current))
@@ -64,6 +82,7 @@ module ChallengePrivacy
       CSV.generate do |csv|
         csv << %w[metric band count_range qualification]
         Array(report["bands"]).each { |row| csv << [ "checkpoint_progress", row["band"], row["count_range"], report["qualification"] ].map { |value| self.class.escape_cell(value) } }
+      Array(report["counted_under"]).each { |rule| csv << [ "counted_under", rule, "", report["qualification"] ].map { |value| self.class.escape_cell(value) } }
         csv << [ "active_consent_denominator", "", report["active_consent_count_range"], report["qualification"] ].map { |value| self.class.escape_cell(value) }
       end
     end
@@ -148,18 +167,38 @@ module ChallengePrivacy
       after = current.index_by { |row| row[:enrollment_id] }
       (before.keys | after.keys).count { |id| before[id]&.dig("band") != after[id]&.dig(:band) }
     end
+    # What "at target" and "below target" measured, from the rules of the people this
+    # day is on the schedule of. Never split by rule: each extra cell would be smaller,
+    # and the report would be suppressed more often or let a reader narrow people down.
+    def counting_text(rules)
+      counts = rules.map(&:counts).uniq.sort
+      measured = case counts
+      when [ "savings" ]
+        "At target and below target compare new money set aside, minus withdrawals, with the suggested goal."
+      when [ "savings_and_debt" ]
+        "At target and below target compare new money set aside plus self-reported extra payments on a card or loan beyond the minimum, minus withdrawals, with the suggested goal, so at target does not mean that amount was saved."
+      when [ "savings", "savings_and_debt" ]
+        "At target and below target count new money set aside, minus withdrawals; for people on a schedule where extra debt payments count, they also include self-reported extra payments on a card or loan beyond the minimum, so at target does not mean that amount was saved. The two rules are not reported separately."
+      else
+        "No one in this report was measured against a target on this day."
+      end
+      goals = rules.map(&:suggested_goal_cents).uniq.length > 1 ? " Each person is compared with the suggested goal of the schedule she joined under, and those goals differ in this report." : ""
+      "#{measured}#{goals}"
+    end
+
     def range(count) = count.zero? ? "0" : "#{count / 5 * 5}-#{count / 5 * 5 + 4}"
-    def build_report(observations, provenance, day, cutoff, suppress_changes:)
+    def build_report(observations, provenance, day, cutoff, suppress_changes:, rules:)
       counts = BANDS.index_with { |band| observations.count { |row| row[:band] == band } }
       total = observations.length
       suppress = total < 5 || suppress_changes || counts.values.any? { |count| count.positive? && (count < 5 || (total - count).between?(1, 4)) }
       enrolled = provenance[:participants].length
       denominator_safe = total >= 5 && !(enrolled - total).between?(1, 4)
       suppress ||= !denominator_safe
-      { schema_version: 1, policy_version: POLICY_VERSION, checkpoint_day: day, cutoff_on: cutoff.iso8601,
+      { schema_version: 2, policy_version: POLICY_VERSION, checkpoint_day: day, cutoff_on: cutoff.iso8601,
         active_consent_count_range: denominator_safe ? range(total) : "suppressed",
         bands: suppress ? [] : counts.filter_map { |band, count| { band: band, count_range: range(count) } if count.positive? },
-        suppressed: suppress, qualification: "Participant checkpoint bands; active sponsor consent only, with separate household allocations rather than summed household money. Missing, pending final confirmation, custom or absent targets, late windows, other check-in schedules and withdrawals are distinct states. Custom or absent target bands do not establish known savings; late windows, other schedules and withdrawals do not establish a checkpoint result. Counts are ranges; suppressed cells and complements are unavailable. This uncontrolled pilot does not establish causal effectiveness or guarantee anonymity.",
+        counted_under: rules.map(&:counts).uniq.sort,
+        suppressed: suppress, qualification: "Participant checkpoint bands; active sponsor consent only, with separate household allocations rather than summed household money. #{counting_text(rules)} Missing, pending final confirmation, custom or absent targets, late windows, other check-in schedules and withdrawals are distinct states. Custom or absent target bands do not establish a known result; late windows, other schedules and withdrawals do not establish a checkpoint result. People on another check-in schedule are counted on their own days instead. Counts are ranges; suppressed cells and complements are unavailable. This uncontrolled pilot does not establish causal effectiveness or guarantee anonymity.",
         exact_money_totals_included: false, roster_included: false, dynamic_filters_supported: false }
     end
   end

@@ -18,7 +18,8 @@ export type CoachDailyPerson = Omit<CoachParticipant, 'enrollment_id' | 'check_i
   setup_help: Array<{ id: number; reason: string; status: string }>
   shared_items: string[]
   /** Her own challenge calendar (the rules she joined with). Absent before she joins. */
-  challenge?: { day: number | null; length_days: number; checkpoint_days: number[] } | null
+  /** Her own calendar; finished once her last day has passed. */
+  challenge?: { day: number | null; length_days: number; checkpoint_days: number[]; finished?: boolean } | null
 }
 export type DailyFilter = 'all' | 'needs_help' | 'checked_in' | 'not_checked_in' | 'invited' | 'joined' | 'setup_done'
 export type CoachDailyPage = {
@@ -54,6 +55,8 @@ export type SponsorReport = {
   bands: Array<{ band: string; count_range: string }>
   suppressed: boolean
   qualification: string
+  /** The counting rules the at-target bands were measured under (reports saved before this was added leave it out). */
+  counted_under?: Array<'savings' | 'savings_and_debt'>
   exact_money_totals_included: false
   roster_included: false
   dynamic_filters_supported: false
@@ -65,9 +68,20 @@ export type SponsorIndex = {
   // False for a platform administrator who reads reports but is not on the group's team.
   can_seal?: boolean
   scheduled_checkpoints: Array<{ day: number; cutoff_on: string | null; sealable?: boolean }>
+  /** Set when the group's challenge settings couldn't be read and the standard rules stand in. */
+  rules_notice?: string | null
   records: Array<{ id: number; checkpoint_day: number; resolved_cutoff_on: string; created_at: string }>
   next_cursor: number | null
 }
+// What “at target” measured in this report, from the counting rule(s) of the people it covers.
+export function countedUnderText(rules: Array<'savings' | 'savings_and_debt'>): string {
+  const debt = rules.includes('savings_and_debt')
+  if (!debt) return rules.length ? 'At target here means new money set aside reached the suggested goal.' : 'No one in this report was measured against a goal on this day.'
+  return rules.includes('savings')
+    ? 'At target counts new money set aside. For people who joined when extra debt payments counted, it also includes extra payments they reported on a card or loan, so it doesn’t always mean money saved.'
+    : 'At target counts new money set aside plus extra payments people reported on a card or loan beyond the minimum, so it doesn’t always mean money saved.'
+}
+
 const base = (id: number) => `/api/v1/challenge_cohorts/${id}`
 const shared = (id: number) => `/api/v1/shared_challenges/${id}`
 export const coachChallengeApi = {

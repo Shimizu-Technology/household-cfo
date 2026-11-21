@@ -94,12 +94,16 @@ export function MethodSettingsEditor({ method, disabled, onChange }: Props) {
 /** The savings challenge for groups that run it. People already in keep the rules they joined with. */
 function ChallengeSettings({ challenge, disabled, onChange }: { challenge: MethodChallenge; disabled: boolean; onChange: (challenge: MethodChallenge) => void }) {
   const explicit = challenge.checkpoints !== 'thirds'
-  const [daysText, setDaysText] = useState(explicit ? (challenge.checkpoints as number[]).join(', ') : '')
+  const savedText = explicit ? (challenge.checkpoints as number[]).join(', ') : null
+  const [daysText, setDaysText] = useState(savedText ?? '')
   const thirds = challengeCheckpointDays({ ...challenge, checkpoints: 'thirds' })
+  const parseDays = (text: string) => text.split(/[\s,]+/).filter(Boolean).map(Number)
+  // The text is kept while she types ("15, "); when the draft's days change from elsewhere
+  // (another draft, a reset), show those instead of what was typed before.
+  if (savedText !== null && parseDays(daysText).join(', ') !== savedText) setDaysText(savedText)
   const setDays = (text: string) => {
     setDaysText(text)
-    const days = text.split(/[\s,]+/).filter(Boolean).map(Number)
-    onChange({ ...challenge, checkpoints: days })
+    onChange({ ...challenge, checkpoints: parseDays(text) })
   }
   return (
     <>

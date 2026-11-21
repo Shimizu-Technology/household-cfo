@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import type { CohortExperienceDraft, MethodChallenge, StoredMethodSettings } from '../api'
@@ -13,6 +14,8 @@ import { savingsFixture } from '../test/savingsFixtures'
 import { savingsStatus } from './coachDailyWords'
 import type { CoachDailyPerson } from './coachChallengeApi'
 import { challengeCheckpointDays, defaultMethod, methodChanges, methodOf, methodProblems } from './methodSettings'
+import { toolChanges, type CoachSettingsReview } from './coachSettingsReview'
+import { countedUnderText } from './coachChallengeApi'
 import { calendarCheckpoints, challengeRules, savingsFundingChoices, type SavingsChallenge } from './savingsChallenge'
 
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
@@ -58,13 +61,44 @@ it('checks a coach’s challenge values the way the API does', () => {
 it('names each challenge change in the Go live review', () => {
   expect(methodChanges(defaultMethod, defaultMethod)).toEqual([])
   expect(methodChanges(defaultMethod, { ...defaultMethod, challenge: short })).toEqual([
-    'Method: challenge is 60 days with check-ins on day 20, 40, 60 (was 90 days, day 30, 60, 90). People already in keep their dates.',
+    'Method: challenge is 60 days with check-ins on day 20, 40, 60 (was 90 days, day 30, 60, 90).',
     'Method: suggested challenge goal is $300 (was $500). People can still choose their own.',
     'Method: extra debt payments now count toward the challenge goal. People already in keep their rule.',
   ])
   expect(methodChanges(defaultMethod, { ...defaultMethod, challenge: { ...defaultMethod.challenge, checkpoints: [15, 45, 90] } })).toEqual([
-    'Method: challenge is 90 days with check-ins on day 15, 45, 90 (was 90 days, day 30, 60, 90). People already in keep their dates.',
+    'Method: challenge is 90 days with check-ins on day 15, 45, 90 (was 90 days, day 30, 60, 90).',
   ])
+})
+
+it('warns at Go live that people already in keep their days when the schedule changes', () => {
+  const draft = (challenge: MethodChallenge) => ({ schema_version: 5, experience_mode: 'savings_challenge', optional_modules: {}, method: { ...defaultMethod, challenge } }) as unknown as CohortExperienceDraft
+  const item = (running: boolean, challenge: MethodChallenge) => ({ configuration: { draft: draft(challenge), published_version: null }, preview: { modules: [], module_order: [], challenge_running: running } }) as unknown as CoachSettingsReview['tools'][number]
+  const warning = 'People already in the challenge keep their days; reports will include both schedules.'
+  expect(toolChanges(item(true, short), draft(defaultMethod.challenge))).toContain(warning)
+  expect(toolChanges(item(false, short), draft(defaultMethod.challenge))).not.toContain(warning)
+  // A new goal alone keeps everyone on one schedule.
+  expect(toolChanges(item(true, { ...defaultMethod.challenge, suggested_goal_cents: 100_000 }), draft(defaultMethod.challenge))).not.toContain(warning)
+})
+
+it('says what at target counted in a sponsor report', () => {
+  expect(countedUnderText(['savings'])).toBe('At target here means new money set aside reached the suggested goal.')
+  expect(countedUnderText(['savings_and_debt'])).toMatch(/plus extra payments people reported on a card or loan beyond the minimum, so it doesn’t always mean money saved/)
+  expect(countedUnderText(['savings', 'savings_and_debt'])).toMatch(/For people who joined when extra debt payments counted/)
+})
+
+it('shows another draft’s check-in days without a remount', () => {
+  const days = (checkpoints: number[]) => ({ ...defaultMethod, challenge: { ...short, checkpoints } })
+  // A parent that keeps the draft, like the tools editor does.
+  const ui = (method: ReturnType<typeof days>): ReactElement => <MethodSettingsEditor method={method} disabled={false} onChange={next => view.rerender(ui(next as ReturnType<typeof days>))} />
+  const view = render(ui(days([15, 45, 60])))
+  const field = () => screen.getByRole('textbox', { name: /Check-in days/ }) as HTMLInputElement
+  expect(field().value).toBe('15, 45, 60')
+  // What she is typing stays as typed.
+  fireEvent.change(field(), { target: { value: '15, ' } })
+  expect(field().value).toBe('15, ')
+  // Another draft (a different group, or a reset) shows its own days.
+  view.rerender(ui(days([10, 30, 60])))
+  expect(field().value).toBe('10, 30, 60')
 })
 
 it('lets a coach set the length, check-in days, suggested goal and what counts', async () => {
@@ -153,4 +187,5 @@ it('counts a 60-day timeline and shows each person’s own day to the coach', ()
   const row = { enrollment_id: 5, membership_status: 'joined', setup_status: 'plan_reviewed', check_in: { local_on: '2026-10-04', completed: true, availability: 'available' }, challenge: { day: 4, length_days: 60, checkpoint_days: [20, 40, 60] } } as unknown as CoachDailyPerson
   expect(savingsStatus(row)).toBe('Checked in today · Target confirmed · Day 4 of 60')
   expect(savingsStatus({ ...row, challenge: { day: 4, length_days: 90, checkpoint_days: [30, 60, 90] } })).toBe('Checked in today · Target confirmed · Day 4 of 90')
+  expect(savingsStatus({ ...row, challenge: { day: 60, length_days: 60, checkpoint_days: [20, 40, 60], finished: true } })).toBe('Checked in today · Target confirmed · Finished')
 })

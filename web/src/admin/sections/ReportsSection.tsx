@@ -4,7 +4,7 @@ import { ApiRequestError } from '../../api'
 import type { CurrentUser } from '../../api'
 import { Button } from '../../components/Button'
 import { useHoldWorkspaceLock } from '../../components/coachWorkspaceMutationLifecycle'
-import { coachChallengeApi, type SponsorIndex, type SponsorReport } from '../../lib/coachChallengeApi'
+import { coachChallengeApi, countedUnderText, type SponsorIndex, type SponsorReport } from '../../lib/coachChallengeApi'
 import { formatDay } from '../../lib/plainDates'
 import { AdminDialog } from '../AdminDialog'
 import { useAdminRoster, type RosterGroup } from '../useAdminRoster'
@@ -88,6 +88,7 @@ function GroupReports({ group }: { group: RosterGroup }) {
   return <article className="admin-report-group">
     <h3>{group.name}</h3>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void load()}>Try again</Button></p>}
+    {index?.rules_notice && <p className="admin-alert" role="status">{index.rules_notice}</p>}
     {notYours ? <p className="admin-muted">Reports for this group are kept by the people who coach it, so there is nothing for you to open here.</p>
       : !index && !error ? <p role="status" className="admin-muted">Opening…</p> : index && <ul className="ui-card ui-rows admin-list">
       {rows.map(row => <li key={row.day} className="admin-report-row">
@@ -150,6 +151,7 @@ function ReportView({ data, group, onClose }: { data: Opened; group: RosterGroup
     <p>People who agreed to share: <strong>{report.suppressed ? 'hidden to protect privacy' : report.active_consent_count_range}</strong></p>
     {report.suppressed ? <p>Fewer than five people agreed to share, so progress is hidden. This protects everyone in the group.</p>
       : <ul className="admin-band-list">{report.bands.map(row => <li key={row.band}><span>{row.band.replaceAll('_', ' ')}</span><strong>{row.count_range} people</strong></li>)}</ul>}
+    {report.counted_under && <p>{countedUnderText(report.counted_under)}</p>}
     <p className="admin-muted">These ranges come from what people reported. They aren’t checked against bank balances.</p>
     {error && <p className="admin-alert error" role="alert">{error}</p>}
     <div className="admin-actions"><Button variant="secondary" disabled={downloading} onClick={() => void download()}>{downloading ? 'Preparing…' : 'Download this report'}</Button></div>

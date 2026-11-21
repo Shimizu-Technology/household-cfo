@@ -630,7 +630,7 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
     assert_equal 4, provenance[:participants].length
     assert_not_includes provenance[:participants].map { |row| row[:user_id] }, @admin.id
     observations = exporter.send(:enrollments).map { |enrollment| { enrollment_id: enrollment.id, band: "at_target" } }
-    report = exporter.send(:build_report, observations, provenance, 30, Date.current, suppress_changes: false)
+    report = exporter.send(:build_report, observations, provenance, 30, Date.current, suppress_changes: false, rules: exporter.send(:enrollments).map(&:rules))
     assert_equal true, report.fetch(:suppressed)
     assert_equal [], report.fetch(:bands)
     assert_equal "suppressed", report.fetch(:active_consent_count_range)

@@ -156,13 +156,7 @@ module SavingsChallenge
 
     # The rules she started with; before she joins, the ones her program would give her.
     def rules
-      @rules ||= if @enrollment
-        @enrollment.rules
-      else
-        Rules.for_runtime(Mia::ParticipantRuntimeResolver.new(user: @user).call)
-      end
-    rescue StandardError
-      @rules = Rules.default
+      @rules ||= Rules.for_participant(user: @user, enrollment: @enrollment)
     end
 
     def counts_sentence
@@ -172,6 +166,23 @@ module SavingsChallenge
       else
         extra = Projection.extra_debt_payment_cents(@enrollment)
         "Only new money you actually set aside counts, minus anything you take out. Spending less, refunds, debt payments and moving money you already had don't count on their own.#{extra.positive? ? " Your #{money(extra)} in extra debt payments is tracked alongside, not in the goal." : ''}"
+      end
+    end
+
+    # What counts toward the goal, in one line, from her rule.
+    def counted_short
+      if rules.counts_debt?
+        "Approved new money you set aside, minus withdrawals, counts toward the challenge, and so do extra payments on a card or loan beyond the minimum once you add them in Savings."
+      else
+        "Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+      end
+    end
+
+    def card_payment_sentence
+      if rules.counts_debt?
+        "Extra payments beyond the minimum count toward your challenge total once you add them in Savings; minimum payments don't."
+      else
+        "Card payments lower debt but don't count toward your savings total."
       end
     end
 
@@ -256,7 +267,7 @@ module SavingsChallenge
 
     def debt_answer
       if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
-        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. #{counted_short}"
       else
         "A small cushion helps keep an unexpected bill from going back on your credit card while you work on paying it down. #{rules.counts_debt? ? "The challenge counts new money you set aside and extra payments beyond the minimum, once you add them in Savings; a minimum payment isn't added to that total." : "The challenge measures new money you set aside; a card payment reduces debt but isn't added to that savings total."} If you want to compare your cards, open Optional card & debt review in Savings; you can use it without a full budget. For now, what small amount could you comfortably keep aside after essentials and required payments?"
       end
@@ -264,7 +275,7 @@ module SavingsChallenge
 
     def debt_comparison_answer
       if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
-        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. #{counted_short}"
       else
         comparison = Debt::Reader.new(@enrollment, user: @user).call
         cards = comparison.fetch(:cards).index_by { |row| row[:card_id] }
@@ -276,7 +287,7 @@ module SavingsChallenge
         else
           "Among your current eligible reviewed cards, the known-balance order is #{balance_order.any? ? balance_order.join(', ') : 'not established'}. The known single-rate APR order is #{rate_order.any? ? rate_order.join(', ') : 'not established'}. #{comparison[:stale_card_count]} card records have changed source facts; review them before comparing. Unknown APRs, unknown balances, promotions and separate-rate segments are not precise avalanche targets."
         end
-        "#{reviewed} I only see the cards you've reviewed here, not your whole budget, so I can't pick an extra-payment amount or promise a payoff date. Card payments lower debt but don't count toward your savings total. What card term would you like to look at?"
+        "#{reviewed} I only see the cards you've reviewed here, not your whole budget, so I can't pick an extra-payment amount or promise a payoff date. #{card_payment_sentence} What card term would you like to look at?"
       end
     rescue AccessPolicy::Unavailable
       "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. #{rules.counts_debt? ? 'Extra debt payments count only once you add them in Savings' : 'Debt payments do not automatically count as saved money'}; review missing terms before considering a debt strategy."

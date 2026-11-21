@@ -24,20 +24,53 @@ module SavingsChallenge
       for_capabilities(runtime.capabilities)
     end
 
+    # The rules a participant is under: the ones she started with, or before she joins,
+    # the ones her own runtime (her release exposure) would give her, which is what her
+    # join offer carries. Never raises; an unreadable runtime reads as the defaults.
+    def self.for_participant(user:, enrollment: nil, cohort_membership: nil)
+      return for_enrollment(enrollment) if enrollment
+      return default unless user
+
+      for_runtime(Mia::ParticipantRuntimeResolver.new(user: user, cohort_membership: cohort_membership).call)
+    rescue StandardError => error
+      Rails.logger.error("[SavingsChallenge::Rules] default participant rules user_id=#{user&.id} error=#{error.class}")
+      default
+    end
+
     # The rules a group's live release gives a new enrollment. Never raises; a group
     # without a usable release reads as the defaults.
+    #
+    # A participant's join offer reads her own release exposure instead, so during a
+    # staged rollout she can join under rules other than these. That is safe because
+    # the enrollment records her rules and every group-level reader that matters per
+    # person (sponsor report days and bands, the roster rows) uses those recorded rules;
+    # these are only the group's headline schedule.
     def self.for_cohort(cohort)
       for_release(cohort&.active_cohort_release)
     end
 
     # The rules a sealed release's experience carries (no further queries).
     def self.for_release(release)
-      return default unless release
+      read_release(release).first
+    end
 
-      from_setting(CohortExperience::Schema.method_for(release.experience_snapshot.to_h.fetch("config", {})).fetch("challenge"))
+    # [rules, readable]. readable is false when the release's challenge setting could
+    # not be read and the defaults stand in, so coach screens can say so.
+    def self.read_release(release)
+      return [ default, true ] unless release
+
+      [ from_setting(CohortExperience::Schema.method_for(release.experience_snapshot.to_h.fetch("config", {})).fetch("challenge")), true ]
     rescue StandardError => error
       Rails.logger.error("[SavingsChallenge::Rules] default rules cohort_release_id=#{release&.id} error=#{error.class}")
-      default
+      [ default, false ]
+    end
+
+    # What a coach screen says when read_release fell back to the defaults.
+    def self.unreadable_notice
+      rules = default
+      "This group's challenge settings couldn't be read, so the standard #{rules.label} rules (check-ins on #{rules.checkpoint_text}, " \
+        "a #{HouseholdFinance::Money.plain(rules.suggested_goal_cents)} suggested goal) are shown here. People already in keep their own rules. " \
+        "Publish the group's participant tools again to fix this."
     end
 
     # The rules an enrollment started with.

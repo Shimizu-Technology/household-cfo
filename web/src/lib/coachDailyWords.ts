@@ -19,6 +19,6 @@ export function householdStatus(row: CoachDailyPerson) {
 export function savingsStatus(row: CoachDailyPerson) {
   if (!row.enrollment_id) return row.membership_status === 'invited' ? 'Invited · Hasn’t joined yet' : row.membership_status === 'revoked' ? 'Account access removed' : 'Joined · Hasn’t started the challenge'
   // Her own calendar: the length she joined with, which a later program change never moves.
-  const day = row.challenge?.day ? ` · Day ${row.challenge.day} of ${row.challenge.length_days}` : ''
+  const day = row.challenge?.finished ? ' · Finished' : row.challenge?.day ? ` · Day ${row.challenge.day} of ${row.challenge.length_days}` : ''
   return `${row.check_in?.completed === true ? 'Checked in today' : row.check_in?.completed === false ? 'No check-in yet' : 'Check-in unavailable'} · ${row.setup_status === 'plan_reviewed' ? 'Target confirmed' : 'No target confirmed yet'}${day}`
 }

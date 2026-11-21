@@ -153,17 +153,160 @@ class SavingsChallengeRulesTest < ActionDispatch::IntegrationTest
       roster = ChallengePrivacy::CoachDailyRoster.new(@savings_cohort.reload, user: admin).call
       assert_equal({ length_days: 60, checkpoint_days: [ 20, 40, 60 ] }, roster.fetch(:challenge))
       rows = roster.fetch(:records).index_by { |row| row.dig(:participant, :id) }
-      assert_equal({ day: 1, length_days: 90, checkpoint_days: [ 30, 60, 90 ] }, rows.fetch(@savings_user.id).fetch(:challenge))
-      assert_equal({ day: 1, length_days: 60, checkpoint_days: [ 20, 40, 60 ] }, rows.fetch(later_user.id).fetch(:challenge))
+      assert_equal({ day: 1, length_days: 90, checkpoint_days: [ 30, 60, 90 ], finished: false }, rows.fetch(@savings_user.id).fetch(:challenge))
+      assert_equal({ day: 1, length_days: 60, checkpoint_days: [ 20, 40, 60 ], finished: false }, rows.fetch(later_user.id).fetch(:challenge))
 
       get "/api/v1/challenge_cohorts/#{@savings_cohort.id}/sponsor_exports", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
       assert_response :success
-      assert_equal [ 20, 40, 60 ], response.parsed_body.fetch("scheduled_checkpoints").pluck("day")
+      # Both schedules: the live one and the one the earlier joiner keeps.
+      assert_equal [ 20, 30, 40, 60, 90 ], response.parsed_body.fetch("scheduled_checkpoints").pluck("day")
+      assert_nil response.parsed_body.fetch("rules_notice")
 
       # A group day she does not have is its own band, not a missing result.
       earlier = SavingsEnrollment.find_by!(user: @savings_user)
       snapshot = ChallengePrivacy::ApprovedCheckpointAdapter.new.snapshot(earlier, checkpoint_day: 20, cutoff_on: @savings_cohort.starts_on + 19)
       assert_equal "other_schedule", snapshot.fetch(:band)
+    end
+  end
+
+  test "reports keep every schedule people joined under, seal in any order and keep a saved day reachable" do
+    with_savings_runtime do
+      earlier = savings_enroll
+      publish_savings_challenge_rules(SHORT)
+      later_user, later_household = second_participant
+      later = savings_run("enrollment.accept", { participation_accepted: true, policy_version: "1", late_start_accepted: true,
+        expected_acceptance_digest: savings_offer_digest(user: later_user) }, user: later_user, household: later_household).subject
+      owner = { "Authorization" => "Bearer test_token_#{@savings_owner.id}" }
+      seal = lambda do |day|
+        post "/api/v1/challenge_cohorts/#{@savings_cohort.id}/sponsor_exports", params: { checkpoint_day: day, accepted: true }, headers: owner, as: :json
+        response
+      end
+
+      # After the group's Day 90 (Jan 29), every day on either schedule can be saved.
+      travel_to Time.find_zone!("Pacific/Guam").local(2027, 2, 1, 12) do
+        assert_equal [ 20, 30, 40, 60, 90 ], ChallengePrivacy::SponsorExports.reportable_days(@savings_cohort)
+        assert_predicate seal.call(30), :successful?
+        # Day 20 comes after Day 30 was saved; it was refused before (increasing order only).
+        assert_predicate seal.call(20), :successful?, response.body
+        # Day 90 is the earlier joiner's final report; the live schedule no longer has it.
+        assert_predicate seal.call(90), :successful?, response.body
+        assert_equal 3, ChallengeSponsorExport.where(cohort: @savings_cohort).count
+        day_thirty = ChallengeSponsorExport.find_by!(cohort: @savings_cohort, checkpoint_day: 30)
+        assert_equal day_thirty.id, seal.call(30).parsed_body.fetch("export_id")
+        assert_equal 422, seal.call(45).status
+        assert_equal "Choose Day 20, 30, 40, 60 or 90", response.parsed_body.fetch("errors").first
+
+        # Each person is placed on her own days: the earlier joiner on Day 90, the later one on Day 20.
+        adapter = ChallengePrivacy::ApprovedCheckpointAdapter.new
+        cohort_day = ->(day) { @savings_cohort.starts_on + day - 1 }
+        refute_equal "other_schedule", adapter.snapshot(earlier.reload, checkpoint_day: 90, cutoff_on: cohort_day.call(90)).fetch(:band)
+        assert_equal "other_schedule", adapter.snapshot(later.reload, checkpoint_day: 90, cutoff_on: cohort_day.call(90)).fetch(:band)
+        assert_equal "other_schedule", adapter.snapshot(earlier, checkpoint_day: 20, cutoff_on: cohort_day.call(20)).fetch(:band)
+        refute_equal "other_schedule", adapter.snapshot(later, checkpoint_day: 20, cutoff_on: cohort_day.call(20)).fetch(:band)
+
+        # A day saved under a schedule nobody is on any more is still listed and can be reopened.
+        exporter = ChallengePrivacy::SponsorExports.new(@savings_cohort, user: @savings_owner)
+        provenance = exporter.send(:current_provenance).merge(observations: [])
+        old_report = { "checkpoint_day" => 45, "bands" => [], "suppressed" => true }
+        ChallengeSponsorExport.create!(cohort: @savings_cohort, checkpoint_day: 45, policy_version: ChallengePrivacy::SponsorExports::POLICY_VERSION,
+          approved_by_user: @savings_owner, resolved_cutoff_on: cohort_day.call(45), private_provenance: provenance, report: old_report,
+          digest: "b" * 64, created_at: Time.current)
+        get "/api/v1/challenge_cohorts/#{@savings_cohort.id}/sponsor_exports", headers: owner
+        assert_includes response.parsed_body.fetch("scheduled_checkpoints").pluck("day"), 45
+        assert_equal old_report, seal.call(45).parsed_body.fetch("report")
+      end
+    end
+  end
+
+  test "before she joins, Mia uses the rules her group would give her" do
+    with_savings_runtime do
+      publish_savings_challenge_rules({ "length_days" => 60, "checkpoints" => "thirds", "suggested_goal_cents" => 100_000, "counts" => "savings" })
+      assert_nil SavingsEnrollment.find_by(user: @savings_user)
+      captured = []
+      SavingsChallenge::Narrator.define_singleton_method(:new) { |**options| super(**options).tap { |narrator| captured << narrator } }
+      begin
+        mia([ "What should I know about the savings challenge before I start?" ])
+      ensure
+        SavingsChallenge::Narrator.singleton_class.send(:remove_method, :new)
+      end
+      narrator = captured.sole
+      contract = narrator.send(:narrator_contract)
+      assert_includes contract, "This is the 60-day savings challenge. The recommended $1,000 is total new money reserved"
+      assert_includes contract, "Check-ins are on Day 20, 40 and 60."
+      refute_includes contract, "90-day"
+      # The monthly-obligation boundary checks the group's own suggested amount.
+      assert narrator.send(:challenge_boundary_violation?, "Plan on $1,000 each month for this.")
+
+      rules = SavingsChallenge::Rules.for_participant(user: @savings_user)
+      assert_equal [ 60, [ 20, 40, 60 ], 100_000 ], [ rules.length_days, rules.checkpoint_days, rules.suggested_goal_cents ]
+      answerer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Could I save $1,000 for the challenge?", user: @savings_user, ensure_plan: false)
+      assert_equal "60-day", answerer.send(:challenge_rules).label
+      coach = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: nil, message: "Can you suggest a goal?")
+      assert_equal 100_000, coach.send(:rules).suggested_goal_cents
+    end
+  end
+
+  test "a day number in passing is not a progress question" do
+    with_savings_runtime do
+      savings_enroll
+      passing, asked = mia([ "I'll call the bank on day 30 about my account", "What happens on day 30?" ])
+      refute_includes passing, "Day 30: Dec 14", passing
+      assert_includes asked, "Day 30: Dec 14", asked
+      assert SavingsChallenge::ChatTurn.checkpoint_question?("Is my day 20 check-in ready?", [ 20, 40, 60 ])
+      refute SavingsChallenge::ChatTurn.checkpoint_question?("Is my day 20 check-in ready?", [ 30, 60, 90 ])
+      refute SavingsChallenge::ChatTurn.checkpoint_question?("I'll call the bank on day 30", [ 30, 60, 90 ])
+    end
+  end
+
+  test "debt and card answers say what counts under her rule" do
+    with_savings_runtime do
+      publish_savings_challenge_rules(SHORT)
+      enrollment = savings_enroll
+      no_debt = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: enrollment, message: "I don't have any debt").send(:debt_answer)
+      assert_includes no_debt, "and so do extra payments on a card or loan beyond the minimum"
+      refute_includes no_debt, "Only approved new money"
+      coach = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: enrollment, message: "Which card should I pay first?")
+      assert_includes coach.send(:card_payment_sentence), "Extra payments beyond the minimum count toward your challenge total"
+      default = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: SavingsEnrollment.new(challenge_length_days: 90, checkpoint_days: [ 30, 60, 90 ], suggested_goal_cents: 50_000, goal_counts: "savings"), message: "I don't have any debt")
+      assert_includes default.send(:debt_answer), "Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+      assert_equal "Card payments lower debt but don't count toward your savings total.", default.send(:card_payment_sentence)
+    end
+  end
+
+  test "the Go live preview says when people are already running the challenge" do
+    with_savings_runtime do
+      preview = lambda do
+        configuration = @savings_cohort.cohort_experience_configuration.reload
+        post "/api/v1/admin/cohorts/#{@savings_cohort.id}/experience_configuration/preview",
+          params: { experience_configuration: { draft_revision: configuration.draft_revision } }, headers: { "Authorization" => "Bearer test_token_#{@savings_owner.id}" }, as: :json
+        assert_response :success
+        response.parsed_body.dig("preview", "challenge_running")
+      end
+      assert_equal false, preview.call
+      savings_enroll
+      assert_equal true, preview.call
+    end
+  end
+
+  test "the roster says Finished once her last day has passed" do
+    with_savings_runtime do
+      publish_savings_challenge_rules(SHORT)
+      enrollment = savings_enroll
+      assert_equal({ day: 60, length_days: 60, checkpoint_days: [ 20, 40, 60 ], finished: false }, ChallengePrivacy::SharedReader.challenge_calendar(enrollment, enrollment.ends_on))
+      assert_equal({ day: 60, length_days: 60, checkpoint_days: [ 20, 40, 60 ], finished: true }, ChallengePrivacy::SharedReader.challenge_calendar(enrollment, enrollment.ends_on + 1))
+    end
+  end
+
+  test "coach screens say when a group's challenge settings can't be read" do
+    with_savings_runtime do
+      release = @savings_cohort.active_cohort_release
+      broken = release.dup.tap { |copy| copy.experience_snapshot = [ "not a sealed experience" ] }
+      rules, readable = SavingsChallenge::Rules.read_release(broken)
+      assert_equal [ SavingsChallenge::Rules.default, false ], [ rules, readable ]
+      assert_equal [ SavingsChallenge::Rules.default, true ], SavingsChallenge::Rules.read_release(nil)
+      assert_equal true, SavingsChallenge::Rules.read_release(release).last
+      assert_includes SavingsChallenge::Rules.unreadable_notice, "couldn't be read, so the standard 90-day rules"
+      assert_nil SavingsChallenge::LaunchControl.new(cohort: @savings_cohort).status.fetch(:rules_notice)
     end
   end
 

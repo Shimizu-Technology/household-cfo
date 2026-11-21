@@ -22,6 +22,11 @@ export function challengeCheckpointDays(challenge: MethodChallenge): number[] {
   return [Math.round(length / 3), Math.round((length * 2) / 3), length]
 }
 
+/** The length or the check-in days differ. */
+export function challengeScheduleChanged(was: MethodChallenge, now: MethodChallenge): boolean {
+  return was.length_days !== now.length_days || challengeCheckpointDays(was).join() !== challengeCheckpointDays(now).join()
+}
+
 /** "Day 30, 60 and 90" */
 export function checkpointDaysText(days: number[]): string {
   return days.length === 1 ? `Day ${days[0]}` : `Day ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`
@@ -142,11 +147,9 @@ export function methodChanges(previous: MethodSettings, next: MethodSettings): s
   if (previous.debt_order !== next.debt_order) changes.push(`Method: debt payoff ${next.debt_order === 'both' ? 'shows snowball and avalanche side by side' : `starts with ${next.debt_order}`}.`)
   const was = previous.challenge
   const now = next.challenge
-  const wasDays = challengeCheckpointDays(was).join()
-  const nowDays = challengeCheckpointDays(now)
-  if (was.length_days !== now.length_days || wasDays !== nowDays.join()) {
+  if (challengeScheduleChanged(was, now)) {
     const days = (challenge: MethodChallenge) => challengeCheckpointDays(challenge).join(', ')
-    changes.push(`Method: challenge is ${now.length_days} days with check-ins on day ${days(now)} (was ${was.length_days} days, day ${days(was)}). People already in keep their dates.`)
+    changes.push(`Method: challenge is ${now.length_days} days with check-ins on day ${days(now)} (was ${was.length_days} days, day ${days(was)}).`)
   }
   if (was.suggested_goal_cents !== now.suggested_goal_cents) changes.push(`Method: suggested challenge goal is ${dollars(now.suggested_goal_cents)} (was ${dollars(was.suggested_goal_cents)}). People can still choose their own.`)
   if (was.counts !== now.counts) changes.push(`Method: ${now.counts === 'savings_and_debt' ? 'extra debt payments now count toward the challenge goal' : 'only new money set aside counts toward the challenge goal; extra debt payments are tracked alongside'}. People already in keep their rule.`)

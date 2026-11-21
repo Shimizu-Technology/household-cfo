@@ -15,6 +15,14 @@ class AddChallengeRulesToSavingsEnrollments < ActiveRecord::Migration[8.0]
   # A zero report conflicts with anything that counts toward this enrollment's goal.
   SCOPE_FROM = [ "AND v.funding_source IN ('earned_income','gift','bonus','new_money_reserved','withdrawal')\n" ].freeze
   SCOPE_TO = [ "AND (v.funding_source IN ('earned_income','gift','bonus','new_money_reserved','withdrawal') OR (v.funding_source = 'extra_debt_payment' AND enrollment.goal_counts = 'savings_and_debt'))\n" ].freeze
+  # One to six check-in days, a plain one-dimensional array with no NULLs, strictly
+  # increasing from day 1 or later and ending on the last day. A CHECK cannot use a
+  # subquery, so each neighbouring pair is compared directly (at most six days).
+  INCREASING = (2..6).map { |index| "(cardinality(checkpoint_days) < #{index} OR checkpoint_days[#{index}] > checkpoint_days[#{index - 1}])" }.join(" AND ")
+  RULES_CHECK = "challenge_length_days BETWEEN 30 AND 180 AND cardinality(checkpoint_days) BETWEEN 1 AND 6 " \
+    "AND array_ndims(checkpoint_days) = 1 AND array_lower(checkpoint_days, 1) = 1 AND array_position(checkpoint_days, NULL) IS NULL " \
+    "AND checkpoint_days[1] >= 1 AND #{INCREASING} AND checkpoint_days[cardinality(checkpoint_days)] = challenge_length_days " \
+    "AND suggested_goal_cents BETWEEN 10000 AND 500000 AND goal_counts IN ('savings','savings_and_debt')"
   OLD_SOURCES = "'earned_income','gift','bonus','new_money_reserved','preexisting','borrowed','cash_advance','existing_internal_money'"
   NEW_SOURCES = "#{OLD_SOURCES},'extra_debt_payment'"
 
@@ -27,9 +35,7 @@ class AddChallengeRulesToSavingsEnrollments < ActiveRecord::Migration[8.0]
     remove_check_constraint :savings_enrollments, name: "savings_enrollment_calendar_valid"
     add_check_constraint :savings_enrollments, "ends_on = (starts_on + challenge_length_days - 1) AND time_zone = 'Pacific/Guam' AND starts_on >= accepted_local_on",
       name: "savings_enrollment_calendar_valid"
-    add_check_constraint :savings_enrollments, "challenge_length_days BETWEEN 30 AND 180 AND cardinality(checkpoint_days) BETWEEN 1 AND 6 " \
-      "AND checkpoint_days[1] >= 1 AND checkpoint_days[cardinality(checkpoint_days)] = challenge_length_days " \
-      "AND suggested_goal_cents BETWEEN 10000 AND 500000 AND goal_counts IN ('savings','savings_and_debt')", name: "savings_enrollment_rules_valid"
+    add_check_constraint :savings_enrollments, RULES_CHECK, name: "savings_enrollment_rules_valid"
 
     remove_check_constraint :savings_checkpoints, name: "savings_checkpoint_day_valid"
     add_check_constraint :savings_checkpoints, "milestone_day BETWEEN 1 AND 180", name: "savings_checkpoint_day_valid"
@@ -41,10 +47,20 @@ class AddChallengeRulesToSavingsEnrollments < ActiveRecord::Migration[8.0]
     replace_guard(SCOPE_GUARD, SCOPE_FROM, SCOPE_TO)
   end
 
+  # What the fixed 90-day schema could not hold, in plain words, for a refused rollback.
+  ROLLBACK_BLOCKERS = {
+    "an enrollment uses a challenge length, check-in days, suggested goal or counting rule other than 90 days, Day 30, 60 and 90, $500 and new money only" =>
+      "SELECT 1 FROM savings_enrollments WHERE challenge_length_days <> 90 OR checkpoint_days <> '{30,60,90}' OR suggested_goal_cents <> 50000 OR goal_counts <> 'savings' LIMIT 1",
+    "a check-in record is on a day other than 30, 60 or 90" => "SELECT 1 FROM savings_checkpoints WHERE milestone_day NOT IN (30, 60, 90) LIMIT 1",
+    "a saved sponsor report is for a day other than 30, 60 or 90" => "SELECT 1 FROM challenge_sponsor_exports WHERE checkpoint_day NOT IN (30, 60, 90) LIMIT 1",
+    "a saved savings entry is an extra debt payment" => "SELECT 1 FROM savings_entry_versions WHERE funding_source = 'extra_debt_payment' LIMIT 1",
+    "a savings entry waiting for review is an extra debt payment" => "SELECT 1 FROM savings_entry_drafts WHERE funding_source = 'extra_debt_payment' LIMIT 1"
+  }.freeze
+
   def down
-    if select_value("SELECT 1 FROM savings_enrollments WHERE challenge_length_days <> 90 OR checkpoint_days <> '{30,60,90}' OR suggested_goal_cents <> 50000 OR goal_counts <> 'savings' LIMIT 1") ||
-        select_value("SELECT 1 FROM savings_entry_versions WHERE funding_source = 'extra_debt_payment' LIMIT 1")
-      raise ActiveRecord::IrreversibleMigration, "Enrollments or entries use challenge rules that the fixed 90-day schema cannot hold"
+    blockers = ROLLBACK_BLOCKERS.filter_map { |reason, sql| reason if select_value(sql) }
+    if blockers.any?
+      raise ActiveRecord::IrreversibleMigration, "This rollback was stopped because the fixed 90-day schema cannot hold what is already saved: #{blockers.join('; ')}. Nothing was changed."
     end
 
     replace_guard(SCOPE_GUARD, SCOPE_TO, SCOPE_FROM)

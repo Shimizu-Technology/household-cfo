@@ -45,6 +45,44 @@ class AddChallengeRulesToSavingsEnrollmentsTest < ActiveSupport::TestCase
         ActiveRecord::Migration.suppress_messages { AddChallengeRulesToSavingsEnrollments.new.down }
       end
       assert_match(/fixed 90-day schema/, error.message)
+      assert_includes error.message, "an enrollment uses a challenge length"
+      assert_includes error.message, "Nothing was changed."
+      assert SavingsEnrollment.column_names.include?("challenge_length_days")
+    end
+  end
+
+  test "rollback refuses a saved sponsor report off Day 30, 60 and 90 and a pending extra debt payment" do
+    with_savings_runtime do
+      savings_enroll
+      draft = savings_draft(5_000, funding: "extra_debt_payment")
+      assert_equal "pending", draft.status
+      ChallengeSponsorExport.create!(cohort: @savings_cohort, checkpoint_day: 45, policy_version: ChallengePrivacy::SponsorExports::POLICY_VERSION,
+        approved_by_user: @savings_owner, resolved_cutoff_on: @savings_cohort.starts_on + 44, private_provenance: {}, report: {}, digest: "c" * 64, created_at: Time.current)
+      error = assert_raises(ActiveRecord::IrreversibleMigration) do
+        ActiveRecord::Migration.suppress_messages { AddChallengeRulesToSavingsEnrollments.new.down }
+      end
+      assert_includes error.message, "a saved sponsor report is for a day other than 30, 60 or 90"
+      assert_includes error.message, "a savings entry waiting for review is an extra debt payment"
+      refute_includes error.message, "an enrollment uses"
+    end
+  end
+
+  test "check-in days must be strictly increasing with no empty entries" do
+    with_savings_runtime do
+      enrollment = savings_enroll
+      # The identity guard freezes an accepted enrollment, so check the rule on a fresh copy of its row.
+      columns = SavingsEnrollment.column_names - %w[id]
+      attributes = enrollment.attributes.slice(*columns)
+      [ [ 30, 30, 90 ], [ 60, 30, 90 ], [ 30, nil, 90 ], [ 0, 90 ] ].each do |days|
+        values = attributes.merge("checkpoint_days" => days, "status" => "withdrawn", "staff_preview" => true)
+        error = assert_raises(ActiveRecord::StatementInvalid, days.inspect) do
+          ApplicationRecord.transaction(requires_new: true) do
+            ApplicationRecord.connection.exec_query("SET CONSTRAINTS ALL IMMEDIATE")
+            SavingsEnrollment.insert!(values)
+          end
+        end
+        assert_match(/savings_enrollment_rules_valid/, error.message, days.inspect)
+      end
     end
   end
 end

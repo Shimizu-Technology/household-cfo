@@ -6,9 +6,11 @@ module ChallengePrivacy
 
     def initialize(enrollment, user:) = (@enrollment, @user = enrollment, user)
 
-    # Her own calendar: the length and check-in days she started with.
+    # Her own calendar: the length and check-in days she started with, and whether her
+    # last day has passed (the day count stops at her last day).
     def self.challenge_calendar(enrollment, on = enrollment.local_today)
-      { day: enrollment.challenge_day(on), length_days: enrollment.challenge_length_days, checkpoint_days: enrollment.checkpoint_days }
+      { day: enrollment.challenge_day(on), length_days: enrollment.challenge_length_days, checkpoint_days: enrollment.checkpoint_days,
+        finished: on > enrollment.ends_on }
     end
 
     def basic

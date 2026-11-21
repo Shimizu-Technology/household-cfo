@@ -1,5 +1,5 @@
 import type { CohortExperienceDraft } from '../api'
-import { methodChanges, methodOf } from './methodSettings'
+import { challengeScheduleChanged, methodChanges, methodOf } from './methodSettings'
 import { fetchWorkspaceBrand, previewWorkspaceBrand, fetchCohortExperienceConfiguration, previewCohortExperienceConfiguration, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview, type CohortExperienceConfiguration, type CohortExperiencePreview } from '../api'
 
 export type CoachSettingsReview = {
@@ -40,6 +40,11 @@ export function toolChanges(item: CoachSettingsReview['tools'][number], activeCo
   }
   if (JSON.stringify(previous.module_order ?? []) !== JSON.stringify(item.preview.module_order ?? [])) changes.push('Changes the order of the tools shown below.')
   if ((previous.experience_mode ?? 'household_cfo') !== item.configuration.draft.experience_mode) changes.push(`Changes the experience to ${item.configuration.draft.experience_mode === 'savings_challenge' ? `${methodOf(item.configuration.draft).challenge.length_days}-day Savings Challenge` : 'Household CFO'}.`)
-  changes.push(...methodChanges(methodOf(previous), methodOf(item.configuration.draft)))
+  const was = methodOf(previous)
+  const now = methodOf(item.configuration.draft)
+  changes.push(...methodChanges(was, now))
+  if (item.preview.challenge_running === true && challengeScheduleChanged(was.challenge, now.challenge)) {
+    changes.push('People already in the challenge keep their days; reports will include both schedules.')
+  }
   return changes
 }

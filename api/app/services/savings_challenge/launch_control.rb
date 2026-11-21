@@ -49,6 +49,7 @@ module SavingsChallenge
         can_open: blockers.empty? && state != "open",
         can_pause: state == "open",
         blockers: blockers,
+        rules_notice: (SavingsChallenge::Rules.unreadable_notice unless SavingsChallenge::Rules.read_release(cohort.active_cohort_release).last),
         participants_can_join: state == "open" && blockers.empty?,
         recent_events: cohort.cohort_challenge_access_events.includes(:actor_user).order(occurred_at: :desc, id: :desc).limit(5).map { |event| serialize_event(event) }
       }

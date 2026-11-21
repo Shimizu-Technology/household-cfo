@@ -1128,7 +1128,8 @@ module HouseholdFinance
       "I can help you plan how long a savings goal will take, and I will not guess at the math from a loose sentence. Protect food, housing, utilities, and required payments first; savings should come from flexible money, and a smaller amount you can keep up beats a big one you skip. Next CFO move: tell me in one short sentence how much you can set aside each paycheck, and in another what the goal is, then we will work out the timeline together. Nothing changed."
     end
 
-    # Her active savings challenge, and the rules it started with (the defaults without one).
+    # Her active savings challenge, and the rules it started with; before she joins, the
+    # rules her own program would give her.
     def challenge_enrollment
       return @challenge_enrollment if defined?(@challenge_enrollment)
 
@@ -1136,7 +1137,7 @@ module HouseholdFinance
     end
 
     def challenge_rules
-      @challenge_rules ||= challenge_enrollment ? challenge_enrollment.rules : SavingsChallenge::Rules.default
+      @challenge_rules ||= SavingsChallenge::Rules.for_participant(user: user, enrollment: challenge_enrollment)
     end
 
     def savings_goal_amount_cents

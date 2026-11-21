@@ -17,7 +17,19 @@ module SavingsChallenge
     # patterns conversation; elsewhere it is a correction to something else.
     STANDALONE_AMOUNT = /\A\s*(?:ok(?:ay)?,?\s+)?(?:make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*\d[\d,]*(?:\.\d{1,2})?(?:\s+instead(?:\s+of\s+\$?\s*\d[\d,]*(?:\.\d{1,2})?)?)?\s*(?:for (?:my|the) (?:goal|target))?\s*[.!]?\s*\z/i.freeze
     GOAL_TOPICS = %w[challenge_goal challenge_patterns].freeze
-    PROGRESS = /\b(?:how am i doing|where am i|day\s*(?:30|60|90)|30\s*[\/,]\s*60|checkpoints?)\b/i.freeze
+    PROGRESS = /\b(?:how am i doing|where am i|30\s*[\/,]\s*60|checkpoints?)\b/i.freeze
+    DAY_MENTION = /\bday\s*(\d{1,3})\b/i.freeze
+    # A day number alone ("I'll call the bank on day 30") is not a progress question; it
+    # needs a question or a check-in word with it.
+    CHECKPOINT_ASK = /\?|\A\s*(?:what|when|where|how|is|am|are|do|does|did|can|will|tell me|show me)\b|\b(?:check.?ins?|checkpoints?|reviews?|milestones?|progress|ready|due)\b/i.freeze
+
+    # Asking about one check-in day, on her schedule when the days are known.
+    def self.checkpoint_question?(message, days = nil)
+      day = message[DAY_MENTION, 1]&.to_i
+      return false unless day && message.match?(CHECKPOINT_ASK)
+
+      days ? days.include?(day) : day.between?(1, CohortExperience::MethodSettings::CHALLENGE_LENGTHS.end)
+    end
 
     def self.patterns_question?(message)
       return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message) || HouseholdFinance::ParticipantCare.required?(message)
@@ -33,7 +45,7 @@ module SavingsChallenge
     def self.special?(message, session:)
       return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
-      ParticipantHelp.exit?(message) || patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
+      ParticipantHelp.exit?(message) || patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || checkpoint_question?(message) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
         amount_reply?(message, session: session) ||
         (message.match?(GOAL) && message.match?(GOAL_ADVICE)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
@@ -385,9 +397,10 @@ module SavingsChallenge
       true
     end
 
-    # The challenge rules she started with (the group's when she has not joined).
+    # The challenge rules she started with; before she joins, the ones her join offer
+    # would give her (her own runtime), the same as CoachAnswerer reads.
     def rules
-      @rules ||= @enrollment ? @enrollment.rules : Rules.default
+      @rules ||= Rules.for_participant(user: @user, enrollment: @enrollment, cohort_membership: @cohort_membership)
     end
 
     def money(cents)
@@ -537,7 +550,7 @@ module SavingsChallenge
     end
 
     def progress_turn
-      return false unless @message.match?(PROGRESS) || rules.checkpoint?(@message[/\bday\s*(\d{1,3})\b/i, 1].to_i) ||
+      return false unless @message.match?(PROGRESS) || self.class.checkpoint_question?(@message, rules.checkpoint_days) ||
         HouseholdFinance::MessageReplyIntent.matches?(@message, "progress")
       projection = Projection.new(@enrollment).call
       calendar = ParticipantSerializer.calendar(@enrollment)

@@ -2000,6 +2000,8 @@ export type SavingsChallengeAccess = {
   can_change?: boolean
   participants_can_join: boolean
   blockers: string[]
+  /** Set when the group's challenge settings couldn't be read and the standard rules stand in. */
+  rules_notice?: string | null
   recent_events: Array<{
     id: number
     action: 'open' | 'pause'
@@ -2146,6 +2148,8 @@ export type CohortExperienceConfiguration = {
 
 export type CohortExperiencePreview = {
   challenge_open?: boolean
+  /** Someone in this group is in a running challenge (and keeps the days she started with). */
+  challenge_running?: boolean
   upgrade_notice?: string | null
   module_order?: ExperienceModuleId[]
   digest: string
