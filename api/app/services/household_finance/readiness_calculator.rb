@@ -1,15 +1,21 @@
 # frozen_string_literal: true
 
 module HouseholdFinance
+  # Mrs. Mel's status colours, read from the program's method settings:
+  # a target is Green when this month's surplus reaches it within the green
+  # months, Yellow within the yellow months, Red beyond (or never). The monthly
+  # base surplus has its own colour. Readiness is the emergency fund target's colour.
   class ReadinessCalculator
     SAFE_TO_SPEND_RATE = 0.4
 
-    def initialize(monthly_income_cents:, category_outflow_cents:, debt_minimums_cents:, protected_liquid_cents:, target_runway_months:)
+    def initialize(monthly_income_cents:, category_outflow_cents:, debt_minimums_cents:, protected_liquid_cents:, target_runway_months:,
+      status: CohortExperience::MethodSettings::DEFAULTS.fetch("status"))
       @monthly_income_cents = monthly_income_cents.to_i
       @category_outflow_cents = category_outflow_cents.to_i
       @debt_minimums_cents = debt_minimums_cents.to_i
       @protected_liquid_cents = protected_liquid_cents.to_i
       @target_runway_months = target_runway_months.to_f
+      @status = status.to_h.stringify_keys
     end
 
     def call
@@ -21,16 +27,33 @@ module HouseholdFinance
         readiness_tone: readiness_tone,
         readiness_label: readiness_label,
         safe_to_spend_cents: safe_to_spend_cents,
-        yellow_runway_target_cents: yellow_runway_target_cents,
-        yellow_runway_gap_cents: runway_gap_cents(yellow_runway_target_cents),
-        green_runway_target_cents: green_runway_target_cents,
-        green_runway_gap_cents: runway_gap_cents(green_runway_target_cents)
+        emergency_fund_target_cents: emergency_fund_target_cents,
+        emergency_fund_gap_cents: emergency_fund_gap_cents,
+        months_to_target: months_to_target,
+        surplus_tone: surplus_tone,
+        surplus_label: surplus_label,
+        status_rule: status
       }
+    end
+
+    def self.months_to_reach(gap_cents, surplus_cents)
+      return 0 unless gap_cents.positive?
+      return nil unless surplus_cents.positive?
+
+      (gap_cents.to_f / surplus_cents).ceil
+    end
+
+    def self.target_tone(months, status)
+      return "red" if months.nil?
+      return "green" if months <= status.fetch("target_green_months")
+      return "yellow" if months <= status.fetch("target_yellow_months")
+
+      "red"
     end
 
     private
 
-    attr_reader :monthly_income_cents, :category_outflow_cents, :debt_minimums_cents, :protected_liquid_cents, :target_runway_months
+    attr_reader :monthly_income_cents, :category_outflow_cents, :debt_minimums_cents, :protected_liquid_cents, :target_runway_months, :status
 
     def total_outflow_cents
       category_outflow_cents + debt_minimums_cents
@@ -45,26 +68,52 @@ module HouseholdFinance
 
       exact = protected_liquid_cents / total_outflow_cents.to_f
       rounded = exact.round(1)
-      # Never round up across a Yellow or Green line the household has not met,
-      # so "3.0 months" cannot sit beside a Red that needs 3 months.
-      crossed_unmet_line = (rounded >= yellow_runway_months && protected_liquid_cents < yellow_runway_target_cents) ||
-        (rounded >= target_runway_months && protected_liquid_cents < green_runway_target_cents)
+      # Never round up onto a target the household has not met, so "3.0 months"
+      # cannot sit beside a target that still needs money.
+      crossed_unmet_line = rounded >= target_runway_months && protected_liquid_cents < emergency_fund_target_cents
       crossed_unmet_line ? (exact * 10).floor / 10.0 : rounded
+    end
+
+    def emergency_fund_target_cents
+      (total_outflow_cents * target_runway_months).round
+    end
+
+    def emergency_fund_gap_cents
+      [ emergency_fund_target_cents - protected_liquid_cents, 0 ].max
+    end
+
+    def months_to_target
+      self.class.months_to_reach(emergency_fund_gap_cents, baseline_surplus_cents)
     end
 
     def readiness_tone
       return "red" unless total_outflow_cents.positive?
-      return "green" if protected_liquid_cents >= green_runway_target_cents && baseline_surplus_cents.positive?
-      return "yellow" if protected_liquid_cents >= yellow_runway_target_cents && baseline_surplus_cents >= 0
 
-      "red"
+      self.class.target_tone(months_to_target, status)
     end
 
     def readiness_label
       case readiness_tone
-      when "green" then "Green — steady, keep building"
-      when "yellow" then "Yellow — close, but protect runway"
-      else baseline_surplus_cents.positive? ? "Red — build your cushion from the plan’s surplus" : "Red — bring planned costs within income and rebuild your cushion"
+      when "green"
+        emergency_fund_gap_cents.zero? ? "Green — emergency fund target reached" : "Green — emergency fund target within #{months(status.fetch('target_green_months'))}"
+      when "yellow" then "Yellow — emergency fund target within #{months(status.fetch('target_yellow_months'))}"
+      else
+        baseline_surplus_cents.positive? ? "Red — emergency fund target more than #{months(status.fetch('target_yellow_months'))} away" : "Red — bring planned costs within income to build the emergency fund"
+      end
+    end
+
+    def surplus_tone
+      return "green" if baseline_surplus_cents >= status.fetch("surplus_green_cents")
+      return "yellow" if baseline_surplus_cents >= status.fetch("surplus_yellow_cents")
+
+      "red"
+    end
+
+    def surplus_label
+      case surplus_tone
+      when "green" then "Green — monthly surplus at or above #{Money.plain(status.fetch('surplus_green_cents'))}"
+      when "yellow" then "Yellow — monthly surplus at or above #{Money.plain(status.fetch('surplus_yellow_cents'))}"
+      else "Red — monthly surplus below #{Money.plain(status.fetch('surplus_yellow_cents'))}"
       end
     end
 
@@ -74,20 +123,8 @@ module HouseholdFinance
       (baseline_surplus_cents * SAFE_TO_SPEND_RATE).round
     end
 
-    def yellow_runway_months
-      target_runway_months / 2.0
-    end
-
-    def yellow_runway_target_cents
-      (total_outflow_cents * yellow_runway_months).round
-    end
-
-    def green_runway_target_cents
-      (total_outflow_cents * target_runway_months).round
-    end
-
-    def runway_gap_cents(target_cents)
-      [ target_cents - protected_liquid_cents, 0 ].max
+    def months(count)
+      "#{count} #{'month'.pluralize(count)}"
     end
   end
 end

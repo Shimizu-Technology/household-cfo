@@ -84,8 +84,10 @@ module CohortReleases
         { "id" => "statements", "label" => "Statements", "core" => false, "unavailable_message" => "Statements is not included in this group right now. You can still ask Mia here." }
       ]
     ))
-    SUPPORTED = { 1 => V1, 2 => V2, 3 => V3, 4 => V4, 5 => V5, 6 => V6 }.freeze
-    EXPERIENCE_CONTRACT_VERSIONS = { 1 => 1, 2 => 2, 3 => 5, 4 => 6 }.freeze
+    # Same tools as V6; it also carries schema 5's coaching method settings.
+    V7 = deep_freeze(V6.merge("schema_version" => 7, "experience_schema_versions" => [ 4, 5 ]))
+    SUPPORTED = { 1 => V1, 2 => V2, 3 => V3, 4 => V4, 5 => V5, 6 => V6, 7 => V7 }.freeze
+    EXPERIENCE_CONTRACT_VERSIONS = { 1 => 1, 2 => 2, 3 => 5, 4 => 6, 5 => 7 }.freeze
 
     module_function
 
@@ -119,7 +121,7 @@ module CohortReleases
       # Schema 4 projects configurable flags and independent Statements onto the
       # existing runtime handlers. Validate both sides of that adapter; old
       # catalogs continue to require the exact historical runtime definitions.
-      if version == 6
+      if version >= 6
         return false unless V5.fetch("modules").all? { |entry| modules[entry.fetch("id")] == entry }
         modules = CohortExperience::ModuleRegistry::CONFIGURABLE_MODULES.map(&:deep_stringify_keys).index_by { |entry| entry.fetch("id") }
       end

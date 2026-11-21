@@ -51,8 +51,9 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal "You are 2.8 months away from the six-month founder transition target.", runway_alert.fetch("body")
     assert_equal body.fetch("summary").fetch("runway_months"), body.fetch("readiness_path").fetch("current_runway_months")
     assert_equal 25_090, body.fetch("readiness_path").fetch("protected_liquid_amount")
-    assert_equal true, body.fetch("readiness_path").fetch("yellow").fetch("reached")
-    assert_equal false, body.fetch("readiness_path").fetch("green").fetch("reached")
+    fund = body.fetch("readiness_path").fetch("emergency_fund")
+    assert_equal [ demo_facts.fetch(:readiness_tone), 21_980.0, demo_facts.fetch(:months_to_target) ], fund.values_at("tone", "gap", "months_to_target")
+    assert_equal 36, body.dig("readiness_path", "status_rule", "target_yellow_months")
     assert body.fetch("accounts").any?
     assert body.fetch("alerts").any?
   end
@@ -470,7 +471,8 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
 
   test "demo financial basis follows recurring income changes without treating a one-time bonus as recurring" do
     {
-      Date.new(2026, 7, 15) => { income: 8_250, surplus: 405, safe: 162 },
+      # July's $405 surplus is 55 months from the $21,980 gap: Red under the method, so no safe-to-spend.
+      Date.new(2026, 7, 15) => { income: 8_250, surplus: 405, safe: 0 },
       Date.new(2026, 8, 15) => { income: 8_500, surplus: 655, safe: 262 },
       Date.new(2026, 12, 15) => { income: 8_500, surplus: 655, safe: 262 }
     }.each do |date, expected|

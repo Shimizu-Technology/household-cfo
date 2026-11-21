@@ -254,3 +254,23 @@
 .admin-person-row .ui-pill--attention { color: var(--color-warning); }
 
 .admin-today-section:not(:has(> .admin-daily)) > .admin-today-rail { max-width: 860px; width: 100%; }
+
+/* Program method (schema 5): plain fields, no new surfaces. */
+.experience-method fieldset { display: grid; gap: 8px; margin: 0; padding: 12px 0; border: 0; border-top: 1px solid var(--line); min-width: 0; }
+.experience-method legend { padding: 0; font-weight: var(--weight-semibold); }
+.experience-method fieldset > small { color: var(--muted); }
+.experience-method-fields { display: grid; gap: 10px 16px; }
+.experience-method-field { display: grid; gap: 4px; min-width: 0; }
+.experience-method-field > span:first-child { color: var(--muted); font-size: var(--text-sm); }
+.experience-method-input { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.experience-method-input input { width: 6.5rem; flex: 0 0 auto; font-variant-numeric: tabular-nums lining-nums; }
+.experience-method-checks { display: grid; gap: 0 16px; }
+.experience-method-checks label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.experience-method-order .experience-module-row { grid-template-columns: minmax(0, 1fr) auto; min-height: 52px; }
+.experience-method-problems { margin: 8px 0; padding-left: 1.25rem; color: var(--color-danger); }
+.experience-method > .button { width: 100%; }
+@media (min-width: 560px) {
+  .experience-method-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .experience-method-checks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .experience-method > .button { width: auto; justify-self: start; }
+}

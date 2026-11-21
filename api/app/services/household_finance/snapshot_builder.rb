@@ -28,13 +28,21 @@ module HouseholdFinance
       "sinking_unexpected" => [ "car repair", "clinic visit", "appliance replacement" ]
     }.freeze
 
-    DEFAULT_RUNWAY_TARGET_MONTHS = 6.0
+    # Mrs. Mel's default emergency fund target. A program's method settings may change
+    # it, and a household's own runway goal wins over both.
+    DEFAULT_RUNWAY_TARGET_MONTHS = CohortExperience::MethodSettings::DEFAULTS.fetch("emergency_fund_months").to_f
 
-    def initialize(household, annual_budget_manager: nil, reference_date: Date.current, ensure_plan: true)
+    # method: the program's coaching method; nil reads the household's own program.
+    def initialize(household, annual_budget_manager: nil, reference_date: Date.current, ensure_plan: true, method: nil)
       @household = household
       @reference_date = reference_date.to_date
       @annual_budget_manager = annual_budget_manager
       @ensure_plan = ensure_plan
+      @method = method
+    end
+
+    def method_settings
+      @method ||= CohortExperience::MethodSettings.for_household(household)
     end
 
     def call
@@ -55,9 +63,16 @@ module HouseholdFinance
         net_worth_cents: net_worth_cents,
         runway_months: runway_months,
         target_runway_months: target_runway_months,
+        target_runway_source: household_runway_target ? "household" : "program",
         safe_to_spend_cents: safe_to_spend_cents,
         readiness_label: readiness_label,
         readiness_tone: readiness_tone,
+        emergency_fund_target_cents: readiness_calculation.fetch(:emergency_fund_target_cents),
+        emergency_fund_gap_cents: liquid_known_fact(:emergency_fund_gap_cents),
+        months_to_target: liquid_known_fact(:months_to_target),
+        surplus_tone: readiness_calculation.fetch(:surplus_tone),
+        surplus_label: readiness_calculation.fetch(:surplus_label),
+        status_rule: readiness_calculation.fetch(:status_rule),
         profile_completeness: profile_completeness
       }
     end
@@ -233,12 +248,18 @@ module HouseholdFinance
       readiness_calculation.fetch(:safe_to_spend_cents)
     end
 
+    # The household's own choice wins over the program's emergency fund default.
     def target_runway_months
-      @target_runway_months ||= begin
-        target_months = goals.find { |goal| goal.goal_type == "runway" }&.target_months
-        parsed_months = target_months.to_f
-        parsed_months.positive? ? parsed_months : DEFAULT_RUNWAY_TARGET_MONTHS
-      end
+      @target_runway_months ||= household_runway_target || method_settings.fetch("emergency_fund_months").to_f
+    end
+
+    def household_runway_target
+      months = goals.find { |goal| goal.goal_type == "runway" }&.target_months.to_f
+      months.positive? ? months : nil
+    end
+
+    def liquid_known_fact(key)
+      asset_portfolio.liquid_balance_known? ? readiness_calculation.fetch(key) : nil
     end
 
     def readiness_tone
@@ -259,7 +280,8 @@ module HouseholdFinance
         category_outflow_cents: total_expenses_cents,
         debt_minimums_cents: debt_payments_cents,
         protected_liquid_cents: liquid_assets_cents,
-        target_runway_months: target_runway_months
+        target_runway_months: target_runway_months,
+        status: method_settings.fetch("status")
       ).call
     end
 

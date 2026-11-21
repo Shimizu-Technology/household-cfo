@@ -281,9 +281,10 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_equal facts.fetch("money_in_cents") - facts.fetch("planned_out_cents"), facts.fetch("plan_left_cents")
     assert_equal 4500, facts.fetch("spent_so_far_cents")
     assert_equal 2200, facts.fetch("pending_cents")
-    assert_equal "red", facts.fetch("readiness_tone")
+    # A positive plan with a thin emergency fund: Yellow, its target within 36 months at this surplus.
+    assert_equal "yellow", facts.fetch("readiness_tone")
     assert_includes reply, "plan leaves"
-    assert_includes reply, "cushion"
+    assert_includes reply, "emergency fund target"
     refute_match(/safe-to-spend|not have enough approved data/, reply)
   end
 

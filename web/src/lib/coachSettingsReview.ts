@@ -1,4 +1,5 @@
 import type { CohortExperienceDraft } from '../api'
+import { methodChanges, methodOf } from './methodSettings'
 import { fetchWorkspaceBrand, previewWorkspaceBrand, fetchCohortExperienceConfiguration, previewCohortExperienceConfiguration, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview, type CohortExperienceConfiguration, type CohortExperiencePreview } from '../api'
 
 export type CoachSettingsReview = {
@@ -39,5 +40,6 @@ export function toolChanges(item: CoachSettingsReview['tools'][number], activeCo
   }
   if (JSON.stringify(previous.module_order ?? []) !== JSON.stringify(item.preview.module_order ?? [])) changes.push('Changes the order of the tools shown below.')
   if ((previous.experience_mode ?? 'household_cfo') !== item.configuration.draft.experience_mode) changes.push(`Changes the experience to ${item.configuration.draft.experience_mode === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO'}.`)
+  changes.push(...methodChanges(methodOf(previous), methodOf(item.configuration.draft)))
   return changes
 }

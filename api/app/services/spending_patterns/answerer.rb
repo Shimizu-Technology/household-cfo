@@ -96,6 +96,15 @@ module SpendingPatterns
 
     def self.money(cents) = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
 
+    # What the program protects; Mrs. Mel's default list keeps the original sentence.
+    def protected_note
+      keys = Array(@patterns[:protected_categories])
+      return PROTECTED_NOTE if keys.sort == CohortExperience::MethodSettings::PROTECTED_OPTIONS.sort
+
+      words = keys.map { |key| CohortExperience::MethodSettings.label(key).downcase }
+      "I left out stores that look like bills or care, money sent to people#{words.any? ? ", and the categories your program protects: #{words.to_sentence}" : ''}."
+    end
+
     def initialize(household:, message:, persona:, history:, approved_content:, available_product_modules: nil)
       @household, @message, @persona, @history, @approved_content = household, message, persona, history, approved_content
       @available_product_modules = available_product_modules
@@ -135,7 +144,7 @@ module SpendingPatterns
       category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") }
       observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spending stop' : 'were your biggest flexible spending stops'}."
       observed = "#{observed} Your largest flexible spending #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
-      observed = "#{observed} #{PROTECTED_NOTE}" if self.class.cut_question?(@message)
+      observed = "#{observed} #{protected_note}" if self.class.cut_question?(@message)
       cluster = @patterns[:small_purchase_clusters].first
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
       impact = choices.first

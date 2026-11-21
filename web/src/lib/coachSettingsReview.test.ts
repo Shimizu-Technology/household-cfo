@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import type { CohortExperienceConfiguration, CohortExperiencePreview } from '../api'
+import type { CohortExperienceConfiguration, CohortExperiencePreview, MethodSettings } from '../api'
+import { defaultMethod } from './methodSettings'
 import { reviewCoachSettings, toolChanges } from './coachSettingsReview'
 const api=vi.hoisted(()=>({fetchWorkspaceBrand:vi.fn(),previewWorkspaceBrand:vi.fn(),fetchCohortExperienceConfiguration:vi.fn(),previewCohortExperienceConfiguration:vi.fn()}))
 vi.mock('../api',()=>api)
@@ -37,4 +38,19 @@ it('CR20 compares tools with the active group release even after Advanced publis
  const preview={modules:[{id:'cfo_filter',label:'CFO Filter',enabled:true,core:false}]} as CohortExperiencePreview
  const active={optional_modules:{cfo_filter:false}} as NonNullable<CohortExperienceConfiguration['published_version']>['config']
  expect(toolChanges({configuration,preview},active)).toEqual(['Adds CFO Filter.'])
+})
+
+it('names method changes against the group’s current release; an older release reads as the usual method',()=>{
+ const method={...defaultMethod,emergency_fund_months:6,status:{...defaultMethod.status,target_green_months:6},protected:defaultMethod.protected.filter(key=>key!=='family_support'),priorities:['debt','emergency_fund','wealth','experiences']} as MethodSettings
+ const configuration={published_version:null,draft:{schema_version:5,experience_mode:'household_cfo',method}} as unknown as CohortExperienceConfiguration
+ const preview={modules:[]} as unknown as CohortExperiencePreview
+ const active={schema_version:4,experience_mode:'household_cfo',optional_modules:{}} as unknown as NonNullable<CohortExperienceConfiguration['published_version']>['config']
+ expect(toolChanges({configuration,preview},active)).toEqual([
+  'Method: goals are green within 6 months and yellow within 36 months (was 12 and 36).',
+  'Method: emergency fund target is 6 months of planned costs (was 3).',
+  'Method: Family support can be suggested as cuts.',
+  'Method: priority order is 1 Debt acceleration · 2 Emergency fund · 3 Wealth building · 4 Experiences and life.',
+ ])
+ const unchanged={configuration:{...configuration,draft:{schema_version:5,experience_mode:'household_cfo',method:defaultMethod}} as unknown as CohortExperienceConfiguration,preview}
+ expect(toolChanges(unchanged,active)).toEqual([])
 })

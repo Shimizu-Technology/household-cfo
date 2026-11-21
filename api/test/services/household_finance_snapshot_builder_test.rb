@@ -11,13 +11,33 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
   end
 
   test "readiness tone uses the saved runway target" do
-    household = household_with_runway(runway_months: 7, target_months: 12)
+    # $5,000 short of 12 months at a $200 surplus: 25 months, inside the 36-month Yellow line.
+    household = household_with_runway(runway_months: 7, target_months: 12, surplus_cents: 20_000)
 
     snapshot = HouseholdFinance::SnapshotBuilder.new(household).call
 
     assert_equal 7.0, snapshot.fetch(:runway_months)
     assert_equal 12.0, snapshot.fetch(:target_runway_months)
+    assert_equal "household", snapshot.fetch(:target_runway_source)
+    assert_equal 500_000, snapshot.fetch(:emergency_fund_gap_cents)
+    assert_equal 25, snapshot.fetch(:months_to_target)
     assert_equal "yellow", snapshot.fetch(:readiness_tone)
+    assert_equal "red", snapshot.fetch(:surplus_tone)
+  end
+
+  test "without a household runway goal the program's emergency fund default applies" do
+    household = household_with_runway(runway_months: 2, target_months: 6)
+    household.goals.where(goal_type: "runway").delete_all
+
+    snapshot = HouseholdFinance::SnapshotBuilder.new(household.reload).call
+    assert_equal 3.0, snapshot.fetch(:target_runway_months)
+    assert_equal "program", snapshot.fetch(:target_runway_source)
+    assert_equal 100_000, snapshot.fetch(:emergency_fund_gap_cents)
+
+    method = CohortExperience::MethodSettings.defaults.merge("emergency_fund_months" => 5)
+    changed = HouseholdFinance::SnapshotBuilder.new(household, method: method).call
+    assert_equal 5.0, changed.fetch(:target_runway_months)
+    assert_equal 300_000, changed.fetch(:emergency_fund_gap_cents)
   end
 
   test "readiness turns green when runway reaches the saved target" do
@@ -30,7 +50,8 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
   end
 
   test "red readiness reserves positive surplus for stability instead of calling it safe to spend" do
-    household = household_with_runway(runway_months: 1, target_months: 6)
+    # $5,000 short at a $100 surplus: 50 months, beyond the 36-month Yellow line.
+    household = household_with_runway(runway_months: 1, target_months: 6, surplus_cents: 10_000)
 
     snapshot = HouseholdFinance::SnapshotBuilder.new(household).call
 
@@ -40,7 +61,7 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
   end
 
   test "yellow readiness can expose a bounded discretionary amount" do
-    household = household_with_runway(runway_months: 3, target_months: 6)
+    household = household_with_runway(runway_months: 3, target_months: 6, surplus_cents: 20_000)
 
     snapshot = HouseholdFinance::SnapshotBuilder.new(household).call
 
@@ -95,8 +116,10 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
 
     assert_equal 650_000, snapshot.fetch(:total_expenses_cents)
     assert_equal 350_000, snapshot.fetch(:baseline_surplus_cents)
-    assert_equal "red", snapshot.fetch(:readiness_tone)
-    assert_equal 0, snapshot.fetch(:safe_to_spend_cents)
+    # $36,000 short of six months at $3,500 a month: 11 months, inside the 12-month Green line.
+    assert_equal 11, snapshot.fetch(:months_to_target)
+    assert_equal "green", snapshot.fetch(:readiness_tone)
+    assert_equal 140_000, snapshot.fetch(:safe_to_spend_cents)
 
     data = HouseholdFinance::DataPresenter.new(household).app_data
     assert_equal 6_500, data.dig(:dashboard, :summary, :fixed_expenses)
@@ -111,7 +134,7 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
     ).call
     assert_includes mia_answer, "$6,500 category plan"
     assert_includes mia_answer, "$3,500 baseline surplus"
-    assert_includes mia_answer, "safe-to-spend guardrail is $0"
+    assert_includes mia_answer, "$1,400 monthly safe-to-spend guardrail"
   end
 
   test "does not let an allocation in another month change the active month snapshot" do
@@ -130,7 +153,7 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
 
   private
 
-  def household_with_runway(runway_months:, target_months:)
+  def household_with_runway(runway_months:, target_months:, surplus_cents: 900_000)
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",
       email: "#{SecureRandom.hex(6)}@example.com",
@@ -138,7 +161,7 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
       invitation_status: "accepted"
     )
     household = Household.create!(created_by_user: user, name: "Runway household")
-    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 1_000_000, cadence: "monthly")
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 100_000 + surplus_cents, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 100_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: (runway_months * 100_000).round)
     household.goals.create!(label: "Runway target", goal_type: "runway", target_months: target_months, priority: 1)

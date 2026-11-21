@@ -127,21 +127,15 @@ module Demo
           target_runway_months: facts.fetch(:target_runway_months),
           protected_liquid_amount: facts.fetch(:protected_liquid),
           monthly_surplus: facts.fetch(:baseline_surplus),
-          yellow: {
-            tone: "yellow",
-            runway_months: 3,
-            protected_liquid_target: facts.fetch(:yellow_runway_target),
-            protected_liquid_gap: facts.fetch(:yellow_runway_gap),
-            cash_flow_requirement: "Nonnegative monthly cash flow",
-            reached: true
+          target_runway_source: "household",
+          emergency_fund: {
+            tone: facts.fetch(:readiness_tone), label: facts.fetch(:readiness_label), target: facts.fetch(:green_runway_target),
+            gap: facts.fetch(:green_runway_gap), months_to_target: facts.fetch(:months_to_target)
           },
-          green: {
-            tone: "green",
-            runway_months: 6,
-            protected_liquid_target: facts.fetch(:green_runway_target),
-            protected_liquid_gap: facts.fetch(:green_runway_gap),
-            cash_flow_requirement: "Positive monthly cash flow",
-            reached: false
+          surplus: { tone: facts.fetch(:surplus_tone), label: facts.fetch(:surplus_label) },
+          status_rule: {
+            target_green_months: facts.dig(:status_rule, "target_green_months"), target_yellow_months: facts.dig(:status_rule, "target_yellow_months"),
+            surplus_green: dollars(facts.dig(:status_rule, "surplus_green_cents")), surplus_yellow: dollars(facts.dig(:status_rule, "surplus_yellow_cents"))
           }
         },
         accounts: [
@@ -305,10 +299,12 @@ module Demo
         readiness_tone: result.fetch(:readiness_tone),
         readiness_label: result.fetch(:readiness_label),
         safe_to_spend: dollars(result.fetch(:safe_to_spend_cents)),
-        yellow_runway_target: dollars(result.fetch(:yellow_runway_target_cents)),
-        yellow_runway_gap: dollars(result.fetch(:yellow_runway_gap_cents)),
-        green_runway_target: dollars(result.fetch(:green_runway_target_cents)),
-        green_runway_gap: dollars(result.fetch(:green_runway_gap_cents))
+        green_runway_target: dollars(result.fetch(:emergency_fund_target_cents)),
+        green_runway_gap: dollars(result.fetch(:emergency_fund_gap_cents)),
+        months_to_target: result.fetch(:months_to_target),
+        surplus_tone: result.fetch(:surplus_tone),
+        surplus_label: result.fetch(:surplus_label),
+        status_rule: result.fetch(:status_rule)
       }
     end
 

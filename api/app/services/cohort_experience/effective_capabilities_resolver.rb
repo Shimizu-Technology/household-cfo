@@ -53,8 +53,10 @@ module CohortExperience
             end
           end
         }
-        payload[:experience_mode] = config.fetch("experience_mode") if [ 2, 3, 4 ].include?(config.fetch("schema_version"))
-        payload[:module_order] = config.fetch("module_order", []) if config.fetch("schema_version") == 4
+        payload[:experience_mode] = config.fetch("experience_mode") if Schema::MODE_SCHEMA_VERSIONS.include?(config.fetch("schema_version"))
+        payload[:module_order] = config.fetch("module_order", []) if Schema.configurable?(config)
+        # Every participant has a method; before schema 5 it is Mrs. Mel's defaults.
+        payload[:method] = Schema.method_for(config)
         payload
       end
     end

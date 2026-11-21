@@ -252,7 +252,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       invitation_status: "accepted"
     )
     household = Household.create!(created_by_user: user, name: "Readiness household")
-    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
+    # A $100 surplus is 165 months from a $16,500 gap.
+    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 310_000, cadence: "monthly")
     household.expense_items.create!(label: "Essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
     household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)
@@ -261,7 +262,9 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Why is my baseline yellow?").call
 
     assert_includes answer, "readiness is Red, not Yellow"
-    assert_includes answer, "mainly a runway problem"
+    assert_includes answer, "about 165 months away"
+    assert_includes answer, "Yellow needs about $459 a month"
+    assert_includes answer, "mainly an emergency fund pace problem"
     refute_match(/your baseline is yellow/i, answer)
   end
 
@@ -280,7 +283,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Why is my readiness Red?").call
 
     assert_includes answer, "cash flow is at breakeven"
-    assert_includes answer, "cash-flow margin and runway problem"
+    assert_includes answer, "cash-flow margin and emergency fund problem"
     refute_includes answer, "short by $0.00"
   end
 
@@ -301,7 +304,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "How do I get to yellow?").call
 
     assert_includes answer, "approved household numbers"
-    assert_includes answer, "yellow gap"
+    assert_includes answer, "Yellow needs about $459 a month and Green about $1,375 a month"
     assert_includes answer, "Next CFO move"
   end
 
