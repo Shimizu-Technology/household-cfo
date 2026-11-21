@@ -183,7 +183,10 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     if (balance !== null && (!Number.isFinite(balance) || (balance < 0 && !signedTypes.includes(draft.account_type)))) {
       setError('Only checking and savings accounts can have a negative balance. Leave the balance blank when it is unknown.'); balanceInputRef.current?.focus(); return
     }
-    const values: AccountInput = { label, account_type: draft.account_type, balance, balance_as_of_on: balance === null ? null : (draft.balance_as_of_on || null) }
+    // A new amount typed over a saved one is from today unless she also changed the date.
+    const amountChanged = editing !== 'new' && draft.balance.trim() !== draftBaseline.balance.trim()
+    const asOf = amountChanged && draft.balance_as_of_on === draftBaseline.balance_as_of_on ? guamTodayIso() : (draft.balance_as_of_on || null)
+    const values: AccountInput = { label, account_type: draft.account_type, balance, balance_as_of_on: balance === null ? null : asOf }
     if (editing === 'new' && draft.plaid_account_id) values.plaid_account_id = Number(draft.plaid_account_id)
     const accountId = typeof editing === 'number' ? editing : null
     const signature = `${editing === 'new' ? 'create' : `update:${editing}`}:${JSON.stringify(values)}`

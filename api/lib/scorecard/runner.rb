@@ -26,8 +26,10 @@ module Scorecard
 
     FAST_CSV_ROWS = 24
 
-    def initialize(family_dir: TALUN, answer_key: Pathname.new(family_dir).join("manifest.json"), private_mode: false, document_limit: nil, document_paths: nil, progress: nil, correct_proposals: true)
+    def initialize(family_dir: TALUN, answer_key: Pathname.new(family_dir).join("manifest.json"), private_mode: false, document_limit: nil, document_paths: nil, progress: nil, correct_proposals: true, after_review: nil)
       @private_mode, @limit, @paths, @progress = private_mode, document_limit, document_paths, progress
+      # Tests may inspect the reviewed household before the rollback. It is never part of the report.
+      @after_review = after_review
       @correct_proposals = correct_proposals
       @fast = !private_mode && document_paths == FAST_PATHS
       @answer_key_path = answer_key
@@ -89,6 +91,7 @@ module Scorecard
             end
             simulator.reconfirm_stale_coverage
             report = Report.new(household: household, answer_key: @key, simulator: simulator, documents: documents).call
+            @after_review&.call(household, user)
             raise ActiveRecord::Rollback
           end
         end

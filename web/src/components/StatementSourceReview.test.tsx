@@ -600,9 +600,10 @@ describe('statement review a participant can finish', () => {
     const data = participantReviewFixture(); const plan = data.participant_review!.plan
     plan.done = 137; plan.ready = []; plan.ready_event_ids = []; plan.attention = []
     fetchReview.mockResolvedValue(data)
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: vi.fn() }]} />)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: vi.fn() }]} doneExtra={<p>Fictional balance offer</p>} />)
     expect(await screen.findByText('All 137 lines are saved.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
+    expect(screen.queryByText('Fictional balance offer')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing', expected_coverage_id: null })
@@ -670,8 +671,10 @@ describe('statement review a participant can finish', () => {
     plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
     fetchReview.mockResolvedValue(data)
     const snapshot = vi.fn(); const mia = vi.fn()
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: mia }, { label: 'Open your spending snapshot', run: snapshot }]} />)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: mia }, { label: 'Open your spending snapshot', run: snapshot }]} doneExtra={<p>Fictional balance offer</p>} />)
     expect(await screen.findByText('All 137 lines are saved.')).toBeTruthy()
+    // A balance offered from this statement appears only once every line is saved.
+    expect(screen.getByText('Fictional balance offer')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull()
     // What Mia notices is the main step; the snapshot is quieter.
     expect(screen.getByRole('button', { name: 'See what Mia notices' }).className).toContain('button--primary')

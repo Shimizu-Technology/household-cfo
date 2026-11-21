@@ -135,7 +135,7 @@ module Api
       end
 
       def financial_picture_controller?
-        names = %w[workspaces households spending_reports income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines financial_restarts setup_help mia_messages household_memories mia_memory_settings]
+        names = %w[workspaces households spending_reports income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines financial_restarts setup_help mia_messages household_memories mia_memory_settings statement_balances]
         names.include?(controller_name) || controller_path.start_with?("api/v1/plaid/")
       end
 
@@ -149,7 +149,7 @@ module Api
         return action_name.in?(%w[restart_preview create_request]) if controller_name == "setup_help"
         return action_name != "destroy" if controller_path.start_with?("api/v1/plaid/")
         return !action_name.in?(%w[destroy reject]) if controller_name == "household_memories"
-        names = %w[workspaces income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines]
+        names = %w[workspaces income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines statement_balances]
         return true if names.include?(controller_name)
         return params[:picture] != "all" if controller_name == "mia_messages" && action_name == "destroy"
         return false unless controller_name == "mia_messages" && action_name == "create"

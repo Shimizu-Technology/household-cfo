@@ -152,6 +152,8 @@ Rails.application.routes.draw do
           delete :plaid_link, action: :plaid_unlink
         end
       end
+      get "statement_balances", to: "statement_balances#index"
+      post "statement_balances/:tracked_account_id/apply", to: "statement_balances#apply", as: :apply_statement_balance
       resources :goals, only: %i[create update destroy] do
         post :restore, on: :member
       end

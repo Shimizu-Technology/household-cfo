@@ -92,6 +92,8 @@ import { IgnoredTransactionList, ReviewedTransactionsPanel, TransactionReopenBut
 import { confirmAfterCreate, isConfirmQuestionRefusal, reloadReviewData } from './lib/confirmRefusal'
 import { bulkConfirmPhraseMismatchMessage, CASH_WITHDRAWAL_NOTICE, POSSIBLE_DUPLICATE_NOTICE, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
+import { StatementBalanceOffers } from './components/StatementBalanceOffers'
+import { announceStatementBalanceChange } from './lib/statementBalanceOffer'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
 import { PilotFeedbackDialog } from './components/PilotFeedbackDialog'
 import { AdminApp } from './admin/AdminApp'
@@ -4067,6 +4069,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }
 
   async function refreshWorkspaceAfterDebtChange() {
+    // Balances offered from statements depend on these records; let every offer list reload.
+    announceStatementBalanceChange()
     // The record write committed before this callback. Older plans can no longer
     // be treated as current, even if either reload fails.
     setData({ type: 'shared_financial_commit' })
@@ -4100,6 +4104,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
     setWorkspaceRefreshNotice(null)
   }
+  // One offer list for Home, My Money and the finished statement. It changes nothing until she approves an offer.
+  const offerBlockedReason = hasUnsavedMoneyChanges ? 'Save or cancel your open edit in My Money first.' : null
+  const statementBalanceOffers = isRealWorkspace ? <StatementBalanceOffers onChanged={refreshWorkspaceAfterDebtChange} blockedReason={offerBlockedReason} /> : null
+  // A finished statement shows only its own accounts' balances.
+  const statementBalanceOffersFor = isRealWorkspace ? (trackedAccountIds: number[]) => <StatementBalanceOffers onChanged={refreshWorkspaceAfterDebtChange} blockedReason={offerBlockedReason} trackedAccountIds={trackedAccountIds} /> : undefined
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
     if (!isProfileEditing && !isFirstSessionSetup) return
@@ -4378,6 +4387,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onChangeHomeView={isRealWorkspace && data.workspace.home_view ? view => void changeHomeView(view) : undefined}
               homeViewSaving={homeViewSaving}
               homeViewError={homeViewError}
+              balanceOffers={statementBalanceOffers}
             />
           )}
         </>
@@ -4876,6 +4886,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     onUnsavedChangesChange={handleDebtDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your household debt.</p></article>}
               </>
             )}
+            {(moneyTopic === 'accounts' || moneyTopic === 'debt') && statementBalanceOffers}
             {moneyTopic === 'accounts' && (isRealWorkspace ? <AccountManager
                       sectionRef={accountManagerRef}
                       accounts={data.workspace.accounts}
@@ -4953,6 +4964,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            statementBalanceOffers={statementBalanceOffersFor}
             onStatementProgress={(importId, progress) => setDocumentImports(current => withStatementProgress(current, new Map([[importId, progress]])))}
             onOtherStatementsSaved={refreshStatementProgress}
             sectionRef={documentImportsRef}
@@ -5000,6 +5012,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            statementBalanceOffers={statementBalanceOffersFor}
             onStatementProgress={(importId, progress) => setDocumentImports(current => withStatementProgress(current, new Map([[importId, progress]])))}
             onOtherStatementsSaved={refreshStatementProgress}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
@@ -5604,6 +5617,7 @@ function milestoneSummary(milestone: WealthData['milestones'][number]) {
 }
 
 function DocumentImportWorkspace({
+  statementBalanceOffers,
   uploadBlocked,
   uploadScope,
   onReviewBaseline,
@@ -5649,6 +5663,7 @@ function DocumentImportWorkspace({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
+  statementBalanceOffers?: (trackedAccountIds: number[]) => ReactNode
   /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
   onStatementProgress?: (importId: number, progress: StatementProgress) => void
   onOtherStatementsSaved?: (revisionIds: number[]) => void
@@ -5754,6 +5769,7 @@ function DocumentImportWorkspace({
           onReviewBaseline={onReviewBaseline}
           onAskMia={onAskMia}
           onStatementSaved={onStatementSaved}
+          statementBalanceOffers={statementBalanceOffers}
           onStatementProgress={onStatementProgress}
           onOtherStatementsSaved={onOtherStatementsSaved}
         />}
@@ -6004,6 +6020,7 @@ export function DocumentReviewPanel({
   onStatementSaved,
   onStatementProgress,
   onOtherStatementsSaved,
+  statementBalanceOffers,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -6031,6 +6048,7 @@ export function DocumentReviewPanel({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
+  statementBalanceOffers?: (trackedAccountIds: number[]) => ReactNode
   /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
   onStatementProgress?: (importId: number, progress: StatementProgress) => void
   onOtherStatementsSaved?: (revisionIds: number[]) => void
@@ -6151,6 +6169,7 @@ export function DocumentReviewPanel({
           onSignFocusDone={() => setSignFocus(null)}
           refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
           next={[...(onAskMia ? [{ label: `See what ${assistantName} notices`, run: onAskMia }] : []), ...(onReviewBaseline ? [{ label: 'Open your spending snapshot', run: onReviewBaseline }] : [])]}
+          doneExtra={statementBalanceOffers}
         />
       )}
       {sourceMode === 'typed' && fileHeader}

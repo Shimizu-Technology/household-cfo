@@ -1,5 +1,5 @@
 import { StatementSignQuestion } from './StatementSignQuestion'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
@@ -19,7 +19,7 @@ function matchedPurchaseLabel(purchase?: { source_type: string }) {
   return purchase && ['receipt', 'screenshot'].includes(purchase.source_type) ? 'Counted with your receipt' : 'Already counted'
 }
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onChanged, onProgress, onOtherStatementsSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, doneExtra, onSaved, onChanged, onProgress, onOtherStatementsSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
   onSignAnswered?: (revisionId: number) => void
   focusAfterSign?: boolean
@@ -32,6 +32,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   onOtherStatementsSaved?: (revisionIds: number[]) => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
+  // Shown under the next steps once every line is saved, e.g. a balance offered from this statement.
+  doneExtra?: ReactNode | ((trackedAccountIds: number[]) => ReactNode)
 }) {
   const [page, setPage] = useState(1)
   const [sheet, setSheet] = useState<Sheet>(null)
@@ -127,6 +129,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
       categoryId: facts ? facts.budget_category_id : event.transaction_draft?.category_id ?? null, leftOut: facts?.disposition === 'exclude' }
   }
 
+  const done = !!plan && !!counts && !needsAccount && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!coverage.ask || coverage.recorded)
   if (!mutation.accessDenied && !data && !error) return <section className="statement-source-review" aria-label="Statement review"><p role="status">Opening your statement…</p></section>
   return (
     <section className="statement-source-review" aria-label="Statement review">
@@ -190,8 +193,9 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             </ul>
             <Button disabled={busy} onClick={() => { void state.approveRest() }}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>
           </>}
-          {!needsAccount && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!coverage.ask || coverage.recorded) && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
+          {done && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
         </header>
+        {done && (typeof doneExtra === 'function' ? doneExtra(review?.accounts.flatMap((account) => account.approved ? [account.approved.tracked_account.id] : []) ?? []) : doneExtra)}
 
         {!plan.signed_amount_question && plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
           {questions.map((item, index) => <li key={item.event_id} className="statement-exception">

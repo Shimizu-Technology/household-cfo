@@ -41,16 +41,20 @@ class HouseholdFinanceMiaAccountActionDraftsTest < ActiveSupport::TestCase
     assert_nil account.balance_as_of_on
   end
 
-  test "Mia preserves an approved balance date when changing only the balance" do
+  test "a balance Mia changes without a date is dated the day she reviews it, and the review shows that date" do
     account = @household.accounts.create!(
       label: "Checking", account_type: "checking", balance_cents: 100_00,
       balance_known: true, balance_as_of_on: Date.new(2026, 10, 1)
     )
-    draft = persist(build(type: "update_account", account_id: account.id, account_name: account.label, amount: "125").proposal)
+    travel_to(Time.zone.local(2026, 11, 10, 9)) do
+      draft = persist(build(type: "update_account", account_id: account.id, account_name: account.label, amount: "125").proposal)
+      fields = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:items).sole.fetch(:review_fields)
+      assert_equal [ "2026-10-01", "2026-11-10" ], fields.find { |field| field.fetch(:label) == "Balance date" }.values_at(:before, :after)
 
-    assert HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call.success?
+      assert HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call.success?
+    end
     assert_equal 125_00, account.reload.balance_cents
-    assert_equal Date.new(2026, 10, 1), account.balance_as_of_on
+    assert_equal Date.new(2026, 11, 10), account.balance_as_of_on
   end
 
   test "Mia can review and apply a balance-date-only update" do

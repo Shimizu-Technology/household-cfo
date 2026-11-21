@@ -62,20 +62,23 @@ class HouseholdFinanceAccountOperationsTest < ActiveSupport::TestCase
     assert nonliquid_only.total_balance_known?
   end
 
-  test "updating a known balance without a date preserves its approved date" do
+  test "a new amount without a date is from today; the same amount keeps its date" do
     account = @household.accounts.create!(
       label: "Checking", account_type: "checking", balance_cents: 100_00,
       balance_known: true, balance_as_of_on: Date.new(2026, 10, 1)
     )
 
-    @runner.run(
-      operation_key: "account.record.update",
-      input: { account_id: account.id, balance: 125 },
-      idempotency_key: "balance-without-date"
-    )
+    travel_to(Time.zone.local(2026, 11, 10, 9)) do
+      @runner.run(operation_key: "account.record.update", input: { account_id: account.id, balance: 100 }, idempotency_key: "same-balance")
+      assert_equal Date.new(2026, 10, 1), account.reload.balance_as_of_on
+
+      @runner.run(operation_key: "account.record.update", input: { account_id: account.id, balance: 125 }, idempotency_key: "balance-without-date")
+    end
 
     assert_equal 125_00, account.reload.balance_cents
-    assert_equal Date.new(2026, 10, 1), account.balance_as_of_on
+    assert_equal Date.new(2026, 11, 10), account.balance_as_of_on
+    @runner.run(operation_key: "account.record.update", input: { account_id: account.id, balance: 130, balance_as_of_on: "2026-11-01" }, idempotency_key: "balance-with-date")
+    assert_equal Date.new(2026, 11, 1), account.reload.balance_as_of_on
   end
 
   test "Plaid link is observation only until a reviewed reconcile accepts it" do
