@@ -279,13 +279,14 @@ module HouseholdFinance
     end
 
     def cfo_filter
+      scenario = cfo_filter_scenario
       {
-        calculator: cfo_filter_scenario,
+        calculator: scenario,
         framework: "CFO Filter",
         prompt: "Before money leaves the household, ask whether this spend protects stability, creates optionality, or moves the dream forward.",
         decisions: decisions,
         targets: targets,
-        priority_stack: method_settings.fetch("priorities").map { |key| CohortExperience::MethodSettings.label(key) },
+        priority_stack: method_settings.fetch("priorities").map { |key| "#{CohortExperience::MethodSettings.label(key)} · #{scenario[:priority_statuses][key.to_sym] || 'unknown'}" },
         windfall_steps: method_settings.fetch("windfall").map { |key| windfall_step(key) },
         income_split: method_settings.fetch("income_split").map { |key, percent| "#{percent}% to #{CohortExperience::MethodSettings.label(key).sub('Debt acceleration', 'extra debt payments').downcase}" }
       }
@@ -293,11 +294,12 @@ module HouseholdFinance
 
     # Shared by the tools and deterministic Mia answers. Overrides live only in
     # this request; they never update a plan, balance, goal or income source.
-    def cfo_filter_scenario(spend_cents: 0, windfall_cents: 0)
+    def cfo_filter_scenario(spend_cents: 0, windfall_cents: 0, lift_cents: 0)
       facts = tool_facts
       CfoFilterCalculator.new(income_cents: facts[:income_cents], costs_cents: facts[:costs_cents],
-        savings_cents: facts[:savings_cents], debt_cents: WindfallSplit.consumer_debt_cents(household), method: method_settings, target_runway_months: target_runway_months)
-        .call(spend_cents: spend_cents, windfall_cents: windfall_cents)
+        savings_cents: facts[:savings_cents], debt_cents: WindfallSplit.consumer_debt_cents(household), method: method_settings, target_runway_months: target_runway_months,
+        debts: debt_portfolio.mode == "individual" ? debt_portfolio.active_debts.reject { |debt| debt.debt_type == "mortgage" }.map { |debt| { balance_cents: debt.balance_known? ? debt.balance_cents : nil, rate_percent: debt.interest_rate_percent, minimum_cents: debt.minimum_payment_known? ? debt.minimum_payment_cents : nil } } : nil)
+        .call(spend_cents: spend_cents, windfall_cents: windfall_cents, lift_cents: lift_cents)
         .merge(facts: facts, cut_choices: SpendingPatterns::Analyzer.new(household, protected: method_settings.fetch("protected")).call[:candidate_changes])
     end
 

@@ -1037,14 +1037,14 @@ module HouseholdFinance
     end
 
     def tool_green_answer
-      return nil unless normalized_message.match?(/what does it take.*green|what.*(?:take|need).*get to green/i)
+      return nil unless normalized_message.match?(/what does it take.*green|what.*(?:take|need).*get to green|flip the light/i)
 
       lines = tool_presenter.cfo_filter_scenario.fetch(:targets).map do |target|
         needed = target.dig(:green, :surplus_cents)
         needed.nil? || target.dig(:green, :income_cents).nil? ? "#{target[:label]}: unknown; add the missing approved balances and plan details" :
-          "#{target[:label]}: #{money(needed)} monthly surplus, #{money(target.dig(:green, :income_cents))} total monthly income"
+          "#{target[:label]}: #{money(needed)} monthly income lift, #{money(target.dig(:green, :income_cents))} total monthly income for green; #{target.dig(:yellow, :extra_cents).nil? ? 'unknown' : money(target.dig(:yellow, :extra_cents))} monthly lift for yellow"
       end
-      "To turn each light green independently: #{lines.join('; ')}. Debt is a principal-only estimate excluding the mortgage; interest can extend payoff. Nothing changed."
+      "To turn each light green independently: #{lines.join('; ')}. The method splits the lift between emergency savings, extra debt principal and surplus. Debt timing includes known interest and minimum payments, excluding the mortgage. Nothing changed."
     end
 
     def job_transition_answer
@@ -1058,8 +1058,8 @@ module HouseholdFinance
       result = tool_presenter.optionality_scenario
       return "I cannot calculate your transition runway yet. Add the missing savings balances, planned household costs and replacement income first. Unknown is not $0. Nothing changed." unless result[:tone]
 
-      duration = result[:sustainable] ? "savings do not run out in this model" : "#{result[:months]} fully funded months"
-      "Your transition runway is #{duration}: #{result[:label]}. The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. This assumes 5% effective yearly savings growth, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Ask me about another savings draw if you want to compare; nothing changed."
+      duration = result[:sustainable] ? "lasts indefinitely in this model" : "lasts approximately #{result[:months]} months / #{result[:months] / 12}yr #{result[:months] % 12}mo"
+      "#{result[:sources_cover_need] ? "All sources cover the need — business income is pure upside. " : ""}Your transition runway #{duration}: #{result[:label]}. The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. #{money(result[:business_required_annual_cents])}/yr your business needs to pay you after the entered draw. This assumes 5% yearly savings growth at 0.05/12 per month, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Ask me about another savings draw if you want to compare; nothing changed."
     end
 
     def emotional_stress_answer

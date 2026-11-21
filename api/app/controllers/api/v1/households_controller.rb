@@ -26,7 +26,7 @@ module Api
       end
 
       def cfo_filter
-        render json: params[:scenario] == "1" ? presenter.cfo_filter_scenario(**scenario_inputs(%w[spend_cents windfall_cents])) : presenter.cfo_filter
+        render json: params[:scenario] == "1" ? presenter.cfo_filter_scenario(**scenario_inputs(%w[spend_cents windfall_cents lift_cents])) : presenter.cfo_filter
       end
 
       private

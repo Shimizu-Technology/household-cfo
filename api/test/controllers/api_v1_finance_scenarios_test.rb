@@ -8,7 +8,7 @@ class ApiV1FinanceScenariosTest < ActionDispatch::IntegrationTest
     original = household.attributes
     get "/api/v1/optionality", params: { scenario: "1", savings_cents: 6_000_000, monthly_costs_cents: 400_000, replacement_income_cents: 100_000 }, headers: headers
     assert_response :success
-    assert_equal 20, response.parsed_body["months"]
+    assert_equal 21, response.parsed_body["months"]
     assert_equal 300_000, response.parsed_body["monthly_draw_cents"]
     get "/api/v1/cfo-filter", params: { scenario: "1", spend_cents: -1 }, headers: headers
     assert_response :bad_request

@@ -73,7 +73,7 @@ module HouseholdFinance
         after = filter.fetch(:after)
         if after[:emergency_tone]
           pace = after[:emergency_months] ? "#{after[:emergency_months]} months" : "not reached at that surplus"
-          " CFO Filter: emergency fund #{pace} (#{after[:emergency_tone]}); remaining surplus #{money(filter[:after_spend_surplus_cents])} (#{after[:surplus_tone]}). That pace assumes the remaining surplus each month, with savings untouched."
+          " CFO Filter: emergency fund #{pace} (#{after[:emergency_tone]}); remaining annual surplus #{money(filter[:after_spend_surplus_cents])} (#{after[:surplus_tone]}). The one-time purchase reduces this year’s base surplus before the method split.#{filter[:exceeds_annual_surplus] ? " It exceeds the year’s surplus and draws from savings." : ""}"
         else
           " CFO Filter: emergency fund timing is unknown until savings and planned costs are known."
         end

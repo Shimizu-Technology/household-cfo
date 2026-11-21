@@ -14,7 +14,7 @@ test('draw prefills from computed gap; edits use read-only scenario GET', async 
   expect((screen.getByLabelText(/Monthly savings draw/) as HTMLInputElement).value).toBe('3000')
   fireEvent.change(screen.getByLabelText(/Savings available/), { target: { value: '70000' } })
   fireEvent.click(screen.getByRole('button', { name: 'Explore this runway' }))
-  await waitFor(() => expect(screen.getByText('25 fully funded months')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('Savings runway lasts approximately 25 months / 2yr 1mo')).toBeTruthy())
   expect(api.fetchPrivateJson).toHaveBeenCalledWith('/api/v1/optionality?scenario=1&savings_cents=7000000&monthly_costs_cents=400000&replacement_income_cents=100000')
 })
 test('unknowns do not render as zero and invalid input never requests', () => {

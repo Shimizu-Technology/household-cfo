@@ -20,18 +20,18 @@ class HouseholdFinanceTalunToolsTest < ActiveSupport::TestCase
     assert_equal 540_000, filter[:facts][:income_cents]
     assert_equal 439_000, filter[:facts][:costs_cents]
     assert_equal 101_000, filter[:base_surplus_cents]
-    assert_equal 91_000, filter[:after_spend_surplus_cents]
+    assert_equal 1_202_000, filter[:after_spend_surplus_cents]
     assert_equal filter[:facts][:savings_cents], runway[:inputs][:savings_cents]
     assert_equal filter[:facts][:costs_cents], runway[:inputs][:monthly_costs_cents]
     assert_equal 439_000, runway[:monthly_draw_cents]
-    assert_equal 0, runway[:months]
+    assert_equal 1, runway[:months]
     mia = ->(message) { HouseholdFinance::MiaCoachAnswerer.new(household, message, ensure_plan: false).call }
     transition_answer = mia.call("How long could we last if I quit to run my business?")
-    assert_includes transition_answer, "0 fully funded months"
+    assert_includes transition_answer, "lasts approximately 1 months"
     hidden_tool_guidance = CohortExperience::MiaModuleGuidance.new(modules: [ { id: "optionality", enabled: false } ])
     refute_includes hidden_tool_guidance.filter(transition_answer), "Optionality"
     assert_equal transition_answer, hidden_tool_guidance.filter(transition_answer)
-    assert_includes mia.call("What does it take to get to green?"), "Emergency fund: $830.84 monthly surplus"
+    assert_includes mia.call("What does it take to get to green?"), "Emergency fund: $1,661.67 monthly income lift"
     assert_includes mia.call("Can I afford $100?"), "CFO Filter:"
     assert_equal before, [ household.reload.attributes, household.accounts.map(&:attributes), household.income_sources.map(&:attributes),
       household.debts.map(&:attributes), BudgetAllocation.count, IncomeScheduleEntry.count ]
