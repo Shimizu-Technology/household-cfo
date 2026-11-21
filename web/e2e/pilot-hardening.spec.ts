@@ -370,6 +370,17 @@ const annualOutlookMonths = months.map((label, index) => ({
   expected_contributors: index === 11 ? [{ name: 'Holiday travel', amount: 3_000 }] : [],
 }))
 
+// The demo year from this month: $20,000 opening cash, each month's plan, and December's holiday travel standing out.
+const forecastStart = new Date().getMonth()
+let forecastCash = 2_000_000
+const yearForecastMonths = annualOutlookMonths.slice(forecastStart).map((month, offset) => {
+  const index = forecastStart + offset
+  const opening = forecastCash
+  forecastCash += (month.income - month.planned_outflow) * 100
+  return { label: new Date(Date.UTC(currentYear, index, 1)).toLocaleString('en', { month: 'long', timeZone: 'UTC' }), starts_on: month.starts_on, from_on: null, opening_cents: opening, income_cents: month.income * 100, income_basis: 'planned', approved_so_far_cents: null, outflow_cents: month.planned_outflow * 100, spending_plan_known: true, ending_cents: forecastCash, bills: [], reasons: index === 11 ? ['Holiday travel'] : ['Fixed essentials'], includes_estimates: false, higher_costs: index === 11 }
+})
+const yearForecast = { starting_cash_cents: 2_000_000, starting_on: null, starting_note: 'Starting from your cash balances on the last day of last month.', months: yearForecastMonths, first_short_month: null, status: 'no_short_month', missing: [], bills: [], debt_bills: [{ name: 'Monthly debt payments', amount_cents: 20_000 }] }
+
 const budget = {
   framework: 'Expense Stack', intro: 'Annual household plan', monthly_income: 14_200,
   total_monthly_outflow: 5_500, baseline_surplus: 8_700,
@@ -401,6 +412,7 @@ const budget = {
       upcoming_spikes: [{ ...annualOutlookMonths[11], amount_above_typical: 3_000 }],
       next_irregular_month: annualOutlookMonths[11],
     },
+    year_forecast: yearForecast,
     pending_transaction_drafts: [
       { id: 91, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-12`, merchant: 'Dinner with friends', amount: 75, amount_cents: 7_500, status: 'pending', source_type: 'receipt', category_id: 2, category_name: 'Dining out' },
       { id: 92, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-15`, merchant: 'Storm supplies', amount: 40, amount_cents: 4_000, status: 'pending', source_type: 'manual_chat', category_id: 4, category_name: 'Unexpected sinking fund' },
@@ -2225,7 +2237,7 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(answer).toContainText('What’s left · planned$9,500')
   await expect(answer).toContainText('Spent so far this month: $3,475')
   await expect(home.getByRole('heading', { name: '0.5 months of breathing room' })).toBeVisible()
-  await expect(home.locator('.year-outlook-months')).toContainText('Holiday travel')
+  await expect(home.locator('.year-outlook')).toContainText('Holiday travel')
   await expect(home.locator('.cash-flow-month')).toHaveCount(0)
   await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
@@ -2233,14 +2245,16 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(page).toHaveURL(/#Review$/)
 })
 
-test('BOG UI household year outlook groups steady months without interactive bars', async ({ page }) => {
+test('BOG UI household year outlook gives one glance and opens every month in Budget', async ({ page }) => {
   await page.goto('/')
   const outlook = page.locator('.home-screen .year-outlook')
-  await expect(outlook).toContainText('Jan–Jul')
-  await expect(outlook).toContainText('Aug–Nov')
-  await expect(outlook).toContainText('Dec')
-  await expect(outlook.locator('li')).toHaveCount(3)
-  await expect(outlook.getByRole('button')).toHaveCount(0)
+  await expect(outlook).toContainText('No month runs short through December.')
+  await expect(outlook).toContainText('Higher costs than usual: December (Holiday travel).')
+  await expect(outlook.locator('.forecast-table')).toHaveCount(0)
+  await outlook.getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.locator('.budget-year-forecast')).toHaveAttribute('open', '')
+  await expect(page.locator('.budget-year-forecast .forecast-table')).toContainText('December')
 })
 
 test('BOG UI household Home respects the shared penny-level answer instead of recalculating from budget', async ({ page }) => {
@@ -2278,8 +2292,7 @@ test('BOG UI Home Look A keeps the answer, rows and outlook bounded', async ({ p
   expect(marks.rowHeight).toBeGreaterThanOrEqual(56)
   expect(marks.figureFits).toBe(true)
   expect(marks.overflow).toBe(false)
-  await expect(home.locator('.year-outlook-months > li')).toHaveCount(3)
-  await expect(home.locator('.home-year-columns')).toHaveAttribute('aria-hidden', 'true')
+  await expect(home.locator('.year-outlook-headline')).toHaveText('No month runs short through December.')
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
 })
 
@@ -3895,7 +3908,7 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
   await expect(page.getByRole('heading', { name: 'Spending by category' })).toBeVisible()
   await expect(page.locator('.annual-outlook')).toHaveCount(0)
   await openSection(page, 'Home')
-  await expect(page.locator('.year-outlook')).toContainText('Holiday travel: $3,000')
+  await expect(page.locator('.year-outlook')).toContainText('December (Holiday travel)')
   await openSection(page, 'Review')
   const diningDraft = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await diningDraft.getByText('Purchase details', { exact: true }).click()
@@ -4652,7 +4665,7 @@ test('BOG UI household compact phone layouts keep a stable shell and overlay sec
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
   await openSection(page, 'Home')
-  await expect(page.locator('.home-screen .year-outlook-months > li')).toHaveCount(3)
+  await expect(page.locator('.home-screen .year-outlook-headline')).toBeVisible()
   await openSection(page, 'Ask Mia')
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   // Mia owns the phone header; Account remains reachable through More.
@@ -13083,7 +13096,7 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
     if (section !== 'Home') await openSection(page, section)
     await expectPhoneTargets(page)
     if (section === 'Home') {
-      await expect(page.locator('.year-outlook li')).toHaveCount(3)
+      await expect(page.getByRole('region', { name: 'Year outlook' })).toBeVisible()
       await expectPhoneTargets(page)
     }
     if (section === 'My Money') {

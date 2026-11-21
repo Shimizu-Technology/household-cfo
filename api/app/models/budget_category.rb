@@ -3,6 +3,7 @@ class BudgetCategory < ApplicationRecord
   STACK_KEYS = ExpenseItem::STACK_KEYS
 
   belongs_to :household
+  has_many :bills, dependent: :nullify
   has_many :budget_allocations, dependent: :destroy
   has_many :transaction_splits, dependent: :restrict_with_exception
   has_many :transaction_drafts, dependent: :nullify

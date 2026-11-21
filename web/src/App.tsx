@@ -26,6 +26,7 @@ import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
 import { formatRunway } from './lib/runway'
 import { YearOutlook } from './components/YearOutlook'
+import { BillsForecast } from './components/BillsForecast'
 import { formatReviewMoney } from './lib/reviewMoney'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { restoreAccountFocus } from './lib/accountFocus'
@@ -807,6 +808,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [debtFocusRequest, setDebtFocusRequest] = useState<DebtFocusRequest | null>(null)
   const budgetFocusSequenceRef = useRef(0)
   const [budgetFocusRequest, setBudgetFocusRequest] = useState<BudgetFocusRequest | null>(null)
+  // Home's year card opens Budget with the forecast already expanded.
+  const [forecastOpenRequest, setForecastOpenRequest] = useState(0)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
   const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -2996,6 +2999,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
+  // A saved, paid or removed bill only changes the forecast: refetch the plan in place, keeping her place on the page.
+  async function handleBillsChanged() {
+    const generation = financialMutationGenerationRef.current
+    const budget = await fetchBudget(selectedBudgetYear)
+    if (generation !== financialMutationGenerationRef.current) return
+    setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
+    await refreshCurrentHouseholdView(budget)
+  }
+
   async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
@@ -4379,6 +4391,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onOpenProfile={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('income') : undefined}
               onOpenAccounts={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('assets') : undefined}
               onOpenBudget={visibleSections.includes('Budget') ? () => switchSection('Budget') : undefined}
+              onOpenYearForecast={visibleSections.includes('Budget') ? () => { if (switchSection('Budget', { focusHeading: false })) setForecastOpenRequest(request => request + 1) } : undefined}
               canAskMia={visibleSections.includes('Ask Mia')}
               canReviewTransactions={visibleSections.includes('Review')}
               incomeKnown={(!isRealWorkspace || data.dashboard.month_answer?.money_in_cents != null) && (!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0)}
@@ -5096,6 +5109,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               reviewErrors={reviewErrors}
               focusRequest={budgetFocusRequest}
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
+              canEditBills={!isRealWorkspace || data.workspace.can_edit_household !== false}
+              onBillsChanged={isRealWorkspace ? handleBillsChanged : undefined}
+              forecastOpenRequest={forecastOpenRequest}
             />
             </fieldset>
           ) : (
@@ -9286,6 +9302,9 @@ export function AnnualBudgetPlanner({
   reviewErrors = {},
   focusRequest,
   onFocusRequestHandled,
+  canEditBills = true,
+  onBillsChanged,
+  forecastOpenRequest = 0,
 }: {
   plan: AnnualBudgetPlan
   monthAnswer?: DashboardData['month_answer']
@@ -9318,8 +9337,25 @@ export function AnnualBudgetPlanner({
   reviewErrors?: Record<string, string>
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
+  canEditBills?: boolean
+  onBillsChanged?: () => Promise<void>
+  forecastOpenRequest?: number
 }) {
   const groupLabels = useExpenseGroupLabels()
+  const forecastRef = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!forecastOpenRequest || !forecastRef.current) return
+    forecastRef.current.open = true
+    // After the section's own scroll restore, so the forecast stays in view with focus on it.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        const summary = forecastRef.current?.querySelector<HTMLElement>('summary')
+        summary?.focus({ preventScroll: true })
+        summary?.scrollIntoView({ block: 'start' })
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [forecastOpenRequest])
   const { assistantName } = useBrand()
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentPositions = useMemo(
@@ -9589,6 +9625,7 @@ export function AnnualBudgetPlanner({
         </div>
       </div>
 
+      {plan.year_forecast && <details ref={forecastRef} className="budget-year-forecast"><summary>Year ahead and bills</summary><BillsForecast plan={plan} canEdit={canEditBills && Boolean(onBillsChanged)} onChanged={onBillsChanged} /></details>}
       <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={!beforePlanStart} confirmedFields={confirmedFields} answer={monthAnswer} />
 
 

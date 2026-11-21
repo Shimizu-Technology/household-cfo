@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_21_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_21_140000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -93,6 +93,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_120000) do
     t.index ["user_id", "provider", "issuer"], name: "index_auth_identities_on_user_provider", unique: true
     t.index ["user_id"], name: "index_authentication_identities_on_user_id"
     t.check_constraint "provider::text = ANY (ARRAY['clerk'::character varying::text, 'workos'::character varying::text])", name: "authentication_identities_provider_check"
+  end
+
+  create_table "bills", force: :cascade do |t|
+    t.bigint "household_id", null: false
+    t.bigint "budget_category_id"
+    t.integer "financial_generation", default: 0, null: false
+    t.string "name", null: false
+    t.bigint "amount_cents", null: false
+    t.date "due_on", null: false
+    t.integer "repeat_months"
+    t.boolean "must_pay", default: true, null: false
+    t.boolean "estimate", default: false, null: false
+    t.date "paid_on"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["budget_category_id"], name: "index_bills_on_budget_category_id"
+    t.index ["household_id"], name: "index_bills_on_household_id"
+    t.check_constraint "paid_on IS NULL OR repeat_months IS NULL", name: "bills_paid_only_one_time"
   end
 
   create_table "budget_allocations", force: :cascade do |t|
@@ -3940,6 +3958,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_120000) do
   add_foreign_key "accounts", "households"
   add_foreign_key "accounts", "plaid_accounts", on_delete: :nullify
   add_foreign_key "authentication_identities", "users"
+  add_foreign_key "bills", "budget_categories"
+  add_foreign_key "bills", "households"
   add_foreign_key "budget_allocations", "budget_categories"
   add_foreign_key "budget_allocations", "budget_periods"
   add_foreign_key "budget_categories", "households"

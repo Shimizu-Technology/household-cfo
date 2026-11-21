@@ -54,6 +54,17 @@ module HouseholdFinance
       { actual_cents: actual, partial: partial, month_open: open, coverage_note: note, waiting_deposits: waiting }
     end
 
+    # Approved income from the first of the month through `date`, or nil unless approved statements cover every
+    # one of those days for every deposit account with nothing waiting: a gap could hide a paycheck already received.
+    def received_through(date)
+      first = date.beginning_of_month
+      return if deposit_ids.empty? || unrepresented_accounts?
+      return unless deposit_ids.all? { |id| covered_days(id, first, date, complete: true).length == date - first + 1 }
+      return if waiting_rows.any? { |row| Date.iso8601(row[:posted_on]).between?(first, date) }
+
+      income_rows.select { |row| Date.iso8601(row[:posted_on]).between?(first, date) }.sum { |row| row[:signed_amount_cents] }
+    end
+
     def self.waiting_note(count)
       count == 1 ? "1 deposit still needs your answer in Review, so it isn't counted yet." :
         "#{count} deposits still need your answer in Review, so they aren't counted yet."
