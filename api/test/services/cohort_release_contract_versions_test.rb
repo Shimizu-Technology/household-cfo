@@ -175,7 +175,7 @@ class CohortReleaseContractVersionsTest < ActiveSupport::TestCase
     assert_equal release.id, runtime(participant).release_id
     assert_equal 4, capabilities.fetch(:schema_version)
     # A schema four release reads as Mrs. Mel's default method.
-    assert_equal CohortExperience::MethodSettings::DEFAULTS, capabilities.fetch(:method)
+    assert_equal CohortExperience::MethodSettings.defaults, capabilities.fetch(:method)
     assert_equal config.fetch("module_order"), capabilities.fetch(:module_order)
     assert_equal %w[statements ask_mia home], capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.pluck(:id)
     assert_equal original, legacy.reload.attributes

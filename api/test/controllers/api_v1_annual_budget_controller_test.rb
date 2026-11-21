@@ -357,7 +357,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     budget = JSON.parse(response.body).fetch("budget")
     assert_equal 250, budget.fetch("total_monthly_outflow")
     row = budget.fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name").casecmp?("dining out") }
-    assert_equal "Non-discretionary", row.fetch("stack_label")
+    assert_equal "Must-pay bills", row.fetch("stack_label")
     assert_equal 250, row.fetch("months").first.fetch("planned")
   end
 
@@ -423,7 +423,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "non_discretionary", body.fetch("category").fetch("stack_key")
     row = body.fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("id") == category_id }
     assert_equal "Restaurants", row.fetch("name")
-    assert_equal "Non-discretionary", row.fetch("stack_label")
+    assert_equal "Must-pay bills", row.fetch("stack_label")
 
     household = user.households.first.reload
     assert_equal 1, household.expense_items.where(label: "Restaurants", stack_key: "non_discretionary", active: true).count

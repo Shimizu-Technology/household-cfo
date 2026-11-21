@@ -1,23 +1,18 @@
 import { plannedOutForMonth } from '../lib/plannedOutForMonth'
 import { useId, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey, DashboardData } from '../api'
+import { expenseGroupLabels, expenseGroupOrder, useExpenseGroupNames } from '../lib/expenseGroups'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { addMoney, subtractMoney } from '../lib/moneyMath'
 
-const stackOrder: BudgetStackKey[] = [
-  'non_discretionary',
-  'discretionary',
-  'sinking_expected',
-  'sinking_unexpected',
-]
+const stackOrder: BudgetStackKey[] = expenseGroupOrder
 
-const stackLabels: Record<BudgetStackKey, string> = {
-  non_discretionary: 'Must-pay bills',
-  discretionary: 'Flexible spending',
-  sinking_expected: 'Planned yearly costs',
-  sinking_unexpected: 'Surprise fund',
-}
+/** How the steady and adjustable groups read in the program's chosen names. */
+const groupsNote = {
+  plain: 'Must-pay bills stay steady. Flexible spending is where you can adjust.',
+  method: 'Non-discretionary costs stay steady. Discretionary spending is where you can adjust.',
+} as const
 
 /** A month can end below zero when more came back in refunds than was spent. It is shown as it is, never as $0 or as unknown. */
 const refundNote = 'More came back in refunds this month than was spent.'
@@ -85,6 +80,8 @@ export function BudgetPlanStrip({ plan, monthIndex, planKnown, confirmedFields =
 
 export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, planningBlockedReason }: { positions: BudgetPosition[]; debtMinimums?: number | null; planningBlockedReason?: string; onPlanCategory?: (categoryId: number) => void }) {
   const titleId = useId()
+  const names = useExpenseGroupNames()
+  const stackLabels = expenseGroupLabels[names]
   const groups = stackOrder.map((stackKey) => {
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && (position.active || position.actual !== 0 || position.hasActivity))
     // Money spent in an archived category still counts in its group, even when its refunds bring it to $0; its old allocation is no longer part of the plan.
@@ -94,7 +91,7 @@ export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, 
 
   return (
     <section className="expense-stack-overview ui-card" aria-labelledby={titleId}>
-      <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>Must-pay bills stay steady. Flexible spending is where you can adjust.</p></div>
+      <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>{groupsNote[names]}</p></div>
       <div className="expense-stack-list">
         {groups.map(({ stackKey, label, totals, positions: categories }) => {
           const known = categories.some(category => category.id !== 0) && !categories.some(category => category.id !== 0 && category.active && category.allocationMissing)
@@ -139,6 +136,7 @@ export function CategoryPressureList({
   planKnown?: boolean
 }) {
   const titleId = useId()
+  const stackLabels = expenseGroupLabels[useExpenseGroupNames()]
   const activePositions = positions.filter((position) => position.active && (planKnown || position.actual !== 0 || position.hasActivity || position.pending > 0))
   const rankedPositions = [...activePositions]
     .sort((left, right) => categoryPressureScore(right) - categoryPressureScore(left) || right.actual - left.actual)

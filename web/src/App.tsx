@@ -177,11 +177,14 @@ import {
   updateIncomeSource,
   updateIncomeScheduleEntry,
   updateTransactionDraft,
+  updateHomeView,
   uploadDocumentImport,
 } from './api'
 import type {
   AnnualBudgetPlan,
   AppData,
+  HomeView,
+  HomeViewChoice,
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
@@ -226,6 +229,7 @@ import { fetchParticipantPrograms } from './participantProgramsApi'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
+import { ExpenseGroupNamesContext, expenseGroupOrder, useExpenseGroupLabels } from './lib/expenseGroups'
 import { NEUTRAL_BRAND, useBrand } from './contexts/brandContextValue'
 import { brandHeaderByline } from './lib/brandByline'
 import { shortAssistantName } from './lib/assistantName'
@@ -657,6 +661,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const profileFocusSequenceRef = useRef(0)
   const [active, setActive] = useState(sectionFromLocation)
   const [routeAnnouncement, setRouteAnnouncement] = useState('')
+  const [homeViewSaving, setHomeViewSaving] = useState(false)
   const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<UnavailableModuleNotice | null>(null)
   const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
   const shellAccountMenuRef = useRef<HTMLDetailsElement | null>(null)
@@ -2065,6 +2070,25 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!visibleSections.includes('Ask Mia')) return
     if (!switchSection('Ask Mia', { focusHeading: false })) return
     prepareMiaUpdate(`Please draft a fresh version of this change: ${draft.title}`)
+  }
+
+  // Her own choice of what Home leads with. Shown at once; put back if it can't be saved.
+  async function changeHomeView(view: HomeView) {
+    const before = data?.workspace.home_view
+    if (!before || homeViewSaving) return
+    const withChoice = (choice: HomeViewChoice) => setData(current => current ? { ...current, workspace: { ...current.workspace, home_view: choice } } : current)
+    withChoice({ ...before, chosen: view, effective: view })
+    setHomeViewSaving(true)
+    try {
+      const saved = await updateHomeView(view)
+      withChoice(saved.home_view)
+      setRouteAnnouncement(view === 'year' ? 'Home now shows your year first.' : 'Home now shows this month first.')
+    } catch {
+      withChoice(before)
+      setRouteAnnouncement('Home view could not be saved right now. Please try again.')
+    } finally {
+      setHomeViewSaving(false)
+    }
   }
 
   function prepareMiaUpdate(prompt: string) {
@@ -4364,6 +4388,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               canReviewTransactions={visibleSections.includes('Review')}
               incomeKnown={(!isRealWorkspace || data.dashboard.month_answer?.money_in_cents != null) && (!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0)}
               planKnown={!isRealWorkspace || householdPlanKnown(data)}
+              homeView={data.workspace.home_view?.effective ?? 'month'}
+              onChangeHomeView={isRealWorkspace && data.workspace.home_view ? view => void changeHomeView(view) : undefined}
+              homeViewSaving={homeViewSaving}
             />
           )}
         </>
@@ -5261,7 +5288,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   return (
     <BrandRuntimeProvider runtime={runtimeBrand} assistantName={assistantName}>
       <BrandDocument />
-      {runtimeBrand.available ? workspace : (
+      {runtimeBrand.available ? <ExpenseGroupNamesContext.Provider value={data?.workspace.capabilities.method?.group_names ?? 'plain'}>{workspace}</ExpenseGroupNamesContext.Provider> : (
         <main className="brand-bootstrap-state">
           <section className="brand-bootstrap-panel">
             {/* The unverified release brand must not render; show the neutral consumer name. */}
@@ -6364,6 +6391,7 @@ export function DocumentImportItemEditor({
   saving: boolean
   onUpdate: (values: DocumentImportItemInput) => Promise<void> | void
 }) {
+  const groupLabels = useExpenseGroupLabels()
   const applied = Boolean(item.applied_at)
   const canEditDraft = !applied && REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const canCorrectApplied = applied && documentImport.status !== 'source_deleted'
@@ -6482,7 +6510,7 @@ export function DocumentImportItemEditor({
           <label className="document-field">
             <span>Stack</span>
             <select value={draft.stack_key} disabled={fieldsDisabled} onChange={(event) => updateDraft({ stack_key: event.currentTarget.value })}>
-              {stackKeyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {expenseGroupOrder.map((key) => <option key={key} value={key}>{groupLabels[key]}</option>)}
             </select>
           </label>
         )}
@@ -6535,12 +6563,6 @@ const cadenceOptions = ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual
 const sourceTypeOptions = ['job', 'business', 'rental', 'passive', 'bonus', 'other']
 const accountTypeOptions = ['checking', 'savings', 'emergency_fund', 'retirement', 'investment', 'property', 'other']
 const debtTypeOptions = ['credit_card', 'student_loan', 'auto_loan', 'mortgage', 'personal_loan', 'medical', 'other']
-const stackKeyOptions = [
-  { value: 'non_discretionary', label: 'Non-discretionary' },
-  { value: 'discretionary', label: 'Discretionary' },
-  { value: 'sinking_expected', label: 'Sinking Fund — Expected' },
-  { value: 'sinking_unexpected', label: 'Sinking Fund — Unexpected' },
-]
 
 function attachmentDisplayName(attachment: PendingMiaAttachment) {
   if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
@@ -9195,6 +9217,7 @@ export function CategoryEditCell({
   onChange: (value: { name?: string; stack_key?: BudgetStackKey }) => void
   onArchive: () => void
 }) {
+  const groupLabels = useExpenseGroupLabels()
   return (
     <div className="annual-category-cell-editor">
       <label>
@@ -9205,10 +9228,7 @@ export function CategoryEditCell({
       <label>
         <span className="sr-only">Expense stack</span>
         <select disabled={Boolean(action)} value={draft.stack_key} onChange={(event) => onChange({ stack_key: event.currentTarget.value as BudgetStackKey })}>
-          <option value="non_discretionary">Non-discretionary</option>
-          <option value="discretionary">Discretionary</option>
-          <option value="sinking_expected">Sinking Fund — Expected</option>
-          <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+          {expenseGroupOrder.map(key => <option key={key} value={key}>{groupLabels[key]}</option>)}
         </select>
       </label>
       <button
@@ -9293,6 +9313,7 @@ export function AnnualBudgetPlanner({
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
 }) {
+  const groupLabels = useExpenseGroupLabels()
   const { assistantName } = useBrand()
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentPositions = useMemo(
@@ -9637,10 +9658,7 @@ export function AnnualBudgetPlanner({
                 <label>
                   <span>Spending group</span>
                   <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={action === 'create-category'}>
-                    <option value="non_discretionary">Must-pay bills</option>
-                    <option value="discretionary">Flexible spending</option>
-                    <option value="sinking_expected">Planned yearly costs</option>
-                    <option value="sinking_unexpected">Surprise fund</option>
+                    {expenseGroupOrder.map(key => <option key={key} value={key}>{groupLabels[key]}</option>)}
                   </select>
                 </label>
                 <label>
@@ -9738,7 +9756,7 @@ export function AnnualBudgetPlanner({
                   const editedGroup = activeRows.filter(row => categoryDraftValue(row, categoryDrafts).stack_key === stack)
                   const affected = activeRows.some(row => (row.stack_key === stack || categoryDraftValue(row, categoryDrafts).stack_key === stack) && (categoryDraftValue(row, categoryDrafts).stack_key !== row.stack_key || (row.months[monthIndex] && Number(allocationDraftValue(row.months[monthIndex], allocationDrafts)) !== row.months[monthIndex].planned)))
                   if (!affected) return null
-                  const label = { non_discretionary: 'Must-pay bills', discretionary: 'Flexible spending', sinking_expected: 'Planned yearly costs', sinking_unexpected: 'Surprise fund' }[stack]
+                  const label = groupLabels[stack]
                   const prefix = `${month.label} · ${label} group total:`
                   if ([...savedGroup, ...editedGroup].some(row => !row.months[monthIndex] || row.months[monthIndex].allocation_missing)) return <p key={`${stack}:${month.id}`} className="group-edit-total annual-edit-hint">{prefix} Planned amount needs repair</p>
                   const before = savedGroup.reduce((total, row) => total + moneyCents(row.months[monthIndex].planned), 0)

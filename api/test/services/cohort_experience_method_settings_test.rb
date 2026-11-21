@@ -11,13 +11,14 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
 
   teardown { CohortReleases::RuntimeIntegrityCache.clear! }
 
-  DEFAULTS = CohortExperience::MethodSettings::DEFAULTS
+  DEFAULTS = CohortExperience::MethodSettings.defaults.freeze
 
   test "schema five validates the method and keeps it compact and canonical" do
     schema = CohortExperience::Schema
     assert_empty schema.errors(schema::DEFAULT_CONFIG)
     assert_operator JSON.generate(schema::DEFAULT_CONFIG).bytesize, :<, 1_024
-    shuffled = schema::DEFAULT_CONFIG.merge("method" => DEFAULTS.merge("protected" => DEFAULTS.fetch("protected").reverse).to_a.reverse.to_h)
+    stored = CohortExperience::MethodSettings::DEFAULTS
+    shuffled = schema::DEFAULT_CONFIG.merge("method" => stored.merge("protected" => stored.fetch("protected").reverse).to_a.reverse.to_h)
     assert_equal schema.digest(schema::DEFAULT_CONFIG), schema.digest(shuffled)
     refute_equal schema.digest(schema::DEFAULT_CONFIG), schema.digest(method_config("priorities" => %w[debt emergency_fund wealth experiences]))
 
@@ -216,7 +217,91 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     assert_equal 1, settings::Current.cache.size
   end
 
+  test "display choices are optional in schema five: a block without them keeps its digest and reads as the defaults" do
+    schema = CohortExperience::Schema
+    stored = schema::DEFAULT_CONFIG
+    with_defaults = stored.merge("method" => stored.fetch("method").merge(CohortExperience::MethodSettings::OPTIONAL_DEFAULTS))
+    assert_empty schema.errors(with_defaults)
+    refute_equal schema.digest(stored), schema.digest(with_defaults), "a block that carries them is its own config"
+    assert_equal schema.normalize(stored), schema.normalize(stored.deep_dup), "a block without them normalizes without them"
+    refute schema.normalize(stored).fetch("method").key?("group_names")
+    assert_equal DEFAULTS, schema.method_for(stored)
+    { "group_names" => "fancy", "home_view" => "week", "debt_order" => "biggest" }.each do |key, value|
+      assert_includes schema.errors(method_config(key => value)), "method.#{key} must be one of #{CohortExperience::MethodSettings::CHOICES.fetch(key).join(', ')}"
+    end
+    assert_operator JSON.generate(with_defaults).bytesize, :<, 1_024
+  end
+
+  test "expense group names: plain words by default, her method's terms after Go live, with the same totals" do
+    participant, household = launch
+    household.budget_categories.create!(name: "Gifts", stack_key: "sinking_expected", sort_order: 1)
+    plain = group_view(participant, household)
+    assert_equal [ "Must-pay bills", "Flexible spending", "Planned yearly costs", "Surprise fund" ], plain.fetch(:stacks).keys
+    assert_equal "Planned yearly costs", plain.fetch(:gifts_group)
+    assert_includes mia(household, "Where do planned gifts go in a sinking fund?"), "Planned gifts belong in planned yearly costs; surprise gifts belong in flexible spending."
+    assert_equal plain.fetch(:stacks).keys, context(participant, household).dig("coaching_method", "expense_group_names")
+
+    participant, household = launch("group_names" => "method")
+    household.budget_categories.create!(name: "Gifts", stack_key: "sinking_expected", sort_order: 1)
+    terms = group_view(participant, household)
+    assert_equal [ "Non-discretionary", "Discretionary", "Sinking Fund — Expected", "Sinking Fund — Unexpected" ], terms.fetch(:stacks).keys
+    assert_equal "Sinking Fund — Expected", terms.fetch(:gifts_group)
+    assert_equal plain.fetch(:stacks).values, terms.fetch(:stacks).values, "labels only; every total stays the same"
+    assert_includes mia(household, "Where do planned gifts go in a sinking fund?"), "Planned gifts belong in Sinking Fund — Expected; surprise gifts belong in Discretionary."
+    assert_equal terms.fetch(:stacks).keys, context(participant, household).dig("coaching_method", "expense_group_names")
+  end
+
+  test "home view: month first by default, year first after Go live, and her own saved choice wins" do
+    participant, household = launch
+    assert_equal({ program: "month", chosen: nil, effective: "month" }, presenter(participant, household).workspace.fetch(:home_view))
+    assert_includes context(participant, household).dig("coaching_method", "home_program_default"), "Home leads with this month"
+
+    participant, household = launch("home_view" => "year")
+    assert_equal({ program: "year", chosen: nil, effective: "year" }, presenter(participant, household).workspace.fetch(:home_view))
+    assert_includes context(participant, household).dig("coaching_method", "home_program_default"), "Home leads with the year outlook"
+
+    household.household_memberships.find_by!(user: participant).update!(home_view: "month")
+    assert_equal({ program: "year", chosen: "month", effective: "month" }, presenter(participant, household).workspace.fetch(:home_view))
+  end
+
+  test "debt payoff: snowball and avalanche side by side by default; the program's order leads after Go live" do
+    participant, household = launch
+    two_debts(household)
+    answer = mia(household, DEBT_QUESTION)
+    assert_includes answer, "Avalanche: Island Visa first, $1,500 balance, 22% APR. Snowball: Marianas Auto Loan first, $800 balance."
+    assert_includes answer, "3. Choose one and send a fixed amount from the current monthly surplus. Avalanche: up to $850 to Island Visa for lower interest cost. Snowball: up to $750 to Marianas Auto Loan for the fastest closed balance."
+    assert_includes context(participant, household).dig("coaching_method", "debt_payoff_order"), "side by side"
+
+    participant, household = launch("debt_order" => "snowball")
+    two_debts(household)
+    answer = mia(household, DEBT_QUESTION)
+    assert_includes answer, "Snowball: Marianas Auto Loan first, $800 balance. Avalanche: Island Visa first, $1,500 balance, 22% APR."
+    assert_includes answer, "3. Send a fixed amount of up to $750 from the current monthly surplus to Marianas Auto Loan; your program starts with snowball (smallest balance first); avalanche would start with Island Visa for lower interest cost."
+    assert_includes context(participant, household).dig("coaching_method", "debt_payoff_order"), "Lead with snowball"
+
+    participant, household = launch("debt_order" => "avalanche")
+    two_debts(household)
+    answer = mia(household, DEBT_QUESTION)
+    assert_includes answer, "Avalanche: Island Visa first, $1,500 balance, 22% APR. Snowball: Marianas Auto Loan first, $800 balance."
+    assert_includes answer, "3. Send a fixed amount of up to $850 from the current monthly surplus to Island Visa; your program starts with avalanche (highest APR first); snowball would start with Marianas Auto Loan for the fastest closed balance."
+  end
+
   private
+
+  DEBT_QUESTION = "Compare debt avalanche and snowball and tell me which card to pay first."
+
+  # The Island Visa gets an APR, and a smaller, cheaper car loan joins it: avalanche and snowball differ.
+  def two_debts(household)
+    household.debts.find_by!(label: "Island Visa").update!(interest_rate_percent: 22)
+    household.debts.create!(label: "Marianas Auto Loan", debt_type: "auto_loan", balance_cents: 80_000, minimum_payment_cents: 5_000, interest_rate_percent: 6)
+  end
+
+  # The Budget groups (name => planned dollars) and the group a category shows under.
+  def group_view(participant, household)
+    budget = presenter(participant, household).budget
+    gifts = budget.dig(:annual_plan, :rows).find { |row| row.fetch(:name) == "Gifts" }
+    { stacks: budget.fetch(:stacks).to_h { |stack| [ stack.fetch(:label), stack.fetch(:amount) ] }, gifts_group: gifts.fetch(:stack_label) }
+  end
 
   def method_config(changes)
     CohortExperience::Schema::DEFAULT_CONFIG.merge("method" => DEFAULTS.merge(changes))

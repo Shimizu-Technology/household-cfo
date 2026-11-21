@@ -120,6 +120,7 @@ Rails.application.routes.draw do
       resource :workspace, only: :show do
         patch "setup", on: :collection
       end
+      resource :home_view, only: :update
       get "profile", to: "households#profile"
       get "dashboard", to: "households#dashboard"
       get "budget", to: "households#budget"

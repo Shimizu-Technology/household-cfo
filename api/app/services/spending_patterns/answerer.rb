@@ -148,9 +148,10 @@ module SpendingPatterns
         missing ? "I only see purchases for #{present.to_sentence}:" : "From #{present.first} to #{present.last} in the recorded purchases,"
       end
       flexible = merchants.map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
-      category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") }
-      observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spending stop' : 'were your biggest flexible spending stops'}."
-      observed = "#{observed} Your largest flexible spending #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
+      group = HouseholdFinance::ExpenseGroups.phrase("discretionary", CohortExperience::MethodSettings.for_household(@household))
+      category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") || name.casecmp?(group) }
+      observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? "was your biggest #{group} stop" : "were your biggest #{group} stops"}."
+      observed = "#{observed} Your largest #{group} #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
       observed = "#{observed} #{protected_note}" if self.class.cut_question?(@message) && self.class.bill_free_list?(merchants, category_names, choices, @patterns[:small_purchase_clusters].first)
       cluster = @patterns[:small_purchase_clusters].first
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""

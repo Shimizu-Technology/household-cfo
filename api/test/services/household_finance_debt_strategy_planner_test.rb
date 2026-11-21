@@ -100,7 +100,7 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call
 
     assert_includes answer, "minimum already covers its recorded balance"
-    refute_includes answer, "3. Send"
+    refute_match(/3\. (?:Send|Choose one)/, answer)
   end
 
   test "unknown balances block rankings and numeric principal recommendations" do
@@ -111,7 +111,7 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     assert_includes answer, "a missing balance is not $0"
     refute_includes answer, "Avalanche:"
     refute_includes answer, "Snowball:"
-    refute_includes answer, "3. Send"
+    refute_match(/3\. (?:Send|Choose one)/, answer)
     refute_includes answer, "After that guardrail"
   end
 
@@ -135,7 +135,7 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
       assert_includes answer, "missing debt balance as $0"
       refute_includes answer, "Avalanche:"
       refute_includes answer, "debt entered is"
-      refute_includes answer, "3. Send"
+      refute_match(/3\. (?:Send|Choose one)/, answer)
     end
     assert_equal 0, @household.budget_years.count
   end
@@ -159,7 +159,7 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     assert_includes answer, "no outstanding debt"
     refute_includes answer, "Avalanche:"
     refute_includes answer, "Snowball:"
-    refute_includes answer, "3. Send"
+    refute_match(/3\. (?:Send|Choose one)/, answer)
   end
 
   test "read-only coaching answers accurately without materializing a cold budget plan" do
@@ -175,7 +175,7 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
 
     assert_includes answer, "Avalanche: Card A first"
     assert_includes answer, "Snowball: Card B first"
-    assert_includes answer, "up to $1,740 from the current monthly surplus"
+    assert_includes answer, "3. Choose one and send a fixed amount from the current monthly surplus. Avalanche: up to $1,740 to Card A for lower interest cost. Snowball: up to $1,740 to Card B for the fastest closed balance."
     assert_equal 0, @household.budget_years.count
     assert_equal 0, BudgetPeriod.joins(:budget_year).where(budget_years: { household_id: @household.id }).count
     assert_equal 0, BudgetAllocation.joins(budget_category: :household).where(households: { id: @household.id }).count
@@ -201,8 +201,37 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
 
     assert_includes answer, "1. Protect"
     assert_includes answer, "2. Hold"
-    assert_includes answer, "3. Send"
+    assert_includes answer, "3. Choose one and send"
     assert_includes answer, "Card A"
+  end
+
+  test "side by side gives each order its own cap and says when one needs no extra principal" do
+    @household.debts.find_by!(label: "Card B").update!(balance_cents: 8_500)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Compare avalanche and snowball.", debt_order: "both").call
+
+    assert_includes answer, "Avalanche: up to $1,740 to Card A for lower interest cost."
+    assert_includes answer, "Snowball: Card B's recorded minimum already covers its recorded balance, so no extra principal goes there."
+  end
+
+  test "a program's payoff order leads; the other order is still named, and the numbers do not change" do
+    snowball = HouseholdFinance::DebtStrategyPlanner.new(@household, "Compare avalanche and snowball.", debt_order: "snowball").call
+    avalanche = HouseholdFinance::DebtStrategyPlanner.new(@household, "Compare avalanche and snowball.", debt_order: "avalanche").call
+
+    assert_operator snowball.index("Snowball: Card B first"), :<, snowball.index("Avalanche: Card A first")
+    assert_includes snowball, "up to $1,740 from the current monthly surplus to Card B; your program starts with snowball (smallest balance first); avalanche would start with Card A for lower interest cost."
+    assert_operator avalanche.index("Avalanche: Card A first"), :<, avalanche.index("Snowball: Card B first")
+    assert_includes avalanche, "up to $1,740 from the current monthly surplus to Card A; your program starts with avalanche (highest APR first); snowball would start with Card B for the fastest closed balance."
+    assert_equal snowball.scan(/\$[\d,]+/).sort, avalanche.scan(/\$[\d,]+/).sort
+  end
+
+  test "both orders on the same debt say so instead of asking her to choose" do
+    @household.debts.find_by!(label: "Card A").update!(balance_cents: 100_000)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.", debt_order: "both").call
+
+    assert_includes answer, "to Card A; avalanche and snowball both start here."
+    refute_includes answer, "Choose one"
   end
 
   test "uses prior participant scenario details during a follow-up" do

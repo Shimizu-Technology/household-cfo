@@ -428,7 +428,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_response :success
     # Go live upgrades to the current schema; the method reads as the defaults.
     assert_equal 5, configuration.reload.draft_config.fetch("schema_version")
-    assert_equal CohortExperience::MethodSettings::DEFAULTS, configuration.draft_config.fetch("method")
+    assert_equal CohortExperience::MethodSettings.defaults, configuration.draft_config.fetch("method")
     assert_equal "This update adds Statements", response.parsed_body.dig("preview", "upgrade_notice")
     assert_equal true, configuration.draft_config.dig("optional_modules", "cfo_filter")
     assert_equal old_config, old_version.reload.config

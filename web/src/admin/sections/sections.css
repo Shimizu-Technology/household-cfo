@@ -268,6 +268,11 @@
 .experience-method-subhead { color: var(--muted); font-size: var(--text-sm); }
 .experience-method-checks { display: grid; gap: 0 16px; }
 .experience-method-checks label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.experience-method-choices { display: grid; gap: 0; }
+.experience-method-choices label { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 6px 0; }
+.experience-method-choices input { margin-top: 3px; flex: 0 0 auto; }
+.experience-method-choices span { display: grid; gap: 2px; min-width: 0; }
+.experience-method-choices small { color: var(--muted); font-size: var(--text-sm); }
 .experience-method-order .experience-module-row { grid-template-columns: minmax(0, 1fr) auto; min-height: 52px; }
 .experience-method-problems { margin: 8px 0; padding-left: 1.25rem; color: var(--color-danger); }
 .experience-method > .button { width: 100%; }

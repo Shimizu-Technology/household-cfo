@@ -5,10 +5,7 @@ module HouseholdFinance
   # provider, draft, or annual-plan creation. Advice and ambiguous scope remain
   # with the appropriate household/challenge coaching route.
   class SavedFinancialRecordsAnswerer
-    PARTICIPANT_STACK_LABELS = {
-      "non_discretionary" => "must-pay bills", "discretionary" => "flexible spending",
-      "sinking_expected" => "planned yearly costs", "sinking_unexpected" => "surprise fund"
-    }.freeze
+    PARTICIPANT_STACK_LABELS = ExpenseGroups::PHRASES.fetch("plain")
 
     Result = Struct.new(:answer, :metadata, keyword_init: true)
     attr_reader :decline_reason
@@ -31,6 +28,11 @@ module HouseholdFinance
     def initialize(household, message:, year:, month:)
       @household, @message = household, message.to_s.squish
       @reference_date = Date.new(Integer(year), Integer(month), 1)
+    end
+
+    # The program's group names: plain words, or Mrs. Mel's terms.
+    def group_phrase(stack_key)
+      ExpenseGroups::PHRASES.fetch(ExpenseGroups.names(CohortExperience::MethodSettings.for_household(@household))).fetch(stack_key.to_s, "spending")
     end
 
     def call
@@ -143,7 +145,7 @@ module HouseholdFinance
       rows = plan.fetch(:rows)
       matches = @read_text.match?(/\b(?:categories|expense stacks?|by category)\b/i) ? [] : spending_category_matches(rows)
       if matches.length > 1
-        names = matches.first(10).map { |row| "#{label(row[:name])} (#{PARTICIPANT_STACK_LABELS.fetch(row[:stack_key], "spending")})" }
+        names = matches.first(10).map { |row| "#{label(row[:name])} (#{group_phrase(row[:stack_key])})" }
         qualification = matches.length > names.length ? " Showing #{names.length} of #{matches.length} matching names." : ""
         return result(:spending, "More than one household spending category matches that request: #{names.join(', ')}.#{qualification} Name one exact category or ask for all spending categories. No records changed.", total_count: matches.length, shown_count: names.length, coverage: "ambiguous_category")
       end
@@ -175,7 +177,7 @@ module HouseholdFinance
         else
           "spent so far is not known in this plan preview"
         end
-        blocks << "#{label(row[:name])} — #{PARTICIPANT_STACK_LABELS.fetch(row[:stack_key], "spending")}#{row[:active] ? '' : ' (archived category retained for history)'}: #{planned}; #{actual}; #{money(Money.dollars(pending))} waiting for review, separate from spent so far."
+        blocks << "#{label(row[:name])} — #{group_phrase(row[:stack_key])}#{row[:active] ? '' : ' (archived category retained for history)'}: #{planned}; #{actual}; #{money(Money.dollars(pending))} waiting for review, separate from spent so far."
         { id: row[:id], name: row[:name], stack_key: row[:stack_key], active: row[:active], allocation_known: allocation_known,
           planned_amount: allocation_known ? cell[:planned] : nil, starting_estimate: estimate,
           confirmed_actual_amount: available && actual_known ? cell[:actual] : nil, pending_amount: Money.dollars(pending) }

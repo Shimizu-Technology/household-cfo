@@ -1,4 +1,5 @@
-import type { CohortExperienceDraft, MethodCoreProtectedCategory, MethodOptionalProtectedCategory, MethodPriority, MethodProtectedCategory, MethodSettings, MethodWindfallStep } from '../api'
+import type { CohortExperienceDraft, HomeView, MethodCoreProtectedCategory, MethodDebtOrder, MethodGroupNames, MethodOptionalProtectedCategory, MethodPriority, MethodProtectedCategory, MethodSettings, MethodWindfallStep } from '../api'
+import { expenseGroupLabels } from './expenseGroups'
 
 /** Mrs. Mel's method. Mirrors CohortExperience::MethodSettings::DEFAULTS in the API. */
 export const defaultMethod: MethodSettings = {
@@ -8,6 +9,9 @@ export const defaultMethod: MethodSettings = {
   priorities: ['emergency_fund', 'debt', 'wealth', 'experiences'],
   windfall: ['emergency_fund', 'consumer_debt', 'surplus'],
   income_split: { emergency_fund: 50, debt: 25, surplus: 25 },
+  group_names: 'plain',
+  home_view: 'month',
+  debt_order: 'both',
 }
 
 /** Never suggested as cuts in any program; a coach can add to these, not remove them. */
@@ -41,9 +45,25 @@ export const windfallLabels: Record<MethodWindfallStep, string> = {
 
 export const splitLabels = { emergency_fund: 'Emergency fund', debt: 'Extra debt payments', surplus: 'Surplus' } as const
 
-/** The method a draft gives participants; before schema 5 it is the default. */
+export const groupNameChoices: Array<[MethodGroupNames, string, string]> = [
+  ['plain', 'Plain words', Object.values(expenseGroupLabels.plain).join(', ')],
+  ['method', 'Her method’s terms', Object.values(expenseGroupLabels.method).join(', ')],
+]
+export const homeViewChoices: Array<[HomeView, string, string]> = [
+  ['month', 'Month first', 'This month leads; the year is just below.'],
+  ['year', 'Year first', 'The year outlook leads; this month is just below.'],
+]
+export const debtOrderChoices: Array<[MethodDebtOrder, string, string]> = [
+  ['both', 'Show both and let her choose', 'Snowball and avalanche side by side.'],
+  ['snowball', 'Snowball first', 'Smallest balance first; avalanche is still shown.'],
+  ['avalanche', 'Avalanche first', 'Highest interest rate first; snowball is still shown.'],
+]
+
+const choiceLabel = <T extends string>(choices: Array<[T, string, string]>, value: T) => choices.find(([key]) => key === value)?.[1] ?? value
+
+/** The method a draft gives participants; before schema 5 it is the default. A block without the display choices reads as their defaults. */
 export function methodOf(draft: Pick<CohortExperienceDraft, 'schema_version' | 'method'> | null | undefined): MethodSettings {
-  return draft?.schema_version === 5 && draft.method ? draft.method : defaultMethod
+  return draft?.schema_version === 5 && draft.method ? { ...defaultMethod, ...draft.method } : defaultMethod
 }
 
 const whole = (value: number, min: number, max: number) => Number.isInteger(value) && value >= min && value <= max
@@ -90,5 +110,8 @@ export function methodChanges(previous: MethodSettings, next: MethodSettings): s
   if (previous.windfall.join() !== next.windfall.join()) changes.push(`Method: one-time money goes to ${next.windfall.map(key => windfallLabels[key].toLowerCase()).join(', then ')}.`)
   const split = next.income_split
   if (JSON.stringify(previous.income_split) !== JSON.stringify(split)) changes.push(`Method: new monthly income splits ${split.emergency_fund}% emergency fund, ${split.debt}% extra debt payments, ${split.surplus}% surplus.`)
+  if (previous.group_names !== next.group_names) changes.push(`Method: spending groups are called ${Object.values(expenseGroupLabels[next.group_names]).join(', ')} (${choiceLabel(groupNameChoices, next.group_names).toLowerCase()}).`)
+  if (previous.home_view !== next.home_view) changes.push(`Method: Home shows the ${next.home_view === 'year' ? 'year' : 'month'} first. Each person can still switch.`)
+  if (previous.debt_order !== next.debt_order) changes.push(`Method: debt payoff ${next.debt_order === 'both' ? 'shows snowball and avalanche side by side' : `starts with ${next.debt_order}`}.`)
   return changes
 }
