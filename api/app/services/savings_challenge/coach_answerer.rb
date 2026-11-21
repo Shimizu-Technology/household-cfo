@@ -258,7 +258,7 @@ module SavingsChallenge
       if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
         "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
       else
-        "A small cushion helps keep an unexpected bill from going back on your credit card while you work on paying it down. The challenge measures new money you set aside; a card payment reduces debt but isn't added to that savings total. If you want to compare your cards, open Optional card & debt review in Savings; you can use it without a full budget. For now, what small amount could you comfortably keep aside after essentials and required payments?"
+        "A small cushion helps keep an unexpected bill from going back on your credit card while you work on paying it down. #{rules.counts_debt? ? "The challenge counts new money you set aside and extra payments beyond the minimum, once you add them in Savings; a minimum payment isn't added to that total." : "The challenge measures new money you set aside; a card payment reduces debt but isn't added to that savings total."} If you want to compare your cards, open Optional card & debt review in Savings; you can use it without a full budget. For now, what small amount could you comfortably keep aside after essentials and required payments?"
       end
     end
 
@@ -279,7 +279,7 @@ module SavingsChallenge
         "#{reviewed} I only see the cards you've reviewed here, not your whole budget, so I can't pick an extra-payment amount or promise a payoff date. Card payments lower debt but don't count toward your savings total. What card term would you like to look at?"
       end
     rescue AccessPolicy::Unavailable
-      "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. Debt payments do not automatically count as saved money; review missing terms before considering a debt strategy."
+      "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. #{rules.counts_debt? ? 'Extra debt payments count only once you add them in Savings' : 'Debt payments do not automatically count as saved money'}; review missing terms before considering a debt strategy."
     end
 
     def feeling_answer

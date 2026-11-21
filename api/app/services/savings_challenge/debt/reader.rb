@@ -102,7 +102,7 @@ module SavingsChallenge
           qualifications: [ "Only your currently approved optional cards are represented; complete household debt coverage is not established.",
             "Snowball is a known-balance order only. Avalanche excludes unknown balances, unknown APRs, promotions and separate-rate segments.",
             "Income, essentials, required payments and liquidity have not been verified here. No extra-payment amount or payoff date is recommended.",
-            "Card payments and debt-balance changes do not create challenge savings." ] }
+            @enrollment.rules.counts_debt? ? "An extra payment beyond the minimum counts toward your goal once you add it as a challenge entry; balance changes alone do not." : "Card payments and debt-balance changes do not create challenge savings." ] }
       end
     end
   end

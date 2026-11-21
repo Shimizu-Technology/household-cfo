@@ -54,6 +54,8 @@ class SavingsChallengeRulesTest < ActionDispatch::IntegrationTest
       assert_includes answers[1], "90-day challenge"
       assert_includes answers[1], "Your $120 in extra debt payments is tracked alongside, not in the goal."
       assert_includes answers[2], "Day 30: Dec 14; Day 60: Jan 13; Day 90: Feb 12"
+      debt = mia([ "Should I pay down my credit card debt or save?" ]).first
+      assert_includes debt, "a card payment reduces debt but isn't added to that savings total", debt
     end
   end
 
@@ -93,6 +95,8 @@ class SavingsChallengeRulesTest < ActionDispatch::IntegrationTest
       assert_includes answers[1], "That includes $200 in extra debt payments."
       assert_includes answers[2], "Day 20: Dec 4; Day 40: Dec 24; Day 60: Jan 13"
       assert_includes answers[3], "$25 × 60 ÷ 7 = $214.29"
+      debt = mia([ "Should I pay down my credit card debt or save?" ]).first
+      assert_includes debt, "extra payments beyond the minimum", debt
     end
   end
 

@@ -85,6 +85,15 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
   const lastOffer = useRef<string | null>(null)
   const consentStarted = useRef(false)
   const initializedPlan = useRef(false)
+  // Once per enrollment, from the first read or the join itself: open the target step, and start
+  // the field at her saved target or, without one, the goal her program suggests ($500 by default).
+  const initializePlan = useCallback((next: SavingsChallenge) => {
+    if (initializedPlan.current || !next.enrollment) return
+    initializedPlan.current = true
+    if (!next.accepted_plan) setPlanOpen(true)
+    if (next.accepted_plan) { setPostponed(next.accepted_plan.target_cents === null); if (next.accepted_plan.target_cents !== null) setTarget(savingsInputDollars(next.accepted_plan.target_cents)) }
+    else if (next.suggested_target_cents) setTarget(savingsInputDollars(next.suggested_target_cents))
+  }, [])
   const controllers = useRef(new Set<AbortController>())
   const clearPrivatePlan = useCallback(() => { privateDenied.current=true; sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setParticipation(false);setLateAcceptance(false);setKnownZero(false);setNewMoneyReviewed(false);setIntakeActive(false);setWithdrawal(false);setFunding('new_money_reserved');setComfortable({edited:false,reviewed:false}); setChallenge(null); setReadFailed(true); setError('Private plan access is no longer available.'); setAmount(''); setEffectiveOn(''); setPlanReason(''); setEntryReason(''); setEditingEntry(null); setTarget('500.00'); onEnrollmentKnown?.(false) }, [onEnrollmentKnown])
   const requestErrorRef = useRef<HTMLDivElement>(null)
@@ -132,7 +141,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
   const scopeCohort = cohortId ?? challenge?.enrollment?.cohort_id
   const homeScope = useMemo(() => scopeUser && scopeHousehold && scopeCohort ? {user_id:scopeUser,household_id:scopeHousehold,cohort_id:scopeCohort} : undefined, [scopeUser,scopeHousehold,scopeCohort])
   const historyScope = useMemo(() => homeScope && scopeEnrollment ? {...homeScope,enrollment_id:scopeEnrollment} : undefined, [homeScope,scopeEnrollment])
-  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction,request:HomeSavingsIdentity) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number;savings_entry_id?:number};if(action==='entry_stage'&&request.chatCardId===initialSavingsIntake?.chat_card_id&&request.chatCardId&&draft.savings_entry_id){stagedIntakeEntry.current=draft.savings_entry_id;onIntakeStaged?.(draft.savings_entry_id,request.chatCardId);setIntakeActive(false);setAmount('');setEditingEntry(null);setEntryReason('');}if(action==='entry_approve'&&draft.savings_entry_id===stagedIntakeEntry.current)onIntakeCleared?.();if(draft.status==='pending'&&draft.id)setEntryOpen(true);if(action==='entry_approve'||result.challenge.pending_entry_count===0)setReviewAnchor(anchor=>anchor?.collection==='entry_drafts'?null:anchor);setEffectiveOn(current=>current||(initialSavingsIntake?.date_required ? '' : savingsDefaultDate(result.challenge.calendar)));if(action==='enrollment')focusJoined() }, [initialSavingsIntake, onIntakeCleared, onIntakeStaged])
+  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction,request:HomeSavingsIdentity) => { if(action==='enrollment')initializePlan(result.challenge);sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number;savings_entry_id?:number};if(action==='entry_stage'&&request.chatCardId===initialSavingsIntake?.chat_card_id&&request.chatCardId&&draft.savings_entry_id){stagedIntakeEntry.current=draft.savings_entry_id;onIntakeStaged?.(draft.savings_entry_id,request.chatCardId);setIntakeActive(false);setAmount('');setEditingEntry(null);setEntryReason('');}if(action==='entry_approve'&&draft.savings_entry_id===stagedIntakeEntry.current)onIntakeCleared?.();if(draft.status==='pending'&&draft.id)setEntryOpen(true);if(action==='entry_approve'||result.challenge.pending_entry_count===0)setReviewAnchor(anchor=>anchor?.collection==='entry_drafts'?null:anchor);setEffectiveOn(current=>current||(initialSavingsIntake?.date_required ? '' : savingsDefaultDate(result.challenge.calendar)));if(action==='enrollment')focusJoined() }, [initialSavingsIntake, onIntakeCleared, onIntakeStaged, initializePlan])
   const homeConflict = useCallback((message: string) => { setReadFailed(true); setParticipation(false); setLateAcceptance(false); setKnownZero(false); setError(message) }, [])
   const homeMutation = useHomeSavingsMutation(homeScope, receiveHome, clearPrivatePlan, () => Boolean(readPlanRequest(planScope)) || working.current, homeConflict)
   const homePendingRef = useRef(homeMutation.pending); useEffect(()=>{homePendingRef.current=homeMutation.pending},[homeMutation.pending])
@@ -156,13 +165,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
         if (consentStarted.current && lastOffer.current !== null && lastOffer.current !== 'null' && !next.enrollment) setNotice('The joining details were updated. Review them and check the boxes again.')
         setParticipation(false); setLateAcceptance(false); lastOffer.current = offerIdentity
       }
-      if (!initializedPlan.current && next.enrollment) {
-        initializedPlan.current = true
-        if (!next.accepted_plan) setPlanOpen(true)
-        if (next.accepted_plan) { setPostponed(next.accepted_plan.target_cents === null); if (next.accepted_plan.target_cents !== null) setTarget(savingsInputDollars(next.accepted_plan.target_cents)) }
-        // Without a target yet, the field starts at the goal her program suggests ($500 by default).
-        else if (next.suggested_target_cents) setTarget(savingsInputDollars(next.suggested_target_cents))
-      }
+      initializePlan(next)
       setChallenge(next); setReadFailed(false); setError(null); setRevision((value) => value + 1)
       setEffectiveOn((current) => current || (initialSavingsIntake?.date_required ? '' : savingsDefaultDate(next.calendar)))
     } catch (failure) {
@@ -177,7 +180,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
       controllers.current.delete(controller)
       if (mounted.current && epoch === sequence.current) setLoading(false)
     }
-  }, [initialSavingsIntake?.date_required])
+  }, [initialSavingsIntake?.date_required, initializePlan])
   useEffect(() => {
     mounted.current = true
     const ownedControllers = controllers.current
@@ -204,6 +207,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
     try {
       const result = await attempt.perform(attempt.key, controller.signal)
       if (!mounted.current || epoch !== sequence.current) return
+      initializePlan(result.challenge)
       setChallenge(result.challenge); setReadFailed(false); setRevision((value) => value + 1); setRetry(null); uncertainRequest.current = false
       const draft = result.record as { id?: number; status?: string; signed_cents?: number; cutoff_on?: string }
       setNotice(result.replayed ? 'Your earlier request was confirmed. It was not added twice.' : draft.status === 'pending' ? 'Check it below, then confirm.' : draft.cutoff_on && draft.signed_cents === undefined ? zeroNotice(result) : 'Saved.')
@@ -384,7 +388,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
 
       <section id={asideId} className={entryOpen ? 'savings-aside panel ui-card' : 'savings-aside panel ui-card is-collapsed'} aria-label="Add money you set aside">
         <h3 ref={entryHeadingRef} tabIndex={-1}>{editingEntry?.current_approved_version ? `Fix the ${entryWords(editingEntry.current_approved_version.signed_cents, editingEntry.current_approved_version.effective_on, 'fix')}` : editingEntry ? 'Fix this record' : 'Add money you set aside'}</h3>
-        <p>{editingEntry ? `Replace this entry with the corrected amount. Your total changes only after you review and confirm the correction.` : 'Record new money you already set aside. This won’t move money; card payments and money you already had stay separate.'}</p>
+        <p>{editingEntry ? `Replace this entry with the corrected amount. Your total changes only after you review and confirm the correction.` : rules.goal_counts === 'savings_and_debt' ? 'Record new money you already set aside, or an extra payment on a card or loan beyond the minimum. This won’t move money; money you already had stays separate.' : 'Record new money you already set aside. This won’t move money; card payments and money you already had stay separate.'}</p>
         <form onSubmit={submitEntry}><fieldset disabled={entryFormLocked || !elapsed}>
           <label>Amount in US dollars<input className="ui-field" inputMode="decimal" value={amount} onChange={(event) => { setNewMoneyReviewed(false); setAmount(event.target.value) } } required /></label>
           <label className="savings-check ui-check"><input type="checkbox" checked={withdrawal} onChange={(event) => { setNewMoneyReviewed(false); setWithdrawal(event.target.checked) }} />I took this money out of my challenge savings</label>
@@ -468,7 +472,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
         </div>
       </details>
 
-      {onOptionalDebt && challenge?.enrollment && <div className="savings-row-group"><SavingsRowButton label="Card & debt review (optional)" description="Compare cards if it helps. Paying debt isn’t counted as saving." onClick={onOptionalDebt} /></div>}
+      {onOptionalDebt && challenge?.enrollment && <div className="savings-row-group"><SavingsRowButton label="Card & debt review (optional)" description={rules.goal_counts === 'savings_and_debt' ? 'Compare cards if it helps. Extra payments beyond the minimum count toward your goal when you add them as money set aside.' : 'Compare cards if it helps. Paying debt isn’t counted as saving.'} onClick={onOptionalDebt} /></div>}
       {privacyRow && <div className="savings-row-group">{privacyRow}</div>}
       {exportScope && scopeCohort && <ChallengeExport scope={exportScope} cohortId={scopeCohort} variant="row" />}
     </div>

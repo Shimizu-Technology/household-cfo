@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as api from '../api'
-import type { CohortExperienceDraft, StoredMethodSettings } from '../api'
+import type { CohortExperienceDraft, MethodChallenge, StoredMethodSettings } from '../api'
 import { MethodSettingsEditor } from '../components/MethodSettingsEditor'
 import { MiaChallengeGoal } from '../components/MiaChallengeGoal'
 import { MiaJoinCard } from '../components/MiaJoinCard'
@@ -18,7 +18,7 @@ import { calendarCheckpoints, challengeRules, savingsFundingChoices, type Saving
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchSavingsChallenge: vi.fn(), fetchSavingsPage: vi.fn(), enrollSavingsChallenge: vi.fn(), updateChallengeChatCard: vi.fn() }))
 
-const short = { length_days: 60, checkpoints: 'thirds' as const, suggested_goal_cents: 30_000, counts: 'savings_and_debt' as const }
+const short: MethodChallenge = { length_days: 60, checkpoints: 'thirds', suggested_goal_cents: 30_000, counts: 'savings_and_debt' }
 
 // A participant who joined a 60-day program: Day 20, 40 and 60, a $300 suggestion, debt payments count.
 function shortChallenge(): SavingsChallenge {
@@ -46,7 +46,7 @@ it('reads a saved method without challenge rules as 90 days in thirds, $500 and 
 })
 
 it('checks a coach’s challenge values the way the API does', () => {
-  const problems = (challenge: Partial<typeof short> & { checkpoints?: 'thirds' | number[] }) => methodProblems({ ...defaultMethod, challenge: { ...short, ...challenge } })
+  const problems = (challenge: Partial<MethodChallenge>) => methodProblems({ ...defaultMethod, challenge: { ...short, ...challenge } })
   expect(problems({})).toEqual([])
   expect(problems({ length_days: 20 })).toEqual(['Set the challenge to 30–180 days.'])
   expect(problems({ checkpoints: [15, 45] })).toEqual(['Use 1 to 6 check-in days in order, ending on day 60.'])
@@ -124,6 +124,18 @@ it('offers a new joiner the program’s length, check-in days, goal and rule', a
   render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} />)
   await screen.findByText('Join the 60-day savings challenge')
   expect(screen.getByText(/A \$300 cushion can keep surprises off the card/)).toBeTruthy()
+})
+
+it('starts the target at her program’s suggested goal right after she joins on Home', async () => {
+  const fixture = savingsFixture(false)
+  vi.mocked(api.fetchSavingsChallenge).mockResolvedValue({ ...fixture, suggested_target_cents: 30_000, offer: { ...fixture.offer!, late_start_acceptance_required: false, challenge_length_days: 60, checkpoint_days: [20, 40, 60], suggested_goal_cents: 30_000, goal_counts: 'savings_and_debt' } })
+  vi.mocked(api.enrollSavingsChallenge).mockResolvedValue({ record: {} as never, replayed: false, challenge: shortChallenge() })
+  render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} />)
+  await screen.findByText('Join the 60-day savings challenge')
+  fireEvent.click(screen.getByLabelText('I’ve read this and accept joining the challenge.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Accept and join' }))
+  await screen.findByRole('region', { name: 'Personal challenge calendar' })
+  expect((screen.getByLabelText('Target in US dollars') as HTMLInputElement).value).toBe('300.00')
 })
 
 it('says the goal is over her own challenge length in the chat card', async () => {
