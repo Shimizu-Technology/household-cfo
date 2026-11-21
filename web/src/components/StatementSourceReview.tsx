@@ -33,7 +33,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
   // Shown under the next steps once every line is saved, e.g. a balance offered from this statement.
-  doneExtra?: ReactNode
+  doneExtra?: ReactNode | ((trackedAccountIds: number[]) => ReactNode)
 }) {
   const [page, setPage] = useState(1)
   const [sheet, setSheet] = useState<Sheet>(null)
@@ -195,7 +195,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
           </>}
           {done && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
         </header>
-        {done && doneExtra}
+        {done && (typeof doneExtra === 'function' ? doneExtra(review?.accounts.flatMap((account) => account.approved ? [account.approved.tracked_account.id] : []) ?? []) : doneExtra)}
 
         {!plan.signed_amount_question && plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
           {questions.map((item, index) => <li key={item.event_id} className="statement-exception">

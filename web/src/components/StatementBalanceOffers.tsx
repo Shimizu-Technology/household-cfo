@@ -2,12 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { applyStatementBalance, fetchStatementBalanceOffers, type StatementBalanceOffer } from '../api'
 import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
-import { currentBalance, offerQuestion, type BalanceChoice as Choice } from '../lib/statementBalanceOffer'
+import { STATEMENT_BALANCE_CHANGED_EVENT as CHANGED_EVENT, announceStatementBalanceChange, currentBalance, offerQuestion, typeLabel, type BalanceChoice as Choice } from '../lib/statementBalanceOffer'
 
 const DISMISSED_KEY = 'hcfo.statement-balance.not-now'
 const DISMISSED_EVENT = 'hcfo:statement-balance-not-now'
-// Any approval made from one place (Home, My Money, Statements) refreshes the others.
-const CHANGED_EVENT = 'hcfo:statement-balance-changed'
 
 // "Not now" hides one exact offer on this device. A newer statement is a new offer.
 function readDismissed(): string[] {
@@ -39,13 +37,16 @@ function initialChoice(offer: StatementBalanceOffer): Choice {
   return null
 }
 
-function OfferCard({ offer, onApplied, onDismiss, blockedReason }: {
+function OfferCard({ offer, onApplied, onDismiss, onStale, blockedReason }: {
   offer: StatementBalanceOffer
   onApplied: (offers: StatementBalanceOffer[]) => Promise<void>
   onDismiss: () => void
+  onStale: (message: string) => void
   blockedReason?: string | null
 }) {
   const [choice, setChoice] = useState<Choice>(() => initialChoice(offer))
+  // A new record's kind is never guessed: the statement's own name, or her choice.
+  const [newType, setNewType] = useState(offer.new_account_type ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const keys = useRef(new OperationIdempotencyKeys())
@@ -54,17 +55,21 @@ function OfferCard({ offer, onApplied, onDismiss, blockedReason }: {
   const chosen = [offer.target, ...offer.choices].find((row) => row?.id === choice) ?? null
   const name = `statement-balance-${offer.tracked_account_id}`
 
+  const needsType = choice === 'new' && !newType
   async function approve() {
-    if (choice == null || blockedReason) return
-    const signature = `${offer.key}:${choice}`
+    if (choice == null || blockedReason || needsType) return
+    const signature = `${offer.key}:${choice}:${choice === 'new' ? newType : ''}`
     setSaving(true)
     setError(null)
     try {
-      const next = await applyStatementBalance(offer, choice, keys.current.keyFor(signature))
+      const next = await applyStatementBalance(offer, choice, keys.current.keyFor(signature), choice === 'new' ? newType : null)
       keys.current.complete(signature)
       await onApplied(next)
     } catch (caught) {
-      setError(participantErrorMessage(caught, 'We couldn’t update this balance. Nothing changed. Try again.'))
+      const message = participantErrorMessage(caught, 'We couldn’t update this balance. Nothing changed. Try again.')
+      // Something changed since she saw it: show the latest offers instead of the old one.
+      if ((caught as { status?: unknown })?.status === 409) { onStale(message); return }
+      setError(message)
       setSaving(false)
     }
   }
@@ -83,10 +88,17 @@ function OfferCard({ offer, onApplied, onDismiss, blockedReason }: {
         <span>{offer.kind === 'debt' ? 'Add it as a new card' : 'Add it as a new account'}</span>
       </label>}
     </fieldset>}
+    {choice === 'new' && offer.new_type_options.length > 0 && <label className="statement-balance-type">
+      <span>{offer.kind === 'debt' ? 'What kind of debt is this?' : 'What kind of account is this?'}</span>
+      <select className="ui-field" value={newType} disabled={saving} onChange={(event) => setNewType(event.target.value)}>
+        <option value="">Choose one</option>
+        {offer.new_type_options.map((type) => <option key={type} value={type}>{typeLabel(type)}</option>)}
+      </select>
+    </label>}
     {error && <p className="form-error" role="alert">{error}</p>}
     {blockedReason && <p className="statement-balance-now">{blockedReason}</p>}
     <div className="statement-balance-actions">
-      <button type="button" className="ui-btn ui-btn--primary" disabled={saving || choice == null || !!blockedReason} onClick={approve}>
+      <button type="button" className="ui-btn ui-btn--primary" disabled={saving || choice == null || !!blockedReason || needsType} onClick={approve}>
         {saving ? 'Saving…' : choice === 'new' ? (offer.kind === 'debt' ? 'Add card' : 'Add account') : 'Update balance'}
       </button>
       <button type="button" className="ui-btn ui-btn--text" disabled={saving} onClick={onDismiss}>Not now</button>
@@ -96,12 +108,14 @@ function OfferCard({ offer, onApplied, onDismiss, blockedReason }: {
 
 // Balances offered from her approved statements. Listing changes nothing; a
 // balance changes only after she approves that one offer.
-export function StatementBalanceOffers({ onChanged, className = '', refreshKey, blockedReason = null }: {
+export function StatementBalanceOffers({ onChanged, className = '', refreshKey, blockedReason = null, trackedAccountIds }: {
   onChanged: () => Promise<void>
   className?: string
   refreshKey?: unknown
   // An unsaved edit elsewhere on the page; approving would reload and lose it.
   blockedReason?: string | null
+  // On a finished statement, only that statement's accounts.
+  trackedAccountIds?: number[]
 }) {
   const [offers, setOffers] = useState<StatementBalanceOffer[]>([])
   const [dismissed, setDismissed] = useState<string[]>(readDismissed)
@@ -109,6 +123,10 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey, 
   const [reloads, setReloads] = useState(0)
   const [loadFailed, setLoadFailed] = useState(false)
   const self = useRef({})
+  const noticeRef = useRef<HTMLParagraphElement>(null)
+  const [focusNotice, setFocusNotice] = useState(0)
+  // The approved card leaves the page; keyboard and screen reader focus goes to what happened.
+  useEffect(() => { if (focusNotice) noticeRef.current?.focus() }, [focusNotice])
 
   useEffect(() => {
     let current = true
@@ -131,7 +149,7 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey, 
     }
   }, [])
 
-  const visible = offers.filter((offer) => !dismissed.includes(dismissalKey(offer)))
+  const visible = offers.filter((offer) => !dismissed.includes(dismissalKey(offer)) && (!trackedAccountIds || trackedAccountIds.includes(offer.tracked_account_id)))
   if (loadFailed) {
     return <section className={`statement-balance-offers ui-card ${className}`.trim()} aria-label="Balances from your statements">
       <p className="statement-balance-now" role="status">We couldn’t check your statements for balance updates.</p>
@@ -143,7 +161,8 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey, 
   async function applied(next: StatementBalanceOffer[]) {
     setOffers(next)
     setNotice('Balance updated.')
-    globalThis.dispatchEvent(new CustomEvent(CHANGED_EVENT, { detail: self.current }))
+    setFocusNotice((count) => count + 1)
+    announceStatementBalanceChange(self.current)
     try {
       await onChanged()
     } catch {
@@ -161,7 +180,8 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey, 
 
   return <section className={`statement-balance-offers ui-card ${className}`.trim()} aria-label="Balances from your statements">
     <h3 className="ui-section">{visible.length > 1 ? 'Balances from your statements' : 'Balance from your statement'}</h3>
-    {notice && <p className="statement-balance-notice" role="status">{notice}</p>}
-    {visible.map((offer) => <OfferCard key={offer.key} offer={offer} onApplied={applied} onDismiss={() => dismiss(offer)} blockedReason={blockedReason} />)}
+    {notice && <p ref={noticeRef} tabIndex={-1} className="statement-balance-notice" role="status">{notice}</p>}
+    {visible.map((offer) => <OfferCard key={offer.key} offer={offer} onApplied={applied} onDismiss={() => dismiss(offer)} blockedReason={blockedReason}
+      onStale={(message) => { setNotice(message); setFocusNotice((count) => count + 1); setReloads((count) => count + 1) }} />)}
   </section>
 }

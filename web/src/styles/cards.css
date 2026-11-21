@@ -204,3 +204,4 @@ section.biba-card > .button--primary { justify-self: start; border-color: var(--
   .statement-balance-actions { display: grid; grid-template-columns: 1fr; }
   body #root .statement-balance-actions > .ui-btn { width: 100%; }
 }
+.statement-balance-type { display: grid; gap: 4px; font-weight: var(--weight-medium); }

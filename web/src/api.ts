@@ -4200,6 +4200,9 @@ export type StatementBalanceOffer = {
   choices: StatementBalanceTarget[]
   can_add_new: boolean
   new_label: string | null
+  // The kind a new record would be saved as when the statement names it ("Checking", "Visa"); otherwise she chooses.
+  new_account_type: string | null
+  new_type_options: string[]
 }
 
 export async function fetchStatementBalanceOffers(): Promise<StatementBalanceOffer[]> {
@@ -4207,11 +4210,11 @@ export async function fetchStatementBalanceOffers(): Promise<StatementBalanceOff
   return payload.offers
 }
 
-export async function applyStatementBalance(offer: StatementBalanceOffer, target: number | 'new', idempotencyKey: string): Promise<StatementBalanceOffer[]> {
+export async function applyStatementBalance(offer: StatementBalanceOffer, target: number | 'new', idempotencyKey: string, newType?: string | null): Promise<StatementBalanceOffer[]> {
   const payload = await fetchJson<{ offers: StatementBalanceOffer[] }>(`/api/v1/statement_balances/${offer.tracked_account_id}/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ kind: offer.kind, target: String(target), offer_key: offer.key }),
+    body: JSON.stringify({ kind: offer.kind, target: String(target), offer_key: offer.key, ...(target === 'new' && newType ? { new_type: newType } : {}) }),
   })
   return payload.offers
 }
