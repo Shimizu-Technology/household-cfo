@@ -197,7 +197,8 @@ jobs:
       DATABASE_TEST_NAME: household_cfo_api_test
     steps:
       - name: Install PostgreSQL client libraries
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev
+        # The runner image usually ships libpq-dev; apt only runs when it doesn't.
+        run: dpkg -s libpq-dev >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev)
         working-directory: .
 
       - name: Checkout code
@@ -231,7 +232,7 @@ jobs:
         run: |
           files="$(ruby script/ci_test_shard.rb "${{ matrix.shard }}" 3)"
           echo "$files" | wc -l | xargs echo "Test files in this shard:"
-          bin/rails test $files
+          bin/rails test -v $files
 
       - name: Check Zeitwerk autoloading
         if: ${{ matrix.shard == 1 }}
@@ -269,6 +270,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       web: ${{ steps.filter.outputs.web }}
+      browser-matrix: ${{ steps.partitions.outputs.matrix }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -297,6 +299,22 @@ jobs:
             echo "Nothing the browser tests depend on changed: they are skipped."
             echo "web=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # The one list of browser partitions: the web-browser matrix runs it and the web check requires a
+      # report from each. Each partition runs three Playwright workers (the runner has four vCPUs), and the
+      # shard counts keep every partition near eight minutes of test time.
+      - name: List the browser test partitions
+        id: partitions
+        env:
+          CHROMIUM_SHARDS: 8
+          WEBKIT_SHARDS: 2
+        run: |
+          set -euo pipefail
+          matrix="$(jq -cn --argjson chromium "$CHROMIUM_SHARDS" --argjson webkit "$WEBKIT_SHARDS" '
+            [range(1; $chromium + 1) | {target: "chromium-\(.)", browser: "chrome", script: "test:browser:chromium", shard: "\(.)/\($chromium)"}]
+            + [range(1; $webkit + 1) | {target: "mobile-webkit-\(.)", browser: "webkit", script: "test:browser:webkit", shard: "\(.)/\($webkit)"}]')"
+          echo "$matrix" | jq -r '.[] | "\(.target): \(.script) --shard=\(.shard)"'
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   web-quality:
     runs-on: ubuntu-latest
@@ -342,33 +360,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: mobile-webkit
-            browser: webkit
-            script: test:browser:webkit
-            shard: 1/1
-          - target: chromium-1
-            browser: chrome
-            script: test:browser:chromium
-            shard: 1/4
-          - target: chromium-2
-            browser: chrome
-            script: test:browser:chromium
-            shard: 2/4
-          - target: chromium-3
-            browser: chrome
-            script: test:browser:chromium
-            shard: 3/4
-          - target: chromium-4
-            browser: chrome
-            script: test:browser:chromium
-            shard: 4/4
+        include: ${{ fromJSON(needs.changes.outputs.browser-matrix) }}
     defaults:
       run:
         working-directory: web
     env:
       TZ: UTC
       PLAYWRIGHT_PORT: 6274
+      PLAYWRIGHT_WORKERS: 3
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -382,6 +381,20 @@ jobs:
 
       - name: Install web dependencies
         run: npm ci
+
+      # CI's Chromium is the runner's branded Chrome, which Playwright installs system-wide, so only WebKit's
+      # download can be cached. Its system libraries still come from apt in the next step.
+      - name: Read the Playwright version
+        if: ${{ matrix.browser == 'webkit' }}
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright WebKit
+        if: ${{ matrix.browser == 'webkit' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-webkit-${{ steps.playwright.outputs.version }}
 
       - name: Install browser dependencies
         # --with-deps installs system libraries through apt. When the runner can't reach the Ubuntu
@@ -431,10 +444,10 @@ jobs:
           exit 1
 
       - name: Run browser checks
-        run: npm run ${{ matrix.script }} -- --shard=${{ matrix.shard }} --workers=1 --reporter=github,blob,json
+        run: npm run ${{ matrix.script }} -- --shard=${{ matrix.shard }} --workers=$PLAYWRIGHT_WORKERS --reporter=github,blob,json
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: playwright-results.json
-          # WebKit's 1/1 and Chromium's 1/4 would both default to report-1.zip and overwrite each other when merged.
+          # WebKit's 1/2 and Chromium's 1/8 would both default to report-1.zip and overwrite each other when merged.
           PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.target }}.zip
 
       - name: Preserve browser reports and retry traces
@@ -489,8 +502,13 @@ jobs:
 
       - name: Check every partition produced a report
         if: ${{ !cancelled() && env.BROWSER_RAN == 'true' }}
+        env:
+          BROWSER_MATRIX: ${{ needs.changes.outputs.browser-matrix }}
         run: |
-          for target in mobile-webkit chromium-1 chromium-2 chromium-3 chromium-4; do
+          set -euo pipefail
+          targets="$(echo "$BROWSER_MATRIX" | jq -r '.[].target')"
+          test -n "$targets"
+          for target in $targets; do
             test -s "browser-evidence/browser-$target/playwright-results.json"
             compgen -G "browser-evidence/browser-$target/blob-report/*.zip" > /dev/null
           done

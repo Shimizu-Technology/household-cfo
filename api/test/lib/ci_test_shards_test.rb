@@ -48,6 +48,14 @@ class CiTestShardsTest < ActiveSupport::TestCase
     assert_operator loads.max, :<=, loads.min * 1.1, loads.inspect
   end
 
+  # parallelize sets one executor for the whole run, so a single test class that calls it decides how every
+  # test in its shard runs: parallelize(workers: 1) in one class once made a whole shard take 17 minutes.
+  test "only the test helper sets the parallel workers" do
+    root = Rails.root.to_s
+    offenders = CiTestShards.all_files(root).select { |path| File.read(File.join(root, path)).match?(/^\s*parallelize\b/) }
+    assert_empty offenders
+  end
+
   test "an out-of-range shard is refused" do
     [ [ 0, 3 ], [ 4, 3 ], [ 1, 0 ] ].each do |index, total|
       assert_raises(ArgumentError) { CiTestShards.files(root: Rails.root.to_s, index: index, total: total) }
