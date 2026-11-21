@@ -15,6 +15,7 @@ module FinancialDocuments
 
       EXPENSE_TYPES = FinancialSourceEvent::EXPENSE_TYPES
       QUESTIONS = {
+        correction: "Review your proposed correction.",
         unclear: "We couldn’t read this line clearly.",
         direction: "Was this money out or money in?",
         duplicate: "Is this the same charge as one you already have?",
@@ -35,6 +36,7 @@ module FinancialDocuments
       }.freeze
       ANSWERS = {
         direction: [ { id: "money_out", label: "Money out" }, { id: "money_in", label: "Money in" } ],
+        correction: [ { id: "edit", label: "Review correction" } ],
         unclear: [ { id: "edit", label: "Fix it" }, { id: "leave_out", label: "Leave it out" } ],
         duplicate: [ { id: "leave_out", label: "Same charge" }, { id: "different", label: "Different charge" } ],
         same_purchase: [ { id: "same_purchase", label: "Same purchase" }, { id: "different", label: "Different purchase" } ],
@@ -87,6 +89,7 @@ module FinancialDocuments
         claims = lines.flat_map { |line| line.overlaps.filter_map { |row| row[:approved_version_id] } }.tally
         lines.select do |line|
           next false if line.done || line.kind != :duplicate || line.purchase_match
+          next false if review_heads[line.event.id]&.source_review_drafts&.any? { |draft| draft.status == "pending" }
           next false if TransferPairs.person_payment?(line.event, line.merchant)
           next false if line.event.event_type.in?(%w[transfer debt_payment]) && transfer_pairs.candidate(line.event)
           approved = line.overlaps.select { |row| row[:approved_version_id] }
@@ -210,9 +213,12 @@ module FinancialDocuments
             kind = nil
             category_id = heads[event.id].approved_version.budget_category_id
           end
+          pending = heads[event.id]&.source_review_drafts&.find { |draft| draft.status == "pending" }
+          proposed = SourceReviewVersion.new(pending.facts.slice("event_type", "signed_amount_cents", "posted_on", "merchant", "budget_category_id")) if pending
+          kind, category_id = :correction, proposed.budget_category_id if pending
           Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && chosen.present?,
-            expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
-            done: done?(heads[event.id]&.approved_version), without_category: without_category, saved: (heads[event.id].approved_version if without_category), purchase_match: purchase_match)
+            expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id }.merge(pending ? { pending_digest: pending.digest } : {}),
+            done: !pending && done?(heads[event.id]&.approved_version), without_category: without_category, saved: proposed || (heads[event.id].approved_version if without_category), purchase_match: purchase_match)
         end.tap { |lines| refund_lines!(lines, heads, earlier, categories) }
       end
 
@@ -224,7 +230,7 @@ module FinancialDocuments
       def refund_lines!(lines, heads, earlier, categories)
         lines.each do |line|
           version = heads[line.event.id]&.approved_version
-          if done?(version) && version.disposition == "include" && version.event_type == "refund"
+          if !line.kind.eql?(:correction) && done?(version) && version.disposition == "include" && version.event_type == "refund"
             next if refund_credits.for_version(version).counted?
             prefill = refund_prefill(line, lines, heads, earlier, categories, saved: version)
             line.kind, line.category_id, line.as_before, line.without_category, line.saved = :refund_category, prefill, prefill.present?, true, version

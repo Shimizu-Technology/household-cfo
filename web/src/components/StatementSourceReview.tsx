@@ -19,12 +19,13 @@ function matchedPurchaseLabel(purchase?: { source_type: string }) {
   return purchase && ['receipt', 'screenshot'].includes(purchase.source_type) ? 'Counted with your receipt' : 'Already counted'
 }
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onProgress, onOtherStatementsSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onChanged, onProgress, onOtherStatementsSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
   onSignAnswered?: (revisionId: number) => void
   focusAfterSign?: boolean
   onSignFocusDone?: () => void
   onSaved?: () => void
+  onChanged?: () => void
   /** The statement's progress as last read back, so the upload's status in the list doesn't go stale after a save. */
   onProgress?: (progress: StatementProgress) => void
   /** One store answer also saved lines in these other statements (by revision), so their uploads' status has moved too. */
@@ -39,7 +40,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
-  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
+  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onChanged, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
   const { data, error, review, plan, categories, names, needBasis, needsAccountChoice, needsAccount, counts, mutation, busy, coverage, savingLines, unsavedAnswer, focusAfterRef, save } = state
   const pageData = data && data.pagination.page === page ? data : undefined
   const progressCallback = useRef(onProgress)
@@ -108,6 +109,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   const money = (cents: number | null) => (cents == null ? 'Unknown' : sourceMoney(Math.abs(cents)))
   function sheetFromEvent(event: SourceEvent): SheetLine {
+    const correction = plan?.attention.find(item => item.event_id === event.id && item.kind === 'correction')
+    if (correction) return lineSheetFromAttention(correction)
     const row = review?.rows[event.id]
     const facts = row?.approved && row.approved.current !== false ? row.approved.facts : null
     // A line that is not saved yet opens on the kind and category the list shows for it (the plan's), not the reader's first guess.

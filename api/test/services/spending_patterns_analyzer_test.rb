@@ -9,6 +9,28 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "the bills-excluded claim requires every named part of the list to be bill free" do
+    ordinary = [ { label: "Talun Demo Market" } ]
+    assert SpendingPatterns::Answerer.bill_free_list?(ordinary, [ "Optional shopping" ], [], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?([ { label: "Talun Demo Power" } ], [], [], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?(ordinary, [ "Electricity" ], [], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?(ordinary, [], [ { merchant: "Talun Demo Water" } ], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?(ordinary, [], [], { label: "Talun Demo Sewer" })
+  end
+
+  test "utility companies stay protected while ordinary stores and fuel stay ordinary" do
+    protected = [ "Tasi Demo Power", "Island Water Co", "Demo Electric Company", "Guam Power Authority", "Talun Electricity Services", "Talun Gas", "Talun Sewer Inc", "Talun Telecom", "Talun Internet", "Talun Telephone Company LLC" ]
+    ordinary = [ "Power Mart", "Powerhouse Gym", "Water World Toys", "Gas Station", "Talun Gas Station" ]
+    protected.each { |name| assert SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    ordinary.each { |name| refute SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      (protected + ordinary).each { |name| purchase(date, name, 3000) }
+    end
+    result = analyze
+    assert_empty(result[:candidate_changes].pluck(:merchant) & protected)
+    ordinary.each { |name| assert_includes result[:discretionary_merchants].pluck(:label), name }
+  end
+
   test "household and challenge pattern references answer the question focus" do
     observed = "I only see purchases for Oct: Ross ($300) was your biggest flexible spending stop."
     messages = [ "what do you notice in my spending", "what stands out on the statement i just did", "where can i cut back", "any small buys adding up" ]

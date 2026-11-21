@@ -6,7 +6,7 @@ import { statementCents } from './participantSourceReview'
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
 export type PlanAnswerId = 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in' | 'own_account' | 'someone_else' | 'pair_transfer'
-export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null }
+export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null; pending_digest?: string | null }
 /** A purchase she already confirmed (a receipt, chat, form or linked-account purchase) that this bank line may be. */
 export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
@@ -15,7 +15,7 @@ export type PlanAttention = {
   transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; description?: string; posted_on: string; signed_amount_cents: number }
   event_id: number
   amount_cents?: number | null
-  kind: 'person_payment_duplicate' | 'person_payment' | 'transfer_pair' | 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
+  kind: 'correction' | 'person_payment_duplicate' | 'person_payment' | 'transfer_pair' | 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>

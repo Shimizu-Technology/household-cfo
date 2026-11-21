@@ -179,6 +179,7 @@ module FinancialDocuments
         answers = line.kind.in?(%i[duplicate person_payment_duplicate]) && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS.fetch(line.kind).first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
         question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
         question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
+        question = "#{question} Category: #{names[line.category_id] || 'None chosen'}." if line.kind == :correction
         question = line.purchase_match.question if line.kind == :same_purchase
         # A refund names where its money goes back: the purchase's category, or the one she chose for this store before.
         refund_names = Array(line.refund_to).filter_map { |id| category_names[id] }

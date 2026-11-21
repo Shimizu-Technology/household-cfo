@@ -3613,7 +3613,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const documentImport = await uploadDocumentImport(preparedFile, kind, origin)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
-      setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. ${assistantName} is extracting draft values for review.`)
+      setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately.`)
       trackDocumentUpload(kind, 'succeeded', uploadFile)
       captureAnalyticsEvent('document_import_created', {
         document_kind: kind,
@@ -3869,7 +3869,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     try {
       const reprocessedImport = await reprocessDocumentImport(documentImport.id)
       setDocumentImports((current) => replaceImport(current, reprocessedImport))
-      setDocumentsNotice(`Reprocessing started. The review panel will update when ${assistantName} finishes reading the document.`)
+      setDocumentsNotice('Your request to try again was received.')
       return true
     } catch (caught) {
       setDocumentsError(participantErrorMessage(caught, 'Document could not be reprocessed.'))
@@ -4672,7 +4672,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
                     title="Purchases to review"
-                    emptyTitle={(activeBudgetPlan?.cash_purchase_questions?.length ?? 0) > 0 || pendingMiaActionDrafts.length > 0 || (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
+                    emptyTitle={(activeBudgetPlan?.cash_purchase_questions?.length ?? 0) > 0 ? 'No other purchases to review' : pendingMiaActionDrafts.length > 0 || (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
                     description="Check the date, amount and category before confirming."
                     onPlanCategory={(categoryId, monthNumber, year) => void openBudgetMoneyTool('monthly', categoryId, monthNumber, 'amount', year)}
                     onUpdate={handleUpdateTransactionDraft}
@@ -6077,7 +6077,7 @@ export function DocumentReviewPanel({
                 <span className="document-action-hint">Upload a screenshot or JPEG</span>
               ) : (
                 <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
-                  {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+                  {actionForImport('reprocess') ? 'Starting' : 'Try again'}
                 </button>
               )}
               <button type="button" className="subtle" aria-describedby={retentionHelpId} onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
@@ -6129,6 +6129,7 @@ export function DocumentReviewPanel({
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           onSaved={onStatementSaved}
+          onChanged={onStatementSaved}
           onProgress={progress => onStatementProgress?.(documentImport.id, progress)}
           onOtherStatementsSaved={onOtherStatementsSaved}
           onSignAnswered={revisionId => setSignFocus({ importId: documentImport.id, revisionId })}

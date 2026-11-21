@@ -10,7 +10,8 @@ module FinancialDocuments
       def call
         versions = current_versions
         total = @revision.financial_source_events.count
-        done = versions.count
+        pending_heads = SourceReviewDraft.pending.where(household: @household).select(:source_review_head_id)
+        done = versions.where.not(source_review_head_id: pending_heads).count
         without_category = versions.where(budget_category_id: nil, disposition: "include", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("source_review_versions.signed_amount_cents < 0")
           .where.not("source_review_versions.event_type = 'cash_withdrawal' AND source_review_versions.purchase_amount_cents IS NULL").count
         # A saved refund whose purchase can't be found and has no category counts nowhere until she says where it goes back.

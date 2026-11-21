@@ -13,6 +13,24 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     @identity = link(@source)
   end
 
+  test "an approved line with a pending correction remains an individual question" do
+    event = @source[:events].sole
+    approve(stage(event))
+    stage(event, amount: -999, merchant: "Talun Proposed Store", posted_on: "2026-07-08")
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, @source[:revision])
+    refute plan.lines.sole.done
+    assert_empty plan.ready_ids
+    assert_empty plan.category_lines
+    assert_empty plan.repeated_lines
+    row = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, @source[:revision]).plan_summary[:attention].sole
+    assert_equal :correction, row[:kind]
+    assert_equal "Talun Proposed Store", row[:editable_merchant]
+    assert_equal(-999, row[:signed_amount_cents])
+    assert_equal "2026-07-08", row[:posted_on]
+    assert_equal @category.id, row[:category_id]
+    assert_equal 0, FinancialDocuments::SourceReview::ParticipantProgress.new(@household, @source[:revision]).call[:done]
+  end
+
   test "store selector leaves pending corrections individual" do
     fresh = source([ movement(-1700), movement(-1800, row: 2), movement(-1900, row: 3) ])
     identity = link(fresh)

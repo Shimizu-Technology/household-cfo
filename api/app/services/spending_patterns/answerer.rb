@@ -94,6 +94,13 @@ module SpendingPatterns
     # month recorded every store is new, so name the biggest; no cut is offered for them.
     def self.flexible_stops(patterns) = (patterns[:recurring_discretionary_merchants].presence || patterns[:discretionary_merchants]).first(2)
 
+    def self.bill_free_list?(merchants, category_names, choices, cluster)
+      merchants.none? { |row| Analyzer.protected_merchant?(row[:label]) } &&
+        category_names.none? { |name| Analyzer.protected_category?(name) } &&
+        choices.none? { |row| Analyzer.protected_merchant?(row[:merchant]) } &&
+        !Analyzer.protected_merchant?(cluster&.dig(:label))
+    end
+
     def self.money(cents) = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
 
     # What the program protects: Mrs. Mel's sentence, plus anything the program added.
@@ -144,7 +151,7 @@ module SpendingPatterns
       category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") }
       observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spending stop' : 'were your biggest flexible spending stops'}."
       observed = "#{observed} Your largest flexible spending #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
-      observed = "#{observed} #{protected_note}" if self.class.cut_question?(@message)
+      observed = "#{observed} #{protected_note}" if self.class.cut_question?(@message) && self.class.bill_free_list?(merchants, category_names, choices, @patterns[:small_purchase_clusters].first)
       cluster = @patterns[:small_purchase_clusters].first
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
       impact = choices.first

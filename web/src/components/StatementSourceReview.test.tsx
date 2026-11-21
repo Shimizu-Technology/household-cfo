@@ -19,6 +19,26 @@ beforeEach(() => {
   mutate.mockReset(); mutate.mockResolvedValue({ result: { approved: 0, left_out: 0, unchanged: 0, complete: false } })
 })
 
+it('opens an approved table row on its pending correction and preserves its token', async () => {
+  const data = participantReviewFixture()
+  const event = data.events[0]
+  const review = data.participant_review!
+  const proposal = { ...review.plan.attention[0], event_id: event.id, kind: 'correction' as const, merchant: 'Talun Proposed Store', editable_merchant: 'Talun Proposed Store', signed_amount_cents: -777, posted_on: '2026-09-12', category_id: 10,
+    question: 'Review your proposed correction.', answers: [{ id: 'edit' as const, label: 'Review correction' }], expected_head: { approved_version_id: 900, lock_version: 1, account_version_id: 100, pending_digest: 'talun-pending' } }
+  review.plan.attention = [proposal]
+  review.rows[event.id].approved = { id: 900, digest: 'talun-approved', version_number: 1, reason: 'Fictional approval', projection: { action: 'none' }, actual: null,
+    facts: { source_account_identity_version_id: 100, disposition: 'include', event_type: 'purchase', signed_amount_cents: -500, purchase_amount_cents: 500, posted_on: '2026-09-01', merchant: 'Talun Saved Store', budget_category_id: 10, overlap_disposition: 'new' } }
+  fetchReview.mockResolvedValue(data)
+  mount()
+  fireEvent.click(await screen.findByText('See all 137 lines'))
+  fireEvent.click(screen.getByRole('button', { name: 'Talun Saved Store' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByLabelText('Name')).toHaveProperty('value', 'Talun Proposed Store')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(mutate).toHaveBeenCalled())
+  expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ expected_head: proposal.expected_head, edit: { amount_cents: 777, posted_on: '2026-09-12' } }] })
+})
+
 describe('statement review a participant can finish', () => {
   it('answers a cleaned store group in one request and can open individual lines', async () => {
     const data = participantReviewFixture()
@@ -172,13 +192,14 @@ describe('statement review a participant can finish', () => {
     fetchReview.mockResolvedValue(data)
     const saved = vi.fn()
     const progress = vi.fn()
+    const changed = vi.fn()
     mutate.mockImplementation(async () => {
       const after = participantReviewFixture(); after.participant_review!.categories = data.participant_review!.categories
       after.participant_review!.plan = { ...after.participant_review!.plan, done: data.participant_review!.plan.done + 1, attention: [] }
       fetchReview.mockResolvedValue(after)
       return { result: { approved: 1, left_out: 0, unchanged: 0, complete: false } }
     })
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} onProgress={progress} />)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} onChanged={changed} onProgress={progress} />)
     const choice = await screen.findByRole('button', { name: 'Everyday spending: Mystery shop' })
     expect(screen.queryByRole('combobox', { name: 'Category for Mystery shop' })).toBeNull()
     fireEvent.click(choice)
@@ -187,6 +208,7 @@ describe('statement review a participant can finish', () => {
     // The statement isn't finished, but the upload's status in the list ("Some lines saved") moves with what was read back.
     await waitFor(() => expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ done: data.participant_review!.plan.done + 1 })))
     expect(saved).not.toHaveBeenCalled()
+    expect(changed).toHaveBeenCalledOnce()
   })
 
   it('refreshes the parent upload after saving a review so its status is read back', async () => {

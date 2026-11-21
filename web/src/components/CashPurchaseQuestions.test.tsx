@@ -22,6 +22,13 @@ describe('CashPurchaseQuestions', () => {
   beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-08-06T12:00:00Z')) })
   afterEach(() => { cleanup(); vi.useRealTimers() })
 
+  it('keeps a January question visible in November with its own purchase date', () => {
+    vi.setSystemTime(new Date('2026-11-21T12:00:00Z'))
+    render(<CashPurchaseQuestions questions={[question({ occurred_on: '2026-01-17' })]} onAnswer={vi.fn()} />)
+    expect(screen.getByText('Jan 17 · $40')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Paid with cash' })).toBeTruthy()
+  })
+
   it('says what counts right now and asks which cash paid for a purchase she confirmed before the statement', async () => {
     const onAnswer = vi.fn().mockResolvedValue(undefined)
     const lunch = question()
