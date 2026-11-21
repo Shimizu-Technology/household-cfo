@@ -7,6 +7,11 @@ module ChallengePrivacy
         @cohort, @actor = cohort, user
       end
 
+      # The group's live challenge rules, from the release call already loaded.
+      def group_rules
+        SavingsChallenge::Rules.for_release(@releases&.fetch(@cohort.active_cohort_release_id, nil))
+      end
+
       def call
         ApplicationRecord.transaction do
           enrollments = SavingsEnrollment.counted.where(cohort: @cohort).order(:id).to_a
@@ -47,7 +52,7 @@ module ChallengePrivacy
               setup_status: e.current_accepted_plan_version_id ? "plan_reviewed" : "plan_pending",
               check_in: check_in, help_requests: help, more_help_requests: Array(tickets[e.id]).length > 50, shared_items: hints,
               # Her own calendar: the length and check-in days she started with.
-              challenge: { day: e.challenge_day(on), length_days: e.challenge_length_days, checkpoint_days: e.checkpoint_days } } ]
+              challenge: SharedReader.challenge_calendar(e, on) } ]
           end
         end
       end

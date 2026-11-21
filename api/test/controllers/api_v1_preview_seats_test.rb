@@ -8,6 +8,7 @@ require Rails.root.join("db/migrate/20261111090000_allow_staff_preview_seats")
 require Rails.root.join("db/migrate/20261111110000_let_ended_staff_previews_rejoin")
 require Rails.root.join("db/migrate/20261111130000_allow_many_ended_preview_seats")
 require Rails.root.join("db/migrate/20261111130100_freeze_staff_preview_on_savings_enrollments")
+require Rails.root.join("db/migrate/20261121120000_add_challenge_rules_to_savings_enrollments")
 
 # Staff use the same app a participant does. A preview seat is how they try a
 # group out, and it must never be counted: not in a roster, a count, the 30-place
@@ -373,6 +374,8 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
 
   test "rolling the preview migrations back and forward works on a clean database" do
     assert_nothing_raised do
+      # Later migrations that rewrite the same guard roll back first and forward last.
+      run_migration(AddChallengeRulesToSavingsEnrollments, :down)
       run_migration(FreezeStaffPreviewOnSavingsEnrollments, :down)
       run_migration(AllowManyEndedPreviewSeats, :down)
       run_migration(LetEndedStaffPreviewsRejoin, :down)
@@ -381,6 +384,7 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
       run_migration(LetEndedStaffPreviewsRejoin, :up)
       run_migration(AllowManyEndedPreviewSeats, :up)
       run_migration(FreezeStaffPreviewOnSavingsEnrollments, :up)
+      run_migration(AddChallengeRulesToSavingsEnrollments, :up)
     end
     SavingsEnrollment.reset_column_information
     CohortMembership.reset_column_information

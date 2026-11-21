@@ -5,6 +5,12 @@ module ChallengePrivacy
     end
 
     def initialize(enrollment, user:) = (@enrollment, @user = enrollment, user)
+
+    # Her own calendar: the length and check-in days she started with.
+    def self.challenge_calendar(enrollment, on = enrollment.local_today)
+      { day: enrollment.challenge_day(on), length_days: enrollment.challenge_length_days, checkpoint_days: enrollment.checkpoint_days }
+    end
+
     def basic
       guarded do
         { enrollment_id: @enrollment.id, participation_status: @enrollment.status,

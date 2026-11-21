@@ -12,7 +12,8 @@ module ChallengePrivacy
       raise ArgumentError, "Choose a people filter" unless FILTERS.include?(filter)
       offset = offset.present? ? Integer(offset, 10) : 0
       raise ArgumentError, "Choose a valid page" if offset.negative?
-      @daily = @cohort.savings_challenge_enabled? ? SharedReader.daily_batch(@cohort, user: @user) : {}
+      batch = @cohort.savings_challenge_enabled? ? SharedReader::DailyBatch.new(@cohort, user: @user) : nil
+      @daily = batch ? batch.call : {}
       @setup_requests = SetupSupportRequest.where(cohort: @cohort, status: SetupSupportRequest::ACTIVE).includes(:household).order(:id).to_a.group_by(&:requested_by_user_id)
       memberships = @cohort.cohort_memberships.where(role: "participant").eager_load(user: { household_memberships: :household }).to_a
       # The same authoritative identity predicate as invitation_accepted?, in
@@ -26,7 +27,7 @@ module ChallengePrivacy
       page = rows.slice(offset, 20) || []
       audit_platform_admin_read!(page) if access == :platform_admin
       # The group's live rules, for people who join now; each row keeps its own.
-      challenge = @cohort.savings_challenge_enabled? ? SavingsChallenge::Rules.for_cohort(@cohort).then { |rules| { length_days: rules.length_days, checkpoint_days: rules.checkpoint_days } } : nil
+      challenge = batch&.group_rules&.then { |rules| { length_days: rules.length_days, checkpoint_days: rules.checkpoint_days } }
       { program_type: @cohort.savings_challenge_enabled? ? "savings" : "household", counts: counts, challenge: challenge,
         can_invite: @user.admin? || @cohort.coach_workspace.membership_for(@user)&.role == "owner",
         records: page, total: rows.length, next_offset: offset + 20 < rows.length ? offset + 20 : nil }

@@ -27,12 +27,16 @@ module SavingsChallenge
     # The rules a group's live release gives a new enrollment. Never raises; a group
     # without a usable release reads as the defaults.
     def self.for_cohort(cohort)
-      release = cohort&.active_cohort_release
+      for_release(cohort&.active_cohort_release)
+    end
+
+    # The rules a sealed release's experience carries (no further queries).
+    def self.for_release(release)
       return default unless release
 
-      for_capabilities(CohortExperience::EffectiveCapabilitiesResolver.for_release(release: release, cohort_membership: nil))
+      from_setting(CohortExperience::Schema.method_for(release.experience_snapshot.to_h.fetch("config", {})).fetch("challenge"))
     rescue StandardError => error
-      Rails.logger.error("[SavingsChallenge::Rules] default rules cohort_id=#{cohort&.id} error=#{error.class}")
+      Rails.logger.error("[SavingsChallenge::Rules] default rules cohort_release_id=#{release&.id} error=#{error.class}")
       default
     end
 
