@@ -31,6 +31,25 @@ class ScorecardTest < ActiveSupport::TestCase
     assert_includes Scorecard::Ratchet.regressions(improved, baseline), "months.2026-01.total_spending.error_cents"
   end
 
+  test "an unknown income month is never a $0 match and losing a known month is a regression" do
+    report = Scorecard::Report.allocate
+    assert_equal({ "actual_cents" => nil, "expected_cents" => 750_000, "error_cents" => -750_000, "absolute_error_percent" => 100.0, "known" => false }, report.send(:known_metric, nil, 750_000))
+    assert_equal [ 0, true ], report.send(:known_metric, 750_000, 750_000).values_at("error_cents", "known")
+    baseline = { "app_actual_income" => { "actual_cents" => 750_000, "error_cents" => 0, "known" => true } }
+    unknown = { "app_actual_income" => { "actual_cents" => nil, "error_cents" => -750_000, "known" => false } }
+    assert_equal %w[app_actual_income.actual_cents app_actual_income.error_cents app_actual_income.known], Scorecard::Ratchet.regressions(unknown, baseline).sort
+    assert_empty Scorecard::Ratchet.regressions(baseline, { "app_actual_income" => { "actual_cents" => nil, "error_cents" => 0, "known" => false } })
+  end
+
+  test "round4 partial income subtotals are not known" do
+    report = Scorecard::Report.allocate
+    assert_equal false, report.send(:known_metric, 12_000, 20_000, partial: true)["known"]
+    assert_equal true, report.send(:known_metric, 20_000, 20_000, partial: false)["known"]
+    months = JSON.parse(Scorecard::Runner::TALUN.join("baseline.json").read).fetch("months").values
+    months.first["app_actual_income"] = report.send(:known_metric, 12_000, 20_000, partial: true)
+    assert_equal false, report.send(:aggregate, months).dig("app_actual_income", "known")
+  end
+
   test "private mode rejects repository inputs" do
     assert_raises(ArgumentError) { Scorecard::Runner.new(private_mode: true) }
   end

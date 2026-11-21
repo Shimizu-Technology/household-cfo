@@ -560,7 +560,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a long statement is approved a page at a time: exactly the lines on the page, all or none, and a retry changes nothing" do
-    rows = (1..5).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    rows = (1..5).map { |index| [ "Payroll #{index}", 10_000 + index, "income", index ] }
     long = build_source(rows: rows)
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
     assert_equal 5, ids.length
@@ -594,7 +594,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a page that holds a line that no longer looks right is refused and saves nothing" do
-    long = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ], [ "Pay 2", 10_001, "income", 2 ] ])
+    long = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ], [ "Payroll 2", 10_001, "income", 2 ] ])
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
     changed = build_source(rows: [ [ "Ross", -500, "purchase", 1 ] ])
     approve_lines({ expect_ready_ids: ids + changed[:revision].financial_source_events.pluck(:id), paged: true, lines: as_read(ids, source: long) }, source: long)
@@ -740,7 +740,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a statement whose lines may be missing asks her, and only her answer is recorded as the attestation" do
-    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ], [ "Pay 2", 10_001, "income", 2 ] ], reported: 3)
+    source = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ], [ "Payroll 2", 10_001, "income", 2 ] ], reported: 3)
     plan = plan_for(source)
     assert_equal "Your statement shows 3 lines and we found 2. Is anything missing?", plan.dig("coverage", "question")
     assert_nil plan.dig("coverage", "answer")
@@ -773,7 +773,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "lines the reader could not classify still close the printed totals, so she is not told the totals don't add up" do
     account = { opening_balance_cents: 0, closing_balance_cents: 13_500, printed_debit_cents: 1_500, printed_credit_cents: 15_000, printed_row_count: 3, period_start_on: "2026-07-01", period_end_on: "2026-07-31" }
-    rows = [ [ "Pay 1", 10_000, "income", 1 ], [ "Stripe Transfer", 5_000, "unknown", 2 ], [ "Non-Wells Fargo ATM Transaction Fee", -1_500, "unknown", 3 ] ]
+    rows = [ [ "Payroll 1", 10_000, "income", 1 ], [ "Stripe Transfer", 5_000, "unknown", 2 ], [ "Non-Wells Fargo ATM Transaction Fee", -1_500, "unknown", 3 ] ]
     source = build_source(rows: rows, account: account)
     # The stored extraction report counts only classified lines, so on its own it is $50 short of the printed credits.
     assert_equal 5_000, source[:revision].reconciliation.dig("accounts", 0, "credit_residual_cents")
@@ -826,7 +826,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "something missing sent with the save is kept even when the statement reconciles" do
-    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    source = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     plan = plan_for(source)
     assert_nil plan.dig("coverage", "question")
     approve_lines({ expect_ready_ids: plan.fetch("ready_event_ids"), coverage_answer: "something_missing",
@@ -836,7 +836,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a statement that reconciles needs no question" do
-    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    source = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
     plan = plan_for(source)
     assert_nil plan.dig("coverage", "question")
@@ -948,10 +948,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "saying something is missing is recorded even when the totals no longer disagree with the lines she has saved, and saving again does not fail" do
     statement = { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, period_start_on: "2026-07-01", period_end_on: "2026-07-31" }
-    source = build_source(rows: [ [ "Pay 1", 9_000, "income", 1 ] ], account: statement)
+    source = build_source(rows: [ [ "Payroll 1", 9_000, "income", 1 ] ], account: statement)
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
     event_id = source[:revision].financial_source_events.sole.id
-    fixed = { event_id: event_id, decision: "edited", edit: { kind: "money_in", merchant: "Pay 1", posted_on: "2026-07-02", amount_cents: 10_000 } }
+    fixed = { event_id: event_id, decision: "edited", edit: { kind: "money_in", merchant: "Payroll 1", posted_on: "2026-07-02", amount_cents: 10_000 } }
     approve_lines({ lines: [ fixed ], coverage_answer: "something_missing" }, source: source)
     assert_response :success
     approval = SourceRevisionApproval.where(household: @household).sole
@@ -1104,10 +1104,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "changing only the dates of one of two generic accounts never merges it into the other, so their charges are not offered as copies of each other" do
-    one = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "Bank account")
+    one = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "Bank account")
     approve_lines({ lines: as_read(one[:revision].financial_source_events.ids, source: one) }, source: one)
     assert_response :success, response.body
-    two = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "Bank account")
+    two = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "Bank account")
     question = plan_for(two).fetch("attention").sole
     approve_lines({ lines: [ { event_id: question.fetch("event_id"), decision: "different", shown: question.slice("category_id", "event_type").symbolize_keys } ] }, source: two)
     assert_response :success, response.body
@@ -1192,11 +1192,11 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "an older line she edited is compared by what she approved, so a copy of the edited line is asked about and the rest can be approved" do
-    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    first = build_source(rows: [ [ "Payroll", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
     older = first[:revision].financial_source_events.sole
     approve_lines({ lines: [ { event_id: older.id, decision: "edited", edit: { kind: "money_in", amount_cents: 5_000 } } ] }, source: first)
     assert_response :success, response.body
-    second = build_source(rows: [ [ "Pay", 5_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking")
+    second = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking")
     plan = plan_for(second)
     copy = plan.fetch("attention").find { |row| row["kind"] == "duplicate" }
     assert copy, "the copy of the edited line is asked about before she approves the rest"
@@ -1210,13 +1210,13 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "the same file and row is asked about as a copy even when every amount differs" do
     checksum = SecureRandom.hex(32)
-    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking", checksum: checksum)
+    first = build_source(rows: [ [ "Payroll", 7_000, "income", 2 ] ], label: "BOG Everyday Checking", checksum: checksum)
     older = first[:revision].financial_source_events.sole
     approve_lines({ lines: [ { event_id: older.id, decision: "edited", edit: { kind: "money_in", amount_cents: 5_000 } } ] }, source: first)
     assert_response :success, response.body
     # The same file read again gives a third amount for the same physical row: no amount or date key matches it, but the
     # detector treats file + row as a strong copy, so the plan must ask instead of showing it as ready.
-    second = build_source(rows: [ [ "Pay", 6_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking", checksum: checksum)
+    second = build_source(rows: [ [ "Payroll", 6_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking", checksum: checksum)
     plan = plan_for(second)
     copy = plan.fetch("attention").find { |row| row["kind"] == "duplicate" }
     assert copy, "the same file and row is asked about before she approves the rest"
@@ -1227,13 +1227,13 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a copy of a line whose edit is still waiting as a draft is asked about too" do
-    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    first = build_source(rows: [ [ "Payroll", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
     older = first[:revision].financial_source_events.sole
     # An edit she has not approved yet still says what that line will be.
     head = SourceReviewHead.create!(household: @household, financial_source_event: older)
     SourceReviewDraft.create!(household: @household, source_review_head: head, staged_by_user: @user, base_head_lock_version: head.lock_version, digest: SecureRandom.hex(32), reason: "test",
       facts: { "signed_amount_cents" => 5_000, "posted_on" => older.posted_on.iso8601 })
-    second = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    second = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "BOG Everyday Checking")
     assert_equal [ "duplicate" ], plan_for(second).fetch("attention").pluck("kind")
   end
 
@@ -1334,7 +1334,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "one explicit answer leaves 300 approved copies out with linear query cost and safe retry" do
-    rows = (1..300).map { |index| [ "Store #{index}", 10_000 + index, "income", index ] }
+    rows = (1..300).map { |index| [ "Store #{index} payroll", 10_000 + index, "income", index ] }
     first = build_source(rows: rows, account: { period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     ids = first[:revision].financial_source_events.pluck(:id)
     ids.each_slice(100) { |slice| approve_lines({ paged: true, expect_ready_ids: slice, lines: as_read(slice, source: first) }, source: first) }
@@ -1359,10 +1359,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a file matching two approved lines keeps its individual question" do
-    first = build_source(rows: [ [ "Twin store", 1000, "income", 1 ], [ "Twin store", 1000, "income", 29 ] ])
+    first = build_source(rows: [ [ "Twin store payroll", 1000, "income", 1 ], [ "Twin store payroll", 1000, "income", 29 ] ])
     approve_lines({ lines: as_read(first[:revision].financial_source_events.pluck(:id), source: first) }, source: first)
     assert_response :success, response.body
-    copy = build_source(rows: [ [ "Twin store", 1000, "income", 1 ] ])
+    copy = build_source(rows: [ [ "Twin store payroll", 1000, "income", 1 ] ])
     approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
     assert_equal :duplicate, plan.lines.sole.kind
@@ -1370,9 +1370,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a repeated-file answer refuses a weaker match without saving anything" do
-    first = build_source(rows: [ [ "Store A", 1000, "income", 1 ] ])
+    first = build_source(rows: [ [ "Store A payroll", 1000, "income", 1 ] ])
     approve_lines({ lines: as_read(first[:revision].financial_source_events.pluck(:id), source: first) }, source: first)
-    copy = build_source(rows: [ [ "Different store", 1000, "income", 1 ] ])
+    copy = build_source(rows: [ [ "Different store payroll", 1000, "income", 1 ] ])
     approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
     assert_empty plan.repeated_lines
@@ -1420,7 +1420,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a statement uploaded twice is checked for copies with a fixed number of queries, not a handful per line" do
-    rows = (1..40).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    rows = (1..40).map { |index| [ "Payroll #{index}", 10_000 + index, "income", index ] }
     first = build_source(rows: rows)
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, first[:revision]).ready_ids
     ids.each_slice(20) { |slice| approve_lines({ expect_ready_ids: slice, paged: true, lines: as_read(slice, source: first) }, source: first) }
@@ -1434,7 +1434,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a page reads the household's lines once, not once per line, and a repeat of the page still saves nothing new" do
-    rows = (1..20).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    rows = (1..20).map { |index| [ "Payroll #{index}", 10_000 + index, "income", index ] }
     long = build_source(rows: rows)
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
     reads = 0

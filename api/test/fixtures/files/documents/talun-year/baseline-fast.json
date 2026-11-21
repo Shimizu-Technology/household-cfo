@@ -108,6 +108,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 585000,
+        "expected_cents": 585000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 277932,
         "expected_cents": 277932,
@@ -265,6 +272,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 0,
         "expected_cents": 0,
@@ -396,6 +410,13 @@
         "expected_cents": 0,
         "error_cents": 0,
         "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 31238,
@@ -539,6 +560,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 0,
         "expected_cents": 0,
@@ -671,6 +699,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 0,
         "expected_cents": 0,
@@ -802,6 +837,13 @@
         "expected_cents": 420000,
         "error_cents": 0,
         "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
+        "actual_cents": 420000,
+        "expected_cents": 420000,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 277983,
@@ -969,6 +1011,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 0,
         "expected_cents": 0,
@@ -1100,6 +1149,13 @@
         "expected_cents": 0,
         "error_cents": 0,
         "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 0,
@@ -1233,6 +1289,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 0,
         "expected_cents": 0,
@@ -1364,6 +1427,13 @@
         "expected_cents": 0,
         "error_cents": 0,
         "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
       },
       "analyzer_spending": {
         "actual_cents": 0,
@@ -1497,6 +1567,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": 351300,
+        "expected_cents": 351300,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 53470,
         "expected_cents": 53470,
@@ -1508,13 +1585,14 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 14,
+      "decisions": 15,
       "decisions_by_kind": {
         "account_identity": 3,
         "approve_page": 3,
         "transfer": 1,
         "coverage": 3,
         "duplicate": 3,
+        "money_in_source": 1,
         "no_category": 1
       },
       "manual_correction": 1,
@@ -1530,6 +1608,7 @@
       "questions_by_kind": {
         "transfer": 1,
         "duplicate": 3,
+        "money_in_source": 1,
         "no_category": 1
       },
       "unmapped_spending_cents": 0,
@@ -1640,6 +1719,13 @@
         "error_cents": 0,
         "absolute_error_percent": 0.0
       },
+      "app_actual_income": {
+        "actual_cents": null,
+        "expected_cents": 0,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
+      },
       "analyzer_spending": {
         "actual_cents": 0,
         "expected_cents": 0,
@@ -1686,6 +1772,13 @@
       "expected_cents": 640623,
       "error_cents": 0,
       "absolute_error_percent": 0.0
+    },
+    "app_actual_income": {
+      "actual_cents": 1356300,
+      "expected_cents": 1356300,
+      "error_cents": 0,
+      "absolute_error_percent": 0.0,
+      "known": false
     },
     "spending_by_category": {
       "Housing": {
@@ -1783,7 +1876,7 @@
     "transfer_leakage_cents": 0,
     "transfer_leakage_spending_cents": 0,
     "transfer_leakage_income_cents": 0,
-    "decisions": 78,
+    "decisions": 79,
     "manual_correction": 17,
     "manual_exclusion": 0,
     "accepted_as_proposed": 59,
@@ -1797,6 +1890,7 @@
       "direction": 2,
       "duplicate": 20,
       "manual_correction": 1,
+      "money_in_source": 1,
       "no_category": 11,
       "person_payment": 2,
       "person_payment_duplicate": 1,
@@ -1820,6 +1914,7 @@
       "card_payment": 3,
       "direction": 2,
       "duplicate": 20,
+      "money_in_source": 1,
       "no_category": 14,
       "person_payment": 2,
       "person_payment_duplicate": 1,
@@ -1961,6 +2056,13 @@
           "expected_cents": 585000,
           "error_cents": 0,
           "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
+          "actual_cents": 585000,
+          "expected_cents": 585000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 277932,
@@ -2118,6 +2220,13 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
+        },
         "analyzer_spending": {
           "actual_cents": 0,
           "expected_cents": 0,
@@ -2249,6 +2358,13 @@
           "expected_cents": 0,
           "error_cents": 0,
           "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 31238,
@@ -2392,6 +2508,13 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
+        },
         "analyzer_spending": {
           "actual_cents": 0,
           "expected_cents": 0,
@@ -2524,6 +2647,13 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
+        },
         "analyzer_spending": {
           "actual_cents": 0,
           "expected_cents": 0,
@@ -2655,6 +2785,13 @@
           "expected_cents": 420000,
           "error_cents": 0,
           "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
+          "actual_cents": 420000,
+          "expected_cents": 420000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 277983,
@@ -2820,6 +2957,13 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
+        },
         "analyzer_spending": {
           "actual_cents": 0,
           "expected_cents": 0,
@@ -2951,6 +3095,13 @@
           "expected_cents": 0,
           "error_cents": 0,
           "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 0,
@@ -3084,6 +3235,13 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
+        },
         "analyzer_spending": {
           "actual_cents": 0,
           "expected_cents": 0,
@@ -3215,6 +3373,13 @@
           "expected_cents": 0,
           "error_cents": 0,
           "absolute_error_percent": 0.0
+        },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
         },
         "analyzer_spending": {
           "actual_cents": 0,
@@ -3348,6 +3513,13 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": 351300,
+          "expected_cents": 351300,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
+        },
         "analyzer_spending": {
           "actual_cents": 53470,
           "expected_cents": 53470,
@@ -3359,13 +3531,14 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 14,
+        "decisions": 15,
         "decisions_by_kind": {
           "account_identity": 3,
           "approve_page": 3,
           "transfer": 1,
           "coverage": 3,
           "duplicate": 3,
+          "money_in_source": 1,
           "no_category": 1
         },
         "manual_correction": 1,
@@ -3381,6 +3554,7 @@
         "questions_by_kind": {
           "transfer": 1,
           "duplicate": 3,
+          "money_in_source": 1,
           "no_category": 1
         },
         "unmapped_spending_cents": 0,
@@ -3491,6 +3665,13 @@
           "error_cents": 0,
           "absolute_error_percent": 0.0
         },
+        "app_actual_income": {
+          "actual_cents": null,
+          "expected_cents": 0,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0,
+          "known": false
+        },
         "analyzer_spending": {
           "actual_cents": 0,
           "expected_cents": 0,
@@ -3537,6 +3718,13 @@
         "expected_cents": 640623,
         "error_cents": 0,
         "absolute_error_percent": 0.0
+      },
+      "app_actual_income": {
+        "actual_cents": 1356300,
+        "expected_cents": 1356300,
+        "error_cents": 0,
+        "absolute_error_percent": 0.0,
+        "known": false
       },
       "spending_by_category": {
         "Housing": {
@@ -3634,7 +3822,7 @@
       "transfer_leakage_cents": 0,
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
-      "decisions": 76,
+      "decisions": 77,
       "manual_correction": 16,
       "manual_exclusion": 0,
       "accepted_as_proposed": 58,
@@ -3647,6 +3835,7 @@
         "coverage": 4,
         "direction": 2,
         "duplicate": 20,
+        "money_in_source": 1,
         "no_category": 11,
         "person_payment": 2,
         "person_payment_duplicate": 1,
@@ -3669,6 +3858,7 @@
         "card_payment": 3,
         "direction": 2,
         "duplicate": 20,
+        "money_in_source": 1,
         "no_category": 14,
         "person_payment": 2,
         "person_payment_duplicate": 1,

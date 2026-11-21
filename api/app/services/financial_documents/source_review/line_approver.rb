@@ -204,7 +204,7 @@ module FinancialDocuments
         end
         identity = domain.overlap_context.accounts[event.financial_source_account_id]&.approved_version
         head = domain.line_head(event)
-        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done), prior: head&.approved_version)
+        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done || line.kind == :money_in_source), prior: head&.approved_version)
         if facts[:signed_amount_cents] != event.signed_amount_cents || facts[:posted_on].to_s != event.posted_on.to_s
           candidate = event.dup
           candidate.signed_amount_cents = facts[:signed_amount_cents]
@@ -275,7 +275,7 @@ module FinancialDocuments
         stale = Domain::StaleReview.new("This line changed while you were reviewing it. Nothing was saved. Refresh and try again.")
         case decision
         when "own_account", "someone_else"
-          raise stale unless !line.done && line.kind.in?(%i[person_payment person_payment_duplicate])
+          raise stale unless !line.done && line.kind.in?(%i[person_payment person_payment_duplicate money_in_source])
           raise stale if line.kind == :person_payment_duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] }
           check_shown!(line, entry)
         when "as_read"
@@ -320,11 +320,19 @@ module FinancialDocuments
         case decision
         when "own_account" then base.merge(event_type: base[:event_type] == "debt_payment" ? "debt_payment" : "transfer", purchase_amount_cents: nil, budget_category_id: nil, external_reference: "own-account:#{line.event.id}", overlap_disposition: cleared ? "distinct" : base[:overlap_disposition])
         when "someone_else"
-          category = family_support_category!
-          base.merge(event_type: "purchase", purchase_amount_cents: base[:signed_amount_cents].abs, budget_category_id: category.id, external_reference: "sent-to-someone:#{line.event.id}", overlap_disposition: cleared ? "distinct" : base[:overlap_disposition])
-        when "as_read" then line.kind == :refund_category ? base.merge(budget_category_id: line.category_id) : base
+          if base[:signed_amount_cents].to_i.positive?
+            # Money someone gave her, or pay or a benefit she received, is income.
+            base.merge(event_type: "income", purchase_amount_cents: nil, budget_category_id: nil, external_reference: "received:#{line.event.id}", overlap_disposition: cleared ? "distinct" : base[:overlap_disposition])
+          else
+            category = family_support_category!
+            base.merge(event_type: "purchase", purchase_amount_cents: base[:signed_amount_cents].abs, budget_category_id: category.id, external_reference: "sent-to-someone:#{line.event.id}", overlap_disposition: cleared ? "distinct" : base[:overlap_disposition])
+          end
+        when "as_read"
+          return base.merge(budget_category_id: line.category_id) if line.kind == :refund_category
+          # "Yes" to "Is this a payment on your own card or loan?" for money into a card read as income.
+          line.kind == :card_payment && base[:event_type] == "income" ? base.merge(event_type: "debt_payment") : base
         when "different"
-          if TransferPairs.person_payment?(line.event, line.merchant)
+          if ParticipantPlan.ownership_question?(line.event, line.merchant)
             # No category or spending projection until the remaining questions are answered.
             base.merge(overlap_disposition: "distinct", budget_category_id: nil, external_reference: "#{line.kind == :duplicate ? 'overlap-cleared' : 'ownership-needed'}:#{line.event.id}")
           else
@@ -335,7 +343,7 @@ module FinancialDocuments
         when "same_purchase" then base.merge(disposition: "match", matched_transaction_id: line.purchase_match&.transaction&.id, budget_category_id: nil, overlap_disposition: "match")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
         else
-          facts = edited_facts(base, edit, saved: saved&.disposition == "include")
+          facts = edited_facts(base, edit, saved: saved&.disposition == "include", received_event_id: (line.event.id if line.kind == :money_in_source))
           if !line.done && TransferPairs.person_wording?(line.event, line.merchant) && facts[:signed_amount_cents].to_i.negative?
             # Spending in a category she chose is ordinary spending; only "someone else" (no category) is family support.
             if facts[:event_type] == "purchase" && facts[:budget_category_id].nil?
@@ -362,7 +370,7 @@ module FinancialDocuments
       end
 
       # saved: base holds what she saved, not the statement as first read.
-      def edited_facts(base, edit, saved: false)
+      def edited_facts(base, edit, saved: false, received_event_id: nil)
         kind = edit[:kind].to_s
         type = KINDS.fetch(kind) { raise ArgumentError, "Choose what this line was" }
         # "Spending" covers fees, interest and cash withdrawals too: choosing a category for one must not turn it into a purchase.
@@ -392,6 +400,7 @@ module FinancialDocuments
         purchase = saved && signed == base[:signed_amount_cents] && base[:purchase_amount_cents].present? ? base[:purchase_amount_cents] : cents
         # A refund carries a category only when she says which one it goes back to; otherwise it follows the purchase it refunds.
         refund = type == "refund" && signed.positive?
+        base = base.merge(external_reference: "received:#{received_event_id}") if received_event_id && kind == "money_in"
         base.merge(disposition: "include", event_type: type, signed_amount_cents: signed, posted_on: posted_on, merchant: merchant,
           purchase_amount_cents: expense ? purchase : nil, budget_category_id: expense || refund ? edit[:category_id].presence&.to_i : nil, overlap_disposition: same_charge ? "distinct" : "new")
       end

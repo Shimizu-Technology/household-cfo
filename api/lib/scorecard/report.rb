@@ -84,6 +84,7 @@ module Scorecard
       decisions = @simulator.decisions.fetch(month, {})
       { "total_spending" => metric(transactions.sum(&:total_amount_cents) - refunds.sum(&:amount_cents) + cash.values.sum, expected.fetch("total_spending_cents")),
         "spending_by_category" => categories, "income" => metric(income.sum { |row| row[:signed_amount_cents] }, expected.fetch("income_cents")),
+        "app_actual_income" => known_metric(budget.fetch(:actual_income).fetch(number).fetch(:actual_cents), expected.fetch("income_cents"), partial: budget.fetch(:actual_income).fetch(number).fetch(:partial)),
         "analyzer_spending" => metric(analysis[:observed_spending_cents].to_i, expected.fetch("total_spending_cents")),
         "double_counts" => double_counts, "transfer_leakage_cents" => leaked_spending + leaked_income,
         "transfer_leakage_spending_cents" => leaked_spending, "transfer_leakage_income_cents" => leaked_income,
@@ -120,6 +121,8 @@ module Scorecard
     def aggregate(months)
       keys = %w[total_spending income analyzer_spending]
       result = keys.to_h { |key| [ key, metric(months.sum { |row| row.dig(key, "actual_cents") }, months.sum { |row| row.dig(key, "expected_cents") }) ] }
+      income = months.map { |row| row.fetch("app_actual_income") }
+      result["app_actual_income"] = metric(income.sum { |row| row["actual_cents"].to_i }, income.sum { |row| row["expected_cents"] }).merge("known" => income.all? { |row| row["known"] })
       result["spending_by_category"] = months.flat_map { |row| row.fetch("spending_by_category").keys }.uniq.to_h do |name|
         values = months.filter_map { |row| row.dig("spending_by_category", name) }
         [ name, metric(values.sum { |row| row["actual_cents"] }, values.sum { |row| row["expected_cents"] }) ]
@@ -132,6 +135,13 @@ module Scorecard
       result.merge("receipt_extraction_absolute_error_cents" => receipts.sum { |row| row.dig("extracted_new_money", "error_cents").abs }, "receipt_count" => receipts.length, "receipt_matches" => receipts.count { |row| row["matched_to_bank"] },
         "receipt_new_money_absolute_error_cents" => receipts.sum { |row| row.dig("new_money", "error_cents").abs },
         "receipt_category_allocation_error_cents" => receipts.sum { |row| row["category_allocation_error_cents"] })
+    end
+
+    # Unknown is never $0: an unknown month misses everything expected for it and says it is not known.
+    def known_metric(actual, expected, partial: false)
+      return metric(actual, expected).merge("known" => !partial) unless actual.nil?
+
+      { "actual_cents" => nil, "expected_cents" => expected, "error_cents" => -expected, "absolute_error_percent" => expected.zero? ? 0.0 : 100.0, "known" => false }
     end
 
     def metric(actual, expected)

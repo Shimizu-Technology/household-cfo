@@ -13,6 +13,287 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     @identity = link(@source)
   end
 
+  test "actual income counts only current included positive income and keeps missing months unknown" do
+    fresh = source([ movement(338_000, type: "income").merge(merchant: "Orchid Demo payroll"), movement(10_000, row: 2, type: "refund"), movement(20_000, row: 3, type: "transfer") ])
+    identity = link(fresh)
+    fresh[:events].each { |event| approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: event.event_type, merchant: FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), purchase: nil, category: nil)) }
+    actual = HouseholdFinance::ActualIncome.new(@household)
+    assert_equal 338_000, actual.month(Date.new(2026, 7, 1))[:actual_cents]
+    assert actual.month(Date.new(2026, 7, 1))[:partial]
+    assert_nil actual.month(Date.new(2026, 6, 1))[:actual_cents]
+    answer = HouseholdFinance::MiaIncomeAnswer.new(@household, message: "How much did I make in July 2026?").response
+    assert_includes answer, "$3,380 came in"
+    future = actual.month(Date.current.next_month)
+    refute future[:month_open]
+    assert_includes future[:coverage_note], "has not started yet"
+  end
+
+  # Approves every line as read and declares the statement complete, as "Approve the rest" and "Nothing’s missing" do.
+  def approve_statement(src, identity)
+    src[:events].each { |event| approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: event.event_type, purchase: nil, category: nil, posted_on: event.posted_on.iso8601)) }
+    attest("complete", src)
+  end
+
+  def answer_line(src, line, decision)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    input = { lines: [ { event_id: line.event.id, decision: decision, expected_head: line.expected_head, shown: { event_type: line.event.event_type, category_id: nil } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], input).call }
+    domain.heads.find_by!(financial_source_event: line.event).approved_version
+  end
+
+  def money_in(src, description)
+    event = src[:events].sole
+    event.financial_source_evidence.update!(payload: event.financial_source_evidence.payload.merge("merchant" => description, "raw_description" => description))
+    FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+  end
+
+  test "legacy approved deposits reopen without rewriting approvals and count after the ownership answer" do
+    src = source([ movement(40_000, type: "income", posted_on: "2026-07-06").merge(merchant: "ATM DEPOSIT"),
+      movement(80_000, row: 2, type: "income").merge(merchant: "Orchid Demo payroll") ])
+    identity = link(src, tracked: @identity.source_tracked_account)
+    src[:events].each do |event|
+      approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: "income",
+        merchant: FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), purchase: nil, category: nil))
+    end
+    attest("complete", src)
+    head = SourceReviewHead.find_by!(financial_source_event: src[:events].first)
+    old_id = head.approved_version_id
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision])
+    line = plan.lines.first
+    assert_equal :money_in_source, line.kind
+    refute line.done
+    assert plan.lines.second.done
+    july = HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))
+    assert_equal [ 80_000, true, 1 ], july.values_at(:actual_cents, :partial, :waiting_deposits)
+    assert_includes july[:coverage_note], "1 deposit still needs your answer in Review, so it isn't counted yet."
+    assert_equal old_id, head.reload.approved_version_id
+    %w[July year].each do |period|
+      answer = HouseholdFinance::MiaIncomeAnswer.new(@household, message: "How much came in this #{period} 2026?").response
+      assert_includes answer, "1 deposit still needs your answer in Review"
+    end
+    assert_equal Date.new(2026, 7, 7), answer_line(src, line, "someone_else").posted_on
+    assert_equal 120_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+    assert FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.all?(&:done)
+  end
+
+  test "complete statements with different incoming payments waiting on ownership keep the month partial" do
+    src = source([ movement(20_000, type: "income").merge(merchant: "Orchid Demo payroll"),
+      movement(9_000, row: 2, type: "transfer").merge(merchant: "Zelle From Iris Demo"),
+      movement(8_000, row: 3, type: "income").merge(merchant: "ATM DEPOSIT") ])
+    identity = link(src, tracked: @identity.source_tracked_account)
+    src[:events].each_with_index do |event, index|
+      reference = [ nil, "ownership-needed", "overlap-cleared" ][index]
+      approve(stage(event, identity: identity, amount: event.signed_amount_cents, event_type: event.event_type,
+        merchant: FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), purchase: nil, category: nil,
+        external_reference: reference && "#{reference}:#{event.id}"))
+    end
+    attest("complete", src)
+    july = HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))
+    assert july[:partial]
+    assert_equal 2, july[:waiting_deposits]
+    assert_includes july[:coverage_note], "2 deposits still need your answer in Review"
+  end
+
+  test "round4 bill pay asks while specific payroll is ready" do
+    [ [ "ACH CREDIT BILL PAY", :money_in_source ], [ "Orchid Demo PAYROLL", nil ], [ "Orchid Demo NET PAY", nil ] ].each do |merchant, kind|
+      src = source([ movement(40_000, type: "income").merge(merchant: merchant) ])
+      link(src)
+      actual = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole.kind
+      kind ? assert_equal(kind, actual) : assert_nil(actual)
+    end
+  end
+
+  test "round4 approved include facts reopen even when the source was not posted" do
+    src = source([ movement(40_000, type: "income").merge(merchant: "ATM DEPOSIT", row_kind: "unresolved") ])
+    event = src[:events].sole
+    identity = link(src)
+    refute FinancialDocuments::SourceReview::ParticipantPlan.money_in_question?(event, "ATM DEPOSIT")
+    approve(stage(event, identity: identity, amount: 42_000, event_type: "income", merchant: "Iris Demo deposit", purchase: nil, category: nil))
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+    assert_equal :money_in_source, line.kind
+    assert_equal 1, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:waiting_deposits]
+  end
+
+  test "round4 reopened income shows approved facts and an edit records the received answer" do
+    src = source([ movement(40_000, type: "income").merge(merchant: "ATM DEPOSIT") ])
+    identity = link(src)
+    approve(stage(src[:events].sole, identity: identity, amount: 42_000, event_type: "income", merchant: "Iris Demo deposit", posted_on: "2026-07-09", purchase: nil, category: nil))
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+    row = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, src[:revision], user: @user).plan_summary[:attention].sole
+    assert_equal [ 42_000, "2026-07-09", "Iris Demo deposit", "income" ], row.values_at(:amount_cents, :posted_on, :merchant, :event_type)
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    input = { lines: [ { event_id: line.event.id, decision: "edited", expected_head: line.expected_head,
+      edit: { kind: "money_in", amount_cents: 43_000, posted_on: "2026-07-10", merchant: "PAY PAL Iris Demo" } } ] }
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], input).call }
+    version = SourceReviewHead.find_by!(financial_source_event: line.event).approved_version
+    assert_equal "received:#{line.event.id}", version.external_reference
+    assert FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole.done
+    assert_equal 43_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "round4 simulator money in edit finishes the ownership question" do
+    require Rails.root.join("lib/scorecard/approval_simulator")
+    src = source([ movement(40_000, type: "income").merge(merchant: "PAY PAL Iris Demo") ])
+    link(src)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+    key = Object.new
+    key.define_singleton_method(:event) { |_| { "event_kind" => "income" } }
+    simulator = Scorecard::ApprovalSimulator.new(household: @household, user: @user, answer_key: key, categories: {})
+    entry = simulator.send(:answer_for, line, { "leg_id" => "invented-paypal", "signed_amount_cents" => 42_000, "date" => "2026-07-09" }, "2026-07")
+    assert_equal "edited", entry[:decision]
+    assert_equal "money_in", entry[:edit][:kind]
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    @household.with_lock { FinancialDocuments::SourceReview::LineApprover.new(domain, src[:revision], { lines: [ entry ] }).call }
+    assert FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole.done
+    assert_equal 42_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "round4 future income stays unknown even with approved payroll" do
+    src = source([ movement(40_000, type: "income").merge(merchant: "Iris Demo payroll") ])
+    identity = link(src)
+    approve_statement(src, identity)
+    assert_nil HouseholdFinance::ActualIncome.new(@household, today: Date.new(2026, 6, 30)).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "wallet names with pay ask the money in question" do
+    [ "Google Pay", "Samsung Pay", "Amazon Pay", "PAY PAL" ].each do |wallet|
+      src = source([ movement(40_000, type: "income").merge(merchant: "#{wallet} Orchid Demo") ])
+      link(src)
+      line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, src[:revision]).lines.sole
+      assert_equal :money_in_source, line.kind, wallet
+    end
+  end
+
+  test "money into a card is never income, even approved as read" do
+    card = source([ movement(50_000, type: "income").merge(merchant: "AUTOPAY PAYMENT") ], basis: "liability")
+    card_identity = link(card)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, card[:revision]).lines.sole
+    assert_equal :card_payment, line.kind
+    assert_equal "debt_payment", answer_line(card, line, "as_read").event_type
+    # Even a line saved as income on a card (as before this rule) counts nowhere.
+    other = source([ movement(20_000, type: "income", posted_on: "2026-07-09") ], basis: "liability")
+    approve(stage(other[:events].sole, identity: link(other, tracked: card_identity.source_tracked_account), amount: 20_000, event_type: "income", purchase: nil, category: nil, posted_on: "2026-07-09"))
+    assert_nil HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "money in that may be her own money is asked once and counts only when earned or received" do
+    { "ATM DEPOSIT" => true, "Deposit from Savings" => true, "ACH CREDIT PAYPAL TRANSFER" => true, "DEPOSIT" => true,
+      "Lina Talun payroll" => false, "SSA TREAS 310 SOC SEC" => false, "DIRECT DEPOSIT TALUN DEMO SERVICES" => false }.each do |description, asked|
+      src = source([ movement(40_000, type: "income") ])
+      link(src)
+      line = money_in(src, description)
+      asked ? assert_equal(:money_in_source, line.kind, description) : assert_nil(line.kind, description)
+    end
+    own = source([ movement(30_000, type: "income", posted_on: "2026-07-10") ])
+    link(own)
+    line = money_in(own, "Deposit from Savings")
+    assert_equal "Money you earned or received, or your own money moving back?", FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, own[:revision], user: @user).plan_summary[:attention].find { |row| row[:event_id] == line.event.id }[:question]
+    assert_equal "transfer", answer_line(own, line, "own_account").event_type
+    earned = source([ movement(45_000, type: "income", posted_on: "2026-07-11") ])
+    link(earned)
+    version = answer_line(earned, money_in(earned, "ATM DEPOSIT"), "someone_else")
+    assert_equal [ "income", "received:#{version.source_review_head.financial_source_event_id}" ], [ version.event_type, version.external_reference ]
+    assert_equal 45_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "money received from a person asks whose money it was and counts when someone else sent it" do
+    gift = source([ movement(25_000, type: "transfer") ])
+    link(gift)
+    line = money_in(gift, "Zelle From Mateo Demo")
+    assert_equal :person_payment, line.kind
+    assert_equal :person_payment, money_in(gift, "Received from Ana Demo").kind
+    assert_equal "income", answer_line(gift, line, "someone_else").event_type
+    back = source([ movement(15_000, type: "income", posted_on: "2026-07-12") ])
+    link(back)
+    assert_equal "transfer", answer_line(back, money_in(back, "Venmo cashout"), "own_account").event_type
+    assert_equal 25_000, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "interest earned counts and a line still waiting on its answer does not" do
+    savings = source([ movement(1_250, type: "interest"), movement(9_000, row: 2, type: "income", posted_on: "2026-07-08") ])
+    identity = link(savings)
+    approve(stage(savings[:events].first, identity: identity, amount: 1_250, event_type: "interest", purchase: nil, category: nil))
+    event = savings[:events].second
+    approve(run_operation(OPS::DraftStage, { event_id: event.id, base_version_id: nil, base_lock_version: 0, expected_pending_draft: nil, reason: "Participant said it is a different payment", projection: { action: "none" },
+      facts: { source_account_identity_version_id: identity.id, disposition: "include", event_type: "income", signed_amount_cents: 9_000, purchase_amount_cents: nil, posted_on: "2026-07-08",
+        merchant: "Zelle From Mateo Demo", budget_category_id: nil, overlap_disposition: "distinct", matched_version_id: nil, external_reference: "ownership-needed:#{event.id}" } }))
+    assert_equal 1_250, HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:actual_cents]
+  end
+
+  test "coverage joins statement periods for each deposit account and ignores cards and investments" do
+    # The setup statement for this account is not approved; two approved half-month statements cover July instead.
+    first = source([ movement(300_000, type: "income", posted_on: "2026-07-01").merge(merchant: "Talun payroll") ], from: "2026-07-01", to: "2026-07-15")
+    identity = link(first, tracked: @identity.source_tracked_account)
+    approve_statement(first, identity)
+    assert HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:partial]
+    second = source([ movement(300_000, type: "income", posted_on: "2026-07-16").merge(merchant: "Talun payroll") ], from: "2026-07-16", to: "2026-07-31")
+    approve_statement(second, link(second, tracked: identity.source_tracked_account))
+    card = source([ movement(-4_000, posted_on: "2026-07-20") ], basis: "liability", from: "2026-07-10", to: "2026-08-09")
+    approve(stage(card[:events].sole, identity: link(card), amount: -4_000, posted_on: "2026-07-20"))
+    @household.accounts.create!(label: "Talun retirement", account_type: "retirement", balance_cents: 1_000_000, source_type: "manual_ui")
+    july = HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))
+    assert_equal [ 600_000, false ], july.values_at(:actual_cents, :partial)
+    assert_includes july[:coverage_note], "From the statements you approved"
+    @household.accounts.create!(label: "Talun savings", account_type: "savings", balance_cents: 50_000, source_type: "manual_ui")
+    assert HouseholdFinance::ActualIncome.new(@household).month(Date.new(2026, 7, 1))[:partial]
+  end
+
+  test "a month only partly covered with nothing approved is not known rather than zero" do
+    src = source([ movement(330_000, type: "income", posted_on: "2026-08-01").merge(merchant: "Talun payroll") ], from: "2026-07-25", to: "2026-08-24")
+    approve_statement(src, link(src))
+    actual = HouseholdFinance::ActualIncome.new(@household)
+    july = actual.month(Date.new(2026, 7, 1))
+    assert_nil july[:actual_cents]
+    assert_equal "None approved yet. Your approved statements don’t cover all of this month.", july[:coverage_note]
+    assert_equal [ 330_000, true ], actual.month(Date.new(2026, 8, 1)).values_at(:actual_cents, :partial)
+  end
+
+  # Counts statement reads made for income and every query, so Home and a Mia year turn read approved lines once.
+  def income_reads
+    reads = queries = 0
+    reader = FinancialDocuments::SourceReview::ApprovedSourceReader
+    original = reader.method(:new)
+    reader.define_singleton_method(:new) do |*args|
+      reads += 1 if caller_locations.first(8).any? { |location| location.path.end_with?("household_finance/actual_income.rb") }
+      original.call(*args)
+    end
+    ActiveSupport::Notifications.subscribed(->(*args) { queries += 1 unless args.last[:name] == "SCHEMA" }, "sql.active_record") { yield }
+    { reads: reads, queries: queries }
+  ensure
+    reader.singleton_class.remove_method(:new)
+  end
+
+  test "Home and a Mia year answer read the approved statements for income once" do
+    @household.update!(created_at: Time.zone.local(2026, 1, 1))
+    3.times do |index|
+      src = source([ movement(330_000, type: "income").merge(merchant: "Talun payroll"), movement(-2_500, row: 2) ], period: "2026-0#{index + 4}")
+      identity = link(src, tracked: @identity.source_tracked_account)
+      approve(stage(src[:events].first, identity: identity, amount: 330_000, event_type: "income", purchase: nil, category: nil, posted_on: "2026-0#{index + 4}-07"))
+      approve(stage(src[:events].second, identity: identity, amount: -2_500, posted_on: "2026-0#{index + 4}-07"))
+    end
+    home = income_reads { HouseholdFinance::DataPresenter.new(@household, user: @user).dashboard.to_json }
+    year = income_reads { HouseholdFinance::MiaIncomeAnswer.new(@household, message: "How much have we brought in this year?").response }
+    puts "ACTUAL_INCOME home_reads=#{home[:reads]} home_queries=#{home[:queries]} year_reads=#{year[:reads]} year_queries=#{year[:queries]}"
+    assert_equal [ 1, 1 ], [ home[:reads], year[:reads] ]
+    assert_operator year[:queries], :<=, 900
+  end
+
+  test "a year answer gives one total and names the months that are partial or not known" do
+    travel_to Time.zone.local(2026, 12, 20, 12)
+    @household.update!(created_at: Time.zone.local(2026, 1, 1))
+    [ "2026-04", "2026-05" ].each do |period|
+      src = source([ movement(330_000, type: "income").merge(merchant: "Talun payroll") ], period: period)
+      approve(stage(src[:events].sole, identity: link(src, tracked: @identity.source_tracked_account), amount: 330_000, event_type: "income", purchase: nil, category: nil, posted_on: "#{period}-07"))
+    end
+    answer = HouseholdFinance::MiaIncomeAnswer.new(@household, message: "How much did we earn in 2026?").response
+    assert_match(/\A\$6,600 came in for April to May 2026 from the lines you approved\./, answer)
+    assert_includes answer, "April to May 2026 are only partly covered"
+    assert_includes answer, "Not known yet: January to March and June to December 2026."
+    assert_operator answer.scan(/[.?!](?:\s|\z)/).length, :<=, 5
+  ensure
+    travel_back
+  end
+
   test "an approved line with a pending correction remains an individual question" do
     event = @source[:events].sole
     approve(stage(event))
@@ -1247,14 +1528,14 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     { account_key: "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: amount, posted_on: posted_on, merchant: "Synthetic merchant", locator: { page: 1, row: row } }
   end
 
-  def source(rows, checksum: SecureRandom.hex(32), period: "2026-07", coverage: {}, extra_accounts: [])
+  def source(rows, checksum: SecureRandom.hex(32), period: "2026-07", coverage: {}, extra_accounts: [], basis: "asset", from: nil, to: nil)
     import = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.pdf", content_type: "application/pdf", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.pdf", checksum_sha256: checksum)
     attempt = import.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     rows = rows.map { |row| row.merge(posted_on: period + "-07") } if period != "2026-07"
     amounts_known = rows.none? { |row| row[:signed_amount_cents].nil? }
     net = rows.sum { |row| row[:signed_amount_cents] } if amounts_known
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
-      accounts: [ { account_key: "synthetic-account", account_basis: "asset", period_start_on: period + "-01", period_end_on: Date.iso8601(period + "-01").end_of_month.iso8601, opening_balance_cents: 20_000, closing_balance_cents: net && 20_000 + net,
+      accounts: [ { account_key: "synthetic-account", account_basis: basis, period_start_on: from || period + "-01", period_end_on: to || Date.iso8601(period + "-01").end_of_month.iso8601, opening_balance_cents: 20_000, closing_balance_cents: net && 20_000 + net,
         printed_debit_cents: amounts_known ? rows.sum { |row| [ -row[:signed_amount_cents], 0 ].max } : nil, printed_credit_cents: amounts_known ? rows.sum { |row| [ row[:signed_amount_cents], 0 ].max } : nil, printed_row_count: rows.length } ] + extra_accounts, events: rows, reported_row_count: rows.length }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] }.merge(coverage))
     result = FinancialDocuments::SourceAccountingPersister.new(import, attempt: attempt, accounting: accounting).call
     import.update!(metadata: { "source_accounting_revision_id" => result[:revision].id, "source_accounting_review_pending" => true })
@@ -1263,7 +1544,7 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
 
   def account_input(source)
     account = source[:revision].financial_source_accounts.sole
-    { source_account_id: account.id, account_basis: "asset", label: "Synthetic checking", base_version_id: nil, base_lock_version: 0,
+    { source_account_id: account.id, account_basis: account.account_basis == "liability" ? "liability" : "asset", label: account.account_basis == "liability" ? "Synthetic card" : "Synthetic checking", base_version_id: nil, base_lock_version: 0,
       statement_facts: account.attributes.slice("period_start_on", "period_end_on", "opening_balance_cents", "closing_balance_cents", "printed_debit_cents", "printed_credit_cents", "printed_row_count"), reason: "Participant verified synthetic account and header" }
   end
 
@@ -1271,13 +1552,13 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     run_operation(OPS::AccountLink, account_input(source).merge(tracked_account_id: tracked&.id))
   end
 
-  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" }, merchant: "Synthetic merchant", category: @category)
+  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" }, merchant: nil, category: @category, external_reference: nil)
     head = SourceReviewHead.find_by(household: @household, financial_source_event: event)
     purchase = amount&.abs if purchase == :default
     pending = head&.source_review_drafts&.pending&.first
     run_operation(OPS::DraftStage, { event_id: event.id, base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, expected_pending_draft: pending && { id: pending.id, lock_version: pending.lock_version, digest: pending.digest }, reason: reason, projection: projection,
       facts: { source_account_identity_version_id: identity.id, disposition: disposition, event_type: event_type, signed_amount_cents: amount, purchase_amount_cents: purchase, posted_on: posted_on,
-        merchant: merchant, budget_category_id: category&.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
+        merchant: merchant || FinancialDocuments::SourceReview::ParticipantPlan.merchant_for(event), external_reference: external_reference, budget_category_id: category&.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
   end
 
   def draft_input(draft)
@@ -1293,10 +1574,10 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     run_operation(OPS::ExpenseProject, version_id: version.id, expected_version_digest: version.digest, projection: { action: "create" }, reason: "Participant separately approved positive spending")
   end
 
-  def attest(status)
-    state = FinancialDocuments::SourceReview::ApprovalState.new(@household, @source[:revision]).call
-    identity = SourceAccountReviewHead.find_by!(financial_source_account: @source[:revision].financial_source_accounts.sole).approved_version
-    run_operation(OPS::RevisionApprove, revision_id: @source[:revision].id, expected_digest: state[:content_digest], requested_status: status, reason: "Participant declared reviewed coverage and limitations",
+  def attest(status, src = @source)
+    state = FinancialDocuments::SourceReview::ApprovalState.new(@household, src[:revision]).call
+    identity = SourceAccountReviewHead.find_by!(financial_source_account: src[:revision].financial_source_accounts.sole).approved_version
+    run_operation(OPS::RevisionApprove, revision_id: src[:revision].id, expected_digest: state[:content_digest], requested_status: status, reason: "Participant declared reviewed coverage and limitations",
       coverage_attestation: { all_document_rows_accounted: true, accounts: [ { source_account_id: identity.source_account_review_head.financial_source_account_id, identity_version_id: identity.id,
         period_start_on: identity.statement_facts["period_start_on"], period_end_on: identity.statement_facts["period_end_on"], all_rows_accounted: true } ] })
   end

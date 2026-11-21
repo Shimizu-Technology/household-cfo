@@ -15,7 +15,7 @@ module FinancialDocuments
         end
         groups = EconomicLinker.valid_current_versions(household)
         heads = SourceReviewHead.where(household: household, financial_source_event_id: FinancialSourceEvent.where(financial_extraction_revision_id: revisions.map(&:id)))
-          .includes(approved_version: [ :source_account_identity_version, :source_review_head ])
+          .includes(approved_version: [ :source_account_identity_version, { source_review_head: { financial_source_event: :financial_source_evidence } } ])
         versions = heads.filter_map(&:approved_version).sort_by(&:id)
         canonical = versions.filter_map do |version|
           if version.disposition == "include"
@@ -60,7 +60,7 @@ module FinancialDocuments
           revision_id: version.financial_source_event.financial_extraction_revision_id, digest: version.digest,
           disposition: version.disposition, event_type: version.event_type, signed_amount_cents: version.signed_amount_cents,
           purchase_amount_cents: version.purchase_amount_cents, posted_on: version.posted_on&.iso8601, authorized_on: version.authorized_on&.iso8601,
-          merchant: version.merchant, category: version.category_snapshot, matched_version_id: version.matched_version_id,
+          unanswered_money_in: ParticipantPlan.unanswered_money_in?(version), merchant: version.merchant, category: version.category_snapshot, matched_version_id: version.matched_version_id, external_reference: version.external_reference,
           account_identity_version_id: identity.id, tracked_account_id: identity.source_tracked_account_id,
           account_basis: identity.source_tracked_account.account_basis, account_identity_current: current_identity,
           spending_eligible: current_identity && version.expense? && (version.purchase_amount_cents == version.signed_amount_cents.abs || funded),

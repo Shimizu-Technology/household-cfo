@@ -6,7 +6,7 @@ import type { ComponentProps } from 'react'
 import { AnnualBudgetPlanner, HomeWelcomePanel } from './App'
 import { YearOutlook } from './components/YearOutlook'
 import { HomeScreen, MonthPlanLine } from './components/HomeScreen'
-import { ExpenseStackOverview, MonthPlanSummary } from './components/BudgetVisuals'
+import { BudgetPlanStrip, ExpenseStackOverview, MonthPlanSummary } from './components/BudgetVisuals'
 import type { AnnualBudgetPlan, DashboardData, WorkspaceSetupStatus } from './api'
 
 const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -448,4 +448,26 @@ it('shows a save error beside the Home view switch', () => {
   const error = screen.getByText('Home view could not be saved right now. Please try again.')
   expect(error.parentElement).toBe(control.parentElement)
   expect(error.closest('.sr-only')).toBeNull()
+})
+
+it('shows approved income beside its plan with honest partial coverage', () => {
+  const actual_income = { actual_cents: 338000, partial: true, month_open: true, coverage_note: 'Only some accounts are covered. This month is still open.' }
+  const props = { dashboard: {...dashboard, month_answer: {...dashboard.month_answer!, actual_income, money_in_cents:660000}}, budget: {annual_plan: plan}, onAskMia: vi.fn(), onReviewTransactions: vi.fn(), onReviewMiaActions: vi.fn(), onReviewImports: vi.fn(), pendingImportCount: 0 } as unknown as ComponentProps<typeof HomeScreen>
+  const view = render(<HomeScreen {...props} />)
+  expect(screen.getByText('$3,380 in so far of $6,600 planned')).toBeTruthy()
+  expect(screen.getByText(actual_income.coverage_note)).toBeTruthy()
+  view.rerender(<HomeScreen {...props} dashboard={{...props.dashboard, month_answer:{...props.dashboard.month_answer!, actual_income:{...actual_income, actual_cents:null}}}} />)
+  expect(screen.getByText('Money in: Not known yet of $6,600 planned')).toBeTruthy()
+})
+
+it('says a closed month came in and shows a difference from plan only for a complete month', () => {
+  const closed = { actual_cents: 600000, partial: false, month_open: false, coverage_note: 'From the statements you approved; other income may be missing.' }
+  const view = render(<BudgetPlanStrip plan={{...plan, actual_income: {9: closed}}} monthIndex={8} planKnown />)
+  expect(screen.getByText('$6,000 came in of $6,200 planned')).toBeTruthy()
+  expect(screen.getByText('Difference from plan: -$200')).toBeTruthy()
+  for (const actual of [{...closed, partial: true}, {...closed, month_open: true}]) {
+    view.rerender(<BudgetPlanStrip plan={{...plan, actual_income: {9: actual}}} monthIndex={8} planKnown />)
+    expect(screen.queryByText(/Difference from plan/)).toBeNull()
+  }
+  expect(screen.getByText('$6,000 in so far of $6,200 planned')).toBeTruthy()
 })

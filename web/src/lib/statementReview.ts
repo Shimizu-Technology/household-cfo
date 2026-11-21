@@ -17,7 +17,7 @@ export type PlanAttention = {
   transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; description?: string; posted_on: string; signed_amount_cents: number }
   event_id: number
   amount_cents?: number | null
-  kind: 'correction' | 'person_payment_duplicate' | 'person_payment' | 'transfer_pair' | 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
+  kind: 'correction' | 'person_payment_duplicate' | 'person_payment' | 'money_in_source' | 'transfer_pair' | 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>

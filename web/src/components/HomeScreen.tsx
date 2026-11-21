@@ -95,6 +95,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
         {answer?.spent_so_far_cents != null && <span className="ui-bar__spent" />}
         <span className="ui-bar__planned" /><span className="ui-bar__remainder" />
       </div>}
+      <ActualIncomeLine actual={answer?.actual_income} plannedCents={answer?.money_in_cents} />
       <p className="home-spent"><span><i className="ui-dot ui-dot--spent" aria-hidden="true" />Spent so far this month:</span>{' '}<strong>{answer?.spent_so_far_cents == null ? 'Not known yet' : formatReviewMoney(answer.spent_so_far_cents)}</strong></p>
       {!answer?.cushion_missing_inputs?.some(input => input.destination === 'debt') && answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="ui-btn ui-btn--tonal home-answer-recovery" onClick={onOpenDebt}>Add monthly debt payments</button>}
       {answer && answer.pending_count == null && <p className="home-answer-pending ui-answer__note">More purchases may be waiting. Check Review before your next money decision.</p>}
@@ -187,4 +188,11 @@ export function MonthPlanLine({ answer }: { answer?: DashboardData['month_answer
 function MoneyValue({ label, cents, hero = false }: { label: string; cents: number | null | undefined; hero?: boolean }) {
   const value = cents == null ? 'Not entered' : formatReviewMoney(cents)
   return <div className={hero && cents != null ? 'is-hero' : undefined}><dt>{label}</dt><dd className={[hero && cents != null ? 'ui-figure' : '', cents != null && value.length > 9 ? 'is-long-money' : ''].filter(Boolean).join(' ') || undefined}>{value}</dd></div>
+}
+
+export function ActualIncomeLine({ actual, plannedCents }: { actual?: NonNullable<DashboardData['month_answer']>['actual_income']; plannedCents?: number | null }) {
+  return <div className="actual-income-line" style={{ fontVariantNumeric: 'tabular-nums' }}>
+    <p>{actual?.actual_cents == null ? 'Money in: Not known yet' : `${formatReviewMoney(actual.actual_cents)} ${actual.month_open ? 'in so far' : 'came in'}`}{plannedCents != null ? ` of ${formatReviewMoney(plannedCents)} planned` : ' · no income plan yet'}</p>
+    {actual && <p>{actual.coverage_note}</p>}
+  </div>
 }
