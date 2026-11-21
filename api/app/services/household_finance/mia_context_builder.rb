@@ -174,6 +174,7 @@ module HouseholdFinance
       reference_month = reference_month_for(plan)
       {
         year: plan.fetch(:year),
+        year_forecast: plan[:year_forecast],
         reference_month: {
           label: reference_month.fetch(:label),
           starts_on: reference_month.fetch(:starts_on),

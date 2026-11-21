@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
+import { BillsForecast } from './BillsForecast'
 import { guamTodayIso } from '../lib/householdDate'
 import type { AnnualBudgetPlan, AnnualOutlookMonth } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
@@ -8,6 +9,7 @@ const signature = (month: AnnualOutlookMonth) => JSON.stringify([month.income, m
 
 /** Group the steady months so irregular costs and shortfalls have room to stand out. */
 export function YearOutlook({ plan, moneyKnown = true, currentMonth = Number(guamTodayIso().slice(5, 7)), footer }: { plan: AnnualBudgetPlan; moneyKnown?: boolean; currentMonth?: number; footer?: ReactNode }) {
+  if (plan.year_forecast) return <section className="year-outlook annual-outlook ui-card" aria-label="Year outlook"><h3>Your {plan.year} outlook</h3><BillsForecast plan={plan} />{footer}</section>
   const known = moneyKnown && plan.monthly_debt_minimums_known !== false && plan.rows.every(row => row.active === false || (row.months.length === plan.months.length && row.months.every(month => !month.allocation_missing)))
   const months = plan.annual_outlook.months
   const startMonth = plan.plan_starts_on ? new Intl.DateTimeFormat('en', {month: 'long', year: 'numeric', timeZone: 'UTC'}).format(new Date(`${plan.plan_starts_on}T00:00:00Z`)) : null
