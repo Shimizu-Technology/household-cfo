@@ -4102,7 +4102,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     setWorkspaceRefreshNotice(null)
   }
   // One offer list for Home, My Money and the finished statement. It changes nothing until she approves an offer.
-  const statementBalanceOffers = isRealWorkspace ? <StatementBalanceOffers onChanged={refreshWorkspaceAfterDebtChange} /> : null
+  const statementBalanceOffers = isRealWorkspace ? <StatementBalanceOffers onChanged={refreshWorkspaceAfterDebtChange} blockedReason={hasUnsavedMoneyChanges ? 'Save or cancel your open edit in My Money first.' : null} /> : null
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
     if (!isProfileEditing && !isFirstSessionSetup) return

@@ -31,11 +31,17 @@ const card: StatementBalanceOffer = {
 }
 
 beforeEach(() => {
+  // Dates in these questions name the year only outside the current one.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-21T12:00:00Z'))
   localStorage.clear()
   apiMocks.fetchStatementBalanceOffers.mockReset()
   apiMocks.applyStatementBalance.mockReset()
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 describe('StatementBalanceOffers', () => {
   it('asks one plain question with the statement date and updates only after she approves', async () => {
@@ -112,11 +118,38 @@ describe('StatementBalanceOffers', () => {
     expect((screen.getByRole('button', { name: 'Add account' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('renders nothing when there is no offer or the offers cannot load', async () => {
-    apiMocks.fetchStatementBalanceOffers.mockRejectedValue(new Error('offline'))
+  it('renders nothing when there is no offer', async () => {
+    apiMocks.fetchStatementBalanceOffers.mockResolvedValue([])
     const { container } = render(<StatementBalanceOffers onChanged={vi.fn()} />)
     await waitFor(() => expect(apiMocks.fetchStatementBalanceOffers).toHaveBeenCalled())
     expect(container.textContent).toBe('')
+  })
+
+  it('says when offers could not be checked and lets her try again', async () => {
+    apiMocks.fetchStatementBalanceOffers.mockRejectedValueOnce(new Error('offline')).mockResolvedValue([checking])
+    render(<StatementBalanceOffers onChanged={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Update Checking ····6824 to $2,413.07 from your Oct 31 statement?')).toBeTruthy()
+  })
+
+  it('waits for an open money edit to be saved or cancelled before approving', async () => {
+    apiMocks.fetchStatementBalanceOffers.mockResolvedValue([checking])
+    const { rerender } = render(<StatementBalanceOffers onChanged={vi.fn()} blockedReason="Save or cancel your open edit in My Money first." />)
+    const approve = await screen.findByRole('button', { name: 'Update balance' }) as HTMLButtonElement
+    expect(approve.disabled).toBe(true)
+    expect(screen.getByText('Save or cancel your open edit in My Money first.')).toBeTruthy()
+    rerender(<StatementBalanceOffers onChanged={vi.fn()} blockedReason={null} />)
+    expect((screen.getByRole('button', { name: 'Update balance' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('keeps Not now for this page even when storage cannot save it, and when a balance changes elsewhere', async () => {
+    apiMocks.fetchStatementBalanceOffers.mockResolvedValue([checking])
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    render(<><StatementBalanceOffers onChanged={vi.fn()} /><div data-testid="second"><StatementBalanceOffers onChanged={vi.fn()} /></div></>)
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Not now' })).toHaveLength(2))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Not now' })[0])
+    await waitFor(() => expect(screen.queryAllByRole('button', { name: 'Not now' })).toHaveLength(0))
+    setItem.mockRestore()
   })
 
   it('names the year for a statement from another year', () => {

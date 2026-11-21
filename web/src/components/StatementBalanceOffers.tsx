@@ -27,16 +27,23 @@ function writeDismissed(keys: string[]) {
   }
 }
 
+// "Not now" belongs to one statement's balance for one account, so a change to
+// an account's balance elsewhere does not bring the same offer back.
+function dismissalKey(offer: StatementBalanceOffer) {
+  return `${offer.kind}:${offer.tracked_account_id}:${offer.as_of_on}:${offer.balance_cents}`
+}
+
 function initialChoice(offer: StatementBalanceOffer): Choice {
   if (offer.target) return offer.target.id
   if (offer.choices.length === 0 && offer.can_add_new) return 'new'
   return null
 }
 
-function OfferCard({ offer, onApplied, onDismiss }: {
+function OfferCard({ offer, onApplied, onDismiss, blockedReason }: {
   offer: StatementBalanceOffer
   onApplied: (offers: StatementBalanceOffer[]) => Promise<void>
   onDismiss: () => void
+  blockedReason?: string | null
 }) {
   const [choice, setChoice] = useState<Choice>(() => initialChoice(offer))
   const [saving, setSaving] = useState(false)
@@ -48,7 +55,7 @@ function OfferCard({ offer, onApplied, onDismiss }: {
   const name = `statement-balance-${offer.tracked_account_id}`
 
   async function approve() {
-    if (choice == null) return
+    if (choice == null || blockedReason) return
     const signature = `${offer.key}:${choice}`
     setSaving(true)
     setError(null)
@@ -77,8 +84,9 @@ function OfferCard({ offer, onApplied, onDismiss }: {
       </label>}
     </fieldset>}
     {error && <p className="form-error" role="alert">{error}</p>}
+    {blockedReason && <p className="statement-balance-now">{blockedReason}</p>}
     <div className="statement-balance-actions">
-      <button type="button" className="ui-btn ui-btn--primary" disabled={saving || choice == null} onClick={approve}>
+      <button type="button" className="ui-btn ui-btn--primary" disabled={saving || choice == null || !!blockedReason} onClick={approve}>
         {saving ? 'Saving…' : choice === 'new' ? (offer.kind === 'debt' ? 'Add card' : 'Add account') : 'Update balance'}
       </button>
       <button type="button" className="ui-btn ui-btn--text" disabled={saving} onClick={onDismiss}>Not now</button>
@@ -88,27 +96,31 @@ function OfferCard({ offer, onApplied, onDismiss }: {
 
 // Balances offered from her approved statements. Listing changes nothing; a
 // balance changes only after she approves that one offer.
-export function StatementBalanceOffers({ onChanged, className = '', refreshKey }: {
+export function StatementBalanceOffers({ onChanged, className = '', refreshKey, blockedReason = null }: {
   onChanged: () => Promise<void>
   className?: string
   refreshKey?: unknown
+  // An unsaved edit elsewhere on the page; approving would reload and lose it.
+  blockedReason?: string | null
 }) {
   const [offers, setOffers] = useState<StatementBalanceOffer[]>([])
   const [dismissed, setDismissed] = useState<string[]>(readDismissed)
   const [notice, setNotice] = useState<string | null>(null)
   const [reloads, setReloads] = useState(0)
+  const [loadFailed, setLoadFailed] = useState(false)
   const self = useRef({})
 
   useEffect(() => {
     let current = true
     fetchStatementBalanceOffers()
-      .then((rows) => { if (current) setOffers(rows) })
-      // An offer is optional; Home and My Money still work without it.
-      .catch(() => { if (current) setOffers([]) })
+      .then((rows) => { if (current) { setOffers(rows); setLoadFailed(false) } })
+      // An offer is optional; the rest of the page works without it, and she can try again.
+      .catch(() => { if (current) { setOffers([]); setLoadFailed(true) } })
     return () => { current = false }
   }, [refreshKey, reloads])
   useEffect(() => {
-    const sync = () => setDismissed(readDismissed())
+    // The keys travel with the event, so a failed storage write cannot undo "Not now".
+    const sync = (event: Event) => { const keys: unknown = (event as CustomEvent).detail; setDismissed(Array.isArray(keys) ? keys as string[] : readDismissed()) }
     // The list that approved an offer already has the server's latest offers.
     const reload = (event: Event) => { if ((event as CustomEvent).detail !== self.current) setReloads((count) => count + 1) }
     globalThis.addEventListener(DISMISSED_EVENT, sync)
@@ -119,7 +131,13 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey }
     }
   }, [])
 
-  const visible = offers.filter((offer) => !dismissed.includes(offer.key))
+  const visible = offers.filter((offer) => !dismissed.includes(dismissalKey(offer)))
+  if (loadFailed) {
+    return <section className={`statement-balance-offers ui-card ${className}`.trim()} aria-label="Balances from your statements">
+      <p className="statement-balance-now" role="status">We couldn’t check your statements for balance updates.</p>
+      <div className="statement-balance-actions"><button type="button" className="ui-btn ui-btn--tonal" onClick={() => setReloads((count) => count + 1)}>Try again</button></div>
+    </section>
+  }
   if (visible.length === 0 && !notice) return null
 
   async function applied(next: StatementBalanceOffer[]) {
@@ -133,16 +151,17 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey }
     }
   }
 
-  function dismiss(key: string) {
-    const keys = [...readDismissed().filter((value) => value !== key), key]
+  function dismiss(offer: StatementBalanceOffer) {
+    const key = dismissalKey(offer)
+    const keys = [...dismissed.filter((value) => value !== key), key].slice(-50)
     writeDismissed(keys)
     setDismissed(keys)
-    globalThis.dispatchEvent(new Event(DISMISSED_EVENT))
+    globalThis.dispatchEvent(new CustomEvent(DISMISSED_EVENT, { detail: keys }))
   }
 
   return <section className={`statement-balance-offers ui-card ${className}`.trim()} aria-label="Balances from your statements">
     <h3 className="ui-section">{visible.length > 1 ? 'Balances from your statements' : 'Balance from your statement'}</h3>
     {notice && <p className="statement-balance-notice" role="status">{notice}</p>}
-    {visible.map((offer) => <OfferCard key={offer.key} offer={offer} onApplied={applied} onDismiss={() => dismiss(offer.key)} />)}
+    {visible.map((offer) => <OfferCard key={offer.key} offer={offer} onApplied={applied} onDismiss={() => dismiss(offer)} blockedReason={blockedReason} />)}
   </section>
 }
