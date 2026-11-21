@@ -369,6 +369,8 @@ module HouseholdFinance
           balance: debt.balance_known? ? dollars(debt.balance_cents) : nil,
           minimum_payment: debt.minimum_payment_known? ? dollars(debt.minimum_payment_cents) : nil,
           interest_rate_percent: debt.interest_rate_percent&.to_f,
+          due_day: debt.due_day,
+          past_due: debt.past_due_cents && dollars(debt.past_due_cents),
           active: debt.active?,
           archived_at: debt.archived_at&.iso8601,
           source_type: debt.source_type,
@@ -755,6 +757,8 @@ module HouseholdFinance
         total_review_count: transaction_reviews + cash_questions + action_reviews,
         # Statements are reviewed separately; Home links to them without loading every import.
         document_review_count: document_review_count,
+        # Debts she is behind on, largest first. Home lists them with what needs her.
+        past_due_debts: DebtArrears.new(household).as_json,
         current_month_label: Date.current.strftime("%B"),
         current_month_index: Date.current.month - 1,
         current_year: current_year

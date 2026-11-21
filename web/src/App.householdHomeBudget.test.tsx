@@ -552,3 +552,15 @@ it('refreshes MonthlyClosePanel when committed actuals change without changing m
   await screen.findByText('$415')
   expect(fetchSpy).toHaveBeenCalledTimes(2)
 })
+
+it('lists a debt she is behind on first in what needs her, and opens Debt', async () => {
+  const openDebt = vi.fn()
+  const behind = { ...dashboard, action_center: { ...dashboard.action_center, past_due_debts: [{ id: 7, label: 'Car loan', past_due_cents: 150000, due_day: 15 }] } } as DashboardData
+  render(<HomeScreen dashboard={behind} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} />)
+  const needs = screen.getByRole('region', { name: 'Needs you' })
+  const [first] = within(needs).getAllByRole('button')
+  expect(first.textContent).toBe('Car loan: $1,500 past due · next payment due on the 15th')
+  expect(first.querySelector('.ui-dot--red')).not.toBeNull()
+  await userEvent.click(first)
+  expect(openDebt).toHaveBeenCalledTimes(1)
+})

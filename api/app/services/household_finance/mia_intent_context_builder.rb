@@ -247,6 +247,8 @@ module HouseholdFinance
           balance: debt.balance_known? ? Money.dollars(debt.balance_cents) : nil,
           minimum_payment: debt.minimum_payment_known? ? Money.dollars(debt.minimum_payment_cents) : nil,
           interest_rate_percent: debt.interest_rate_percent&.to_f,
+          due_day: debt.due_day,
+          past_due: debt.past_due_cents && Money.dollars(debt.past_due_cents),
           active: debt.active?
         }
       end

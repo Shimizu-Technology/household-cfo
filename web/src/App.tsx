@@ -126,6 +126,7 @@ import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceS
 import { budgetViewForWorkspace, isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
 import { documentNeedsReview, importIdsForRevisions, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage, withStatementProgress } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
+import { ordinalDay, parseDueDay, parseOptionalAmount } from './lib/debtArrears'
 import {
   captureApiOperation,
   applyDocumentImport,
@@ -7327,6 +7328,8 @@ type DebtDraft = {
   balance: string
   minimum_payment: string
   interest_rate_percent: string
+  due_day: string
+  past_due: string
 }
 
 type DebtFocusRequest = {
@@ -7337,7 +7340,7 @@ type DebtFocusRequest = {
 }
 
 const emptyDebtDraft: DebtDraft = {
-  label: '', debt_type: 'credit_card', balance: '', minimum_payment: '', interest_rate_percent: '',
+  label: '', debt_type: 'credit_card', balance: '', minimum_payment: '', interest_rate_percent: '', due_day: '', past_due: '',
 }
 
 function debtDraftFor(debt: DebtRecord): DebtDraft {
@@ -7347,6 +7350,8 @@ function debtDraftFor(debt: DebtRecord): DebtDraft {
     balance: debt.balance === null ? '' : String(debt.balance),
     minimum_payment: debt.minimum_payment === null ? '' : String(debt.minimum_payment),
     interest_rate_percent: debt.interest_rate_percent === null ? '' : String(debt.interest_rate_percent),
+    due_day: debt.due_day == null ? '' : String(debt.due_day),
+    past_due: debt.past_due == null ? '' : String(debt.past_due),
   }
 }
 
@@ -7357,6 +7362,8 @@ function debtDraftWithProposal(base: DebtDraft, payload: MiaActionItem['payload'
     balance: proposedMoney(payload, 'balance_cents', base.balance, 'balance_known'),
     minimum_payment: proposedMoney(payload, 'minimum_payment_cents', base.minimum_payment, 'minimum_payment_known'),
     interest_rate_percent: proposedText(payload, 'interest_rate_percent', base.interest_rate_percent),
+    due_day: proposedText(payload, 'due_day', base.due_day),
+    past_due: proposedMoney(payload, 'past_due_cents', base.past_due),
   }
 }
 
@@ -7454,11 +7461,15 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
     const balance = draft.balance.trim() === '' ? null : Number(draft.balance)
     const minimumPayment = draft.minimum_payment.trim() === '' ? null : Number(draft.minimum_payment)
     const apr = draft.interest_rate_percent.trim() === '' ? null : Number(draft.interest_rate_percent)
+    const dueDay = parseDueDay(draft.due_day)
+    const pastDue = parseOptionalAmount(draft.past_due)
     if (!label) return setError('Give this debt a short name, such as Visa or Auto loan.')
+    if (dueDay === 'invalid') return setError('Use a day of the month from 1 to 31 for the due day, or leave it blank.')
+    if (pastDue === 'invalid') return setError('Use a past-due amount of 0 or more, or leave it blank if you are not sure.')
     if ((balance !== null && (!Number.isFinite(balance) || balance < 0)) || (minimumPayment !== null && (!Number.isFinite(minimumPayment) || minimumPayment < 0)) || (apr !== null && (!Number.isFinite(apr) || apr < 0 || apr > 999.99))) {
       return setError('Use non-negative numbers, or leave a field blank when it is not known yet.')
     }
-    const values: DebtInput = { label, debt_type: draft.debt_type, balance, minimum_payment: minimumPayment, interest_rate_percent: apr }
+    const values: DebtInput = { label, debt_type: draft.debt_type, balance, minimum_payment: minimumPayment, interest_rate_percent: apr, due_day: dueDay, past_due: pastDue }
     const signature = `${editingId === 'new' ? 'create' : `update:${editingId}`}:${JSON.stringify(values)}`
     const key = operationKeys.current.keyFor(signature)
     setSaving(true); setError(null)
@@ -7571,7 +7582,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
       {noDebtQuestion && editingId === null && <div className="debt-empty"><strong>{debts.length > 0 ? 'No active debts.' : 'No debts added yet.'}</strong><p>{debts.length > 0 ? 'Add a debt or restore an archived one, or explicitly confirm that the household has no debt.' : 'Add the first debt, or explicitly confirm that the household has no debt.'} Blank details stay marked as unknown.</p></div>}
       {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
-<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum</span></span>
+<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className={`ui-dot ${debt.past_due != null && debt.past_due > 0 ? 'ui-dot--red' : 'ui-dot--neutral'}`} aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum{debt.due_day != null ? ` · due on the ${ordinalDay(debt.due_day)}` : ''}</span>{debt.past_due != null && debt.past_due > 0 && <span className="debt-past-due">{recordMoney(debt.past_due)} past due</span>}</span>
           <span id={`debt-${debt.id}-amount`}><strong>{recordMoney(debt.balance)}</strong></span>
     <span className="money-edit-label">Edit</span></button>
       <div className="debt-row-actions"><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} aria-label={`${archiveId === debt.id ? 'Confirm archive' : 'Archive'} ${debt.label}`} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>
@@ -7589,6 +7600,8 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
           <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
           <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
           <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input className="ui-field" type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Unknown" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
+          <label className="setup-field"><span>Past due</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.past_due} onChange={(event) => setDraft((current) => ({ ...current, past_due: event.target.value }))} placeholder="Not sure" /></span><small>How far behind you are. Enter 0 if you are caught up; leave blank if you are not sure.</small></label>
+          <label className="setup-field"><span>Payment due day</span><input className="ui-field" type="number" inputMode="numeric" min="1" max="31" step="1" value={draft.due_day} onChange={(event) => setDraft((current) => ({ ...current, due_day: event.target.value }))} placeholder="Not entered" /><small>The day of the month the payment is due, such as 15.</small></label>
         </fieldset>
         {error && <p className="setup-error" role="alert">{error}</p>}
         <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>

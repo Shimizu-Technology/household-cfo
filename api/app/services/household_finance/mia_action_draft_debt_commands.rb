@@ -6,6 +6,8 @@ module HouseholdFinance
       details = []
       details << "#{money(payload[:balance_cents])} balance" if payload[:balance_known]
       details << "#{money(payload[:minimum_payment_cents])} monthly minimum" if payload[:minimum_payment_known]
+      details << "#{money(payload[:past_due_cents])} past due" if payload[:past_due_cents]
+      details << "payment due on the #{payload[:due_day].ordinalize}" if payload[:due_day]
       details.any? ? "Review #{label}: #{details.join(' and ')}. Nothing saves until you apply this card." : "I prepared #{label} for your review."
     end
 
@@ -20,9 +22,10 @@ module HouseholdFinance
       add_debt_money_value!(payload, debt_balance_command_value, :balance_cents, :balance_known)
       add_debt_money_payload!(payload, :minimum_payment, :minimum_payment_cents, :minimum_payment_known)
       payload[:interest_rate_percent] = parsed_debt_apr(command[:interest_rate_percent]) if command.key?(:interest_rate_percent)
+      add_debt_arrears_payload!(payload)
       item = MiaActionDraftBuilder::Item.new(
         action_type: "create_debt", label: "Add #{label}",
-        description: "Add an approved debt record. Any blank balance, minimum, or APR stays marked as unknown.",
+        description: "Add an approved debt record. Any blank balance, minimum, APR, or past-due amount stays marked as unknown.",
         target_record_type: "Debt", target_record_id: nil, payload: payload,
         before_snapshot: {}, after_snapshot: payload.merge(active: true)
       )
@@ -40,6 +43,7 @@ module HouseholdFinance
       add_debt_money_value!(payload, debt_balance_command_value, :balance_cents, :balance_known) if debt_balance_command_present?
       add_debt_money_payload!(payload, :minimum_payment, :minimum_payment_cents, :minimum_payment_known) if command[:minimum_payment].present?
       payload[:interest_rate_percent] = parsed_debt_apr(command[:interest_rate_percent]) if command[:interest_rate_percent].present?
+      add_debt_arrears_payload!(payload)
       return validation_result("Tell me which debt detail to update. Nothing changed.") if payload.one?
       before = debt_action_snapshot(debt)
       after = before.merge(payload.except(:debt_id))
@@ -119,6 +123,24 @@ module HouseholdFinance
       end
     end
 
+    # "unknown" clears a past-due amount or due day back to not entered; it never means $0.
+    def add_debt_arrears_payload!(payload)
+      past_due = command[:past_due].to_s.strip
+      if past_due.present?
+        payload[:past_due_cents] = past_due.casecmp("unknown").zero? ? nil : Money.cents!(Money.chat_amount_text(past_due.delete_prefix("$")), message: "Past-due amount must be a number")
+      end
+      due_day = command[:due_day].to_s.strip
+      return if due_day.blank?
+
+      payload[:due_day] = if due_day.casecmp("unknown").zero?
+        nil
+      else
+        day = due_day.sub(/(?:st|nd|rd|th)\z/i, "")
+        raise ArgumentError, "Due day must be a day of the month from 1 to 31" unless day.match?(/\A\d{1,2}\z/) && day.to_i.between?(1, 31)
+        day.to_i
+      end
+    end
+
     def debt_balance_command_value
       command.key?(:balance) ? command[:balance] : command[:amount]
     end
@@ -140,6 +162,7 @@ module HouseholdFinance
         balance_cents: debt.balance_cents, balance_known: debt.balance_known?,
         minimum_payment_cents: debt.minimum_payment_cents, minimum_payment_known: debt.minimum_payment_known?,
         interest_rate_percent: debt.interest_rate_percent&.to_f,
+        due_day: debt.due_day, past_due_cents: debt.past_due_cents,
         active: debt.active?, archived_at: debt.archived_at&.iso8601,
         source_type: debt.source_type, source_metadata: debt.source_metadata
       }

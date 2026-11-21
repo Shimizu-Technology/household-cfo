@@ -877,6 +877,21 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "160", result.action.fetch(:minimum_payment)
   end
 
+  test "resolves a past-due amount and due day she wrote for an active debt" do
+    result = debt_arrears_resolution("Update the Car loan: I'm $1,500 behind and the payment is due on the 15th",
+      past_due: "1500", due_day: "15")
+    assert result.actionable?
+    assert_equal "update_debt", result.action.fetch(:type)
+    assert_equal "1500", result.action.fetch(:past_due)
+    assert_equal "15", result.action.fetch(:due_day)
+  end
+
+  test "rejects a provider invented past-due amount or due day" do
+    refute debt_arrears_resolution("Update the Car loan: I'm behind on it", past_due: "1500").actionable?
+    refute debt_arrears_resolution("Update the Car loan: it is $1,500 behind", past_due: "1500", due_day: "15").actionable?
+    refute debt_arrears_resolution("Update the Car loan balance to $9,800", past_due: "9800").actionable?
+  end
+
   test "rejects a provider invented debt APR" do
     context = intent_context.deep_dup
     context[:active_debts] = [ { id: 77, label: "Visa", debt_type: "credit_card", balance: 3_100, minimum_payment: 175, interest_rate_percent: 28.9 } ]
@@ -3822,6 +3837,22 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
         )
       end
     )
+  end
+
+  def debt_arrears_resolution(message, **fields)
+    context = intent_context.deep_dup
+    context[:active_debts] = [ { id: 78, label: "Car loan", debt_type: "auto_loan", balance: 9_800, minimum_payment: 310, interest_rate_percent: 6.5 } ]
+    context[:archived_debts] = []
+    HouseholdFinance::MiaIntentResolver.new(
+      user_message: message, context: context, api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: false, resolved_message: "Update Car loan arrears",
+          topic: { type: "debt_plan", title: "Car loan update", subject: "Car loan" },
+          action: default_action.merge(type: "update_debt", debt_id: 78, debt_name: "Car loan", **fields)
+        )
+      end
+    ).call
   end
 
   def resolve_compound(message:, context:, actions:)

@@ -16,8 +16,16 @@ class Debt < ApplicationRecord
   validates :balance_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :minimum_payment_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :interest_rate_percent, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 999.99 }, allow_nil: true
+  # Both optional. A blank past-due amount means "not entered", never "$0 behind".
+  validates :due_day, numericality: { only_integer: true, in: 1..31 }, allow_nil: true
+  validates :past_due_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
   validate :archive_state_is_consistent
   validate :optional_card_identity_is_preserved
+
+  # An entered amount above $0. A blank amount is unknown, so it is never "behind".
+  def past_due?
+    past_due_cents.to_i.positive?
+  end
 
   private
 

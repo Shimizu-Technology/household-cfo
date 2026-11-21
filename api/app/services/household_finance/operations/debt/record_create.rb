@@ -23,6 +23,8 @@ module HouseholdFinance
           values[:balance_cents] = 0 unless values.key?(:balance_cents)
           values[:minimum_payment_known] = false unless values.key?(:minimum_payment_known)
           values[:minimum_payment_cents] = 0 unless values.key?(:minimum_payment_cents)
+          values[:due_day] = normalize_due_day(input[:due_day])
+          values[:past_due_cents] = normalize_past_due(input).fetch(:past_due_cents, nil)
           values
         end
 
@@ -35,14 +37,14 @@ module HouseholdFinance
         end
 
         def predicted_after(before, input)
-          { debt: input.slice(:label, :debt_type, :balance_cents, :balance_known, :minimum_payment_cents, :minimum_payment_known, :interest_rate_percent, :source_type, :source_metadata).merge(active: true, archived_at: nil), conflicting_debt_ids: before.fetch("conflicting_debt_ids") }
+          { debt: input.slice(:label, :debt_type, :balance_cents, :balance_known, :minimum_payment_cents, :minimum_payment_known, :interest_rate_percent, :due_day, :past_due_cents, :source_type, :source_metadata).merge(active: true, archived_at: nil), conflicting_debt_ids: before.fetch("conflicting_debt_ids") }
         end
 
         def mutate!(_household, input, prepared:)
           if prepared.before_snapshot.fetch("conflicting_debt_ids").any?
             raise ArgumentError, "An active debt already uses that name and type. Edit it or choose a different name. Nothing changed."
           end
-          household.debts.create!(input.slice(:label, :debt_type, :balance_cents, :balance_known, :minimum_payment_cents, :minimum_payment_known, :interest_rate_percent, :source_type, :source_metadata).merge(active: true, archived_at: nil))
+          household.debts.create!(input.slice(:label, :debt_type, :balance_cents, :balance_known, :minimum_payment_cents, :minimum_payment_known, :interest_rate_percent, :due_day, :past_due_cents, :source_type, :source_metadata).merge(active: true, archived_at: nil))
         end
 
         def canonical_after_snapshot(debt, _input, prepared:)
