@@ -87,6 +87,7 @@ module Scorecard
               simulator.call(document, doc)
               @progress&.call(index + 1, documents.length)
             end
+            simulator.reconfirm_stale_coverage
             report = Report.new(household: household, answer_key: @key, simulator: simulator, documents: documents).call
             raise ActiveRecord::Rollback
           end

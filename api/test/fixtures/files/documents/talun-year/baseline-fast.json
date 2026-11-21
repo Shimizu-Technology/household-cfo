@@ -126,7 +126,7 @@
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
       "receipts": [],
-      "decisions": 44,
+      "decisions": 45,
       "decisions_by_kind": {
         "account_identity": 4,
         "store_category": 1,
@@ -141,7 +141,8 @@
         "repeated_file": 1,
         "duplicate": 17,
         "person_payment_duplicate": 1,
-        "coverage": 1
+        "coverage": 1,
+        "coverage_reconfirmation": 1
       },
       "manual_correction": 10,
       "manual_exclusion": 0,
@@ -1876,7 +1877,7 @@
     "transfer_leakage_cents": 0,
     "transfer_leakage_spending_cents": 0,
     "transfer_leakage_income_cents": 0,
-    "decisions": 79,
+    "decisions": 80,
     "manual_correction": 17,
     "manual_exclusion": 0,
     "accepted_as_proposed": 59,
@@ -1887,6 +1888,7 @@
       "approve_page": 8,
       "card_payment": 3,
       "coverage": 4,
+      "coverage_reconfirmation": 1,
       "direction": 2,
       "duplicate": 20,
       "manual_correction": 1,
@@ -2075,7 +2077,7 @@
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 43,
+        "decisions": 44,
         "decisions_by_kind": {
           "account_identity": 4,
           "store_category": 1,
@@ -2089,7 +2091,8 @@
           "repeated_file": 1,
           "duplicate": 17,
           "person_payment_duplicate": 1,
-          "coverage": 1
+          "coverage": 1,
+          "coverage_reconfirmation": 1
         },
         "manual_correction": 9,
         "manual_exclusion": 0,
@@ -3822,7 +3825,7 @@
       "transfer_leakage_cents": 0,
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
-      "decisions": 77,
+      "decisions": 78,
       "manual_correction": 16,
       "manual_exclusion": 0,
       "accepted_as_proposed": 58,
@@ -3833,6 +3836,7 @@
         "approve_page": 8,
         "card_payment": 3,
         "coverage": 4,
+        "coverage_reconfirmation": 1,
         "direction": 2,
         "duplicate": 20,
         "money_in_source": 1,

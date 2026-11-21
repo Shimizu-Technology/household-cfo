@@ -2,6 +2,31 @@ require "test_helper"
 require Rails.root.join("lib/scorecard/runner")
 
 class ScorecardApprovalSimulatorTest < ActiveSupport::TestCase
+  test "coverage reconfirmation repeats only stale approvals in both views and is idempotent" do
+    [ true, false ].product(%w[nothing_missing something_missing]).each do |correct, answer|
+      simulator = Scorecard::ApprovalSimulator.new(household: nil, user: nil, answer_key: nil, categories: {}, correct_proposals: correct)
+      revision = Object.new
+      doc = { "period" => { "start_on" => "2026-01-01" } }
+      simulator.instance_variable_set(:@coverage_answers, { revision => [ doc, answer ] })
+      latest = Struct.new(:id, :digest).new(17, "old")
+      state = Struct.new(:call).new({ content_digest: "final", deficiencies: [] })
+      saved = []
+      simulator.define_singleton_method(:approve) do |target, input|
+        saved << [ target, input ]
+        latest.digest = "final"
+      end
+      review = FinancialDocuments::SourceReview
+      with_result(review::CoverageQuestion, :latest, latest) do
+        with_result(review::ApprovalState, :new, state) do
+          simulator.reconfirm_stale_coverage
+          simulator.reconfirm_stale_coverage
+        end
+      end
+      assert_equal [ [ revision, { lines: [], coverage_answer: answer, expected_coverage_id: 17 } ] ], saved
+      assert_equal({ "2026-01" => { "coverage_reconfirmation" => 1 } }, simulator.decisions)
+    end
+  end
+
   test "corrected same purchase uses the line merchant two days from a receipt and requires the same answer key event" do
     user = User.create!(clerk_id: "simulator-talun", email: "simulator-talun@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -89,5 +114,15 @@ class ScorecardApprovalSimulatorTest < ActiveSupport::TestCase
     assert_equal 2, simulator.decisions["2026-07"].values.sum
     simulator.send(:count_store_correction, doc, :no_category, nil, entry.merge(edit: entry[:edit].merge(kind: "money_in", money_direction: "in")), row, 4)
     assert_equal 3, simulator.decisions["2026-07"].values.sum
+  end
+
+  private
+
+  def with_result(owner, name, result)
+    original = owner.method(name)
+    owner.define_singleton_method(name) { |*args, **options| result }
+    yield
+  ensure
+    owner.define_singleton_method(name, &original)
   end
 end
