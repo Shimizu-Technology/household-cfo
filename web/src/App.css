@@ -10313,3 +10313,14 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   .shell-account-panel .shell-admin-menu-link { display: none; }
 }
 @media (hover: hover) and (pointer: fine) { .shell-admin-link:hover { text-decoration: underline; } }
+
+.bills-forecast { min-width: 0; font-variant-numeric: tabular-nums; }
+.bills-forecast li { padding-block: 12px; border-bottom: 1px solid var(--line); }
+.bill-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+@media (max-width: 600px) { .bill-actions { flex-direction: column; width: 100%; } .bill-actions button, .bills-forecast > details > button { width: 100%; } }
+
+.forecast-table-wrap { max-width: 100%; overflow-x: auto; }
+.forecast-table { border-collapse: collapse; width: 100%; min-width: 560px; font-variant-numeric: tabular-nums; }
+.forecast-table th, .forecast-table td { padding: 12px 8px; text-align: right; border-bottom: 1px solid var(--line); vertical-align: top; }
+.forecast-table th:first-child { text-align: left; }
+.forecast-table small { display: block; font-weight: normal; font-size: var(--text-xs); color: var(--muted); }

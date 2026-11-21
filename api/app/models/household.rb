@@ -24,6 +24,7 @@ class Household < ApplicationRecord
   has_many :historical_budget_years, class_name: "BudgetYear"
   has_many :budget_years, -> { current_picture }, dependent: :destroy
   has_many :historical_budget_categories, class_name: "BudgetCategory"
+  has_many :bills, dependent: :destroy
   has_many :budget_categories, -> { current_picture }, dependent: :destroy
   has_many :financial_document_imports, dependent: :destroy
   has_many :historical_mia_action_drafts, class_name: "MiaActionDraft"

@@ -885,6 +885,7 @@ export type AnnualBudgetPlan = {
   monthly_debt_minimums: number
   monthly_debt_minimums_known?: boolean
   income_sources: IncomeTimelineSource[]
+  year_forecast?: YearForecast
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
   pending_transaction_drafts_meta?: { total_count: number; returned_count: number; limit: number; truncated: boolean }
@@ -2565,7 +2566,7 @@ export function subscribeFinancialPictureChanges(listener: (generation: number) 
 class FinancialPictureChangedError extends Error {}
 function financialDataPath(path: string) {
   if (/^\/api\/v1\/setup_help(\/|\?|$)/.test(path)) return !path.startsWith('/api/v1/setup_help/restart/')
-  return /^\/api\/v1\/(cfo-filter|optionality|workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
+  return /^\/api\/v1\/(bills|cfo-filter|optionality|workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
 }
 function checkedFinancialReply(generation: number | null, expected: number | null) {
   if (generation === null || expected === null || generation === expected) return
@@ -5596,3 +5597,11 @@ export function fetchChallengeChatCards(signal?: AbortSignal): Promise<import('.
 export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true } | { action: 'request_leave'; expected_lock_version: number; accepted: true; intent: 'leave' | 'pause' } | { action: 'approve_savings'; expected_lock_version: number; accepted: true; new_money_confirmed?: boolean }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; assistant_message?: MiaMessage | null; challenge?: SavingsChallenge | null }> {
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }
+
+export type ScheduledBill = { id: number; name: string; amount_cents: number; due_on: string; repeat_months: number | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean }
+export type ForecastMonth = { label: string; starts_on: string; opening_cents: number | null; income_cents: number | null; income_basis: string; actual_partial: boolean | null; outflow_cents: number | null; ending_cents: number | null; bills: ScheduledBill[]; reasons: string[] }
+export type YearForecast = { starting_cash_cents: number | null; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: string; bills: ScheduledBill[]; debt_bills: { name: string; amount_cents: number | null; due_on: string | null; must_pay: boolean }[]; rule: string }
+export async function saveBill(id: number | null, bill: object) {
+  return fetchJson(`/api/v1/bills${id ? `/${id}` : ''}`, { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bill }) })
+}
+export async function removeBill(id: number) { return fetchJson(`/api/v1/bills/${id}`, { method: 'DELETE' }) }

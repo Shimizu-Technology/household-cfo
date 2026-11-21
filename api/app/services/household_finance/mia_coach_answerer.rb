@@ -222,6 +222,8 @@ module HouseholdFinance
       # A family short on food gets help first, even inside a spending report.
       priority = priority_answer
       return priority if priority
+      forecast = YearForecastAnswer.new(household, message).call
+      return forecast if forecast
       return nil if transaction_report?
       return "Which purchase price should I compare with the plan? Nothing changed." if purchase_question? && PurchaseQuestionText.for_comparison(message).needs_clarification
       return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
@@ -243,7 +245,7 @@ module HouseholdFinance
     def support_answer
       return if self.class.prompt_injection?(message)
 
-      priority_answer || (savings_deposit_answer if non_expense_movement_only?) ||
+      priority_answer || YearForecastAnswer.new(household, message).call || (savings_deposit_answer if non_expense_movement_only?) ||
         (investment_boundary_answer if non_expense_movement_only? && MoneyMovementText.investment_purchase_report?(message))
     end
 

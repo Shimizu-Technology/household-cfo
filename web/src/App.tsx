@@ -9592,6 +9592,7 @@ export function AnnualBudgetPlanner({
         </div>
       </div>
 
+      {plan.year_forecast && <details className="budget-year-forecast"><summary>Year ahead and bills</summary><YearOutlook plan={plan} /></details>}
       <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={!beforePlanStart} confirmedFields={confirmedFields} answer={monthAnswer} />
 
 
