@@ -230,6 +230,7 @@ module HouseholdFinance
           unavailable_reason: readiness_unavailable_reason,
           scenario: household.primary_goal.presence || "Household stability",
           question: readiness_blocker_question,
+          calculator: optionality_scenario,
           target_runway_months: runway_target,
           current_runway_months: nil,
           monthly_gap: nil,
@@ -266,6 +267,7 @@ module HouseholdFinance
 
       {
         available: true,
+        calculator: optionality_scenario,
         scenario: scenario,
         question: household.primary_goal.presence || "What would it take to safely make the next move?",
         target_runway_months: runway_target,
@@ -278,6 +280,7 @@ module HouseholdFinance
 
     def cfo_filter
       {
+        calculator: cfo_filter_scenario,
         framework: "CFO Filter",
         prompt: "Before money leaves the household, ask whether this spend protects stability, creates optionality, or moves the dream forward.",
         decisions: decisions,
@@ -286,6 +289,35 @@ module HouseholdFinance
         windfall_steps: method_settings.fetch("windfall").map { |key| windfall_step(key) },
         income_split: method_settings.fetch("income_split").map { |key, percent| "#{percent}% to #{CohortExperience::MethodSettings.label(key).sub('Debt acceleration', 'extra debt payments').downcase}" }
       }
+    end
+
+    # Shared by the tools and deterministic Mia answers. Overrides live only in
+    # this request; they never update a plan, balance, goal or income source.
+    def cfo_filter_scenario(spend_cents: 0, windfall_cents: 0)
+      facts = tool_facts
+      CfoFilterCalculator.new(income_cents: facts[:income_cents], costs_cents: facts[:costs_cents],
+        savings_cents: facts[:savings_cents], debt_cents: WindfallSplit.consumer_debt_cents(household), method: method_settings, target_runway_months: target_runway_months)
+        .call(spend_cents: spend_cents, windfall_cents: windfall_cents)
+        .merge(facts: facts, cut_choices: SpendingPatterns::Analyzer.new(household, protected: method_settings.fetch("protected")).call[:candidate_changes])
+    end
+
+    def optionality_scenario(overrides = {})
+      facts = tool_facts
+      inputs = { savings_cents: facts[:savings_cents], monthly_costs_cents: facts[:costs_cents],
+        replacement_income_cents: setup_status.complete? && transition_income_known? ? monthly_business_income_cents + transition_retained_income_cents : nil }
+      OptionalityCalculator.new(**inputs.merge(overrides)).call.merge(inputs: inputs)
+    end
+
+    def transition_income_known?
+      income_sources.any? { |source| source.source_type == "business" } ||
+        Array(household.confirmed_setup_fields).include?("business_income")
+    end
+
+    def tool_facts
+      complete = setup_status.complete?
+      { income_cents: complete ? snapshot.fetch(:monthly_income_cents) - income_sources.select { |source| source.source_type == "bonus" }.sum { |source| current_recurring_income_cents(source) } : nil,
+        costs_cents: complete && snapshot.fetch(:debt_minimums_known) ? snapshot.fetch(:total_outflow_cents) : nil,
+        savings_cents: snapshot.fetch(:liquid_assets_known) ? snapshot.fetch(:liquid_assets_cents) : nil }
     end
 
     def mia(before_id: nil, limit: 60, picture: nil)

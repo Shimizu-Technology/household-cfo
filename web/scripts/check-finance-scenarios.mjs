@@ -1,0 +1,38 @@
+import { chromium, expect } from '@playwright/test'
+const browser = await chromium.launch({headless:true})
+try {
+ for (const [width,height] of [[390,844],[1440,900]]) {
+  const page = await browser.newPage({ viewport: {width,height} })
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('http://127.0.0.1:5426/?pilot_e2e_role=participant&pilot_e2e_live_api=true#CFO%20Filter')
+  await expect(page.getByRole('heading', {name:'I am considering spending…'})).toBeVisible()
+  await page.getByLabel('Purchase amount ($)').fill('100')
+  await page.getByRole('button', {name:'Compare this spend'}).click()
+  await expect(page.getByText('$910.00', {exact:true})).toBeVisible()
+  await expect(page.getByRole('heading', {name:'What does it take to flip the light?'})).toBeVisible()
+  await page.getByLabel('Windfall amount ($)').fill('1000')
+  await page.getByRole('button', {name:'Split this windfall'}).click()
+  await expect(page.getByText('Emergency fund: $1,000.00', {exact:true})).toBeVisible()
+  await expect(page.getByText('$910.00', {exact:true})).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
+  await page.screenshot({path:`docs/testing/evidence/cfo-filter-optionality/cfo-${width}.png`,fullPage:true})
+  await page.goto('http://127.0.0.1:5426/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Optionality')
+  await expect(page.getByRole('heading', {name:'How long could we last if I quit?'})).toBeVisible()
+  await expect(page.getByLabel(/Monthly savings draw/)).toHaveValue('4390')
+  await page.getByLabel('Savings available ($)').fill('60000')
+  await page.getByLabel('Monthly household costs ($)').fill('4000')
+  await page.getByLabel('Monthly replacement income ($)').fill('1000')
+  await page.getByLabel(/Monthly savings draw/).fill('')
+  await page.getByRole('button', {name:'Explore this runway'}).click()
+  await expect(page.getByText('20 fully funded months', {exact:true})).toBeVisible()
+  await expect(page.getByText('Workable — move fast (yellow)', {exact:true})).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
+  await page.screenshot({path:`docs/testing/evidence/cfo-filter-optionality/optionality-${width}.png`,fullPage:true})
+  await page.reload()
+  await expect(page.getByLabel('Savings available ($)')).toHaveValue('3200')
+  expect(errors).toEqual([])
+  console.log(`PASS ${width}×${height}: spend, flip targets, windfall, runway, reload preserves approved data, no horizontal overflow or page errors`)
+  await page.close()
+ }
+} finally { await browser.close() }

@@ -1,3 +1,4 @@
+import type { FilterScenario, RunwayScenario } from './components/FinanceScenarios'
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import type { StatementProgress } from './lib/statementReview'
 import { checkedSavingsChallenge } from './lib/savingsChallenge'
@@ -1006,6 +1007,7 @@ export type WealthData = {
 }
 
 export type OptionalityData = {
+  calculator?: RunwayScenario
   available?: boolean
   unavailable_reason?: string
   scenario: string
@@ -1024,6 +1026,7 @@ export type OptionalityData = {
 }
 
 export type CfoFilterData = {
+  calculator?: FilterScenario
   framework: string
   prompt: string
   decisions: Array<{

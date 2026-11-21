@@ -225,7 +225,7 @@ module HouseholdFinance
       return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
       return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
 
-      income_split_answer || recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      tool_green_answer || income_split_answer || recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_month_answer
@@ -1032,11 +1032,34 @@ module HouseholdFinance
       "Your emergency fund target is reached, so extra debt is next. #{order_line} Based on approved household numbers, liquid assets are #{money(liquid_cents)}, debt entered is #{money(debt_cents)}, and readiness is #{snapshot.fetch(:readiness_label)}. Keep the emergency fund intact, then use a fixed extra-payment amount so debt payoff does not steal from sinking funds. Next CFO move: pick the monthly extra debt amount only after expected bills are funded."
     end
 
+    def tool_presenter
+      @tool_presenter ||= DataPresenter.new(household, ensure_plan: false)
+    end
+
+    def tool_green_answer
+      return nil unless normalized_message.match?(/what does it take.*green|what.*(?:take|need).*get to green/i)
+
+      lines = tool_presenter.cfo_filter_scenario.fetch(:targets).map do |target|
+        needed = target.dig(:green, :surplus_cents)
+        needed.nil? || target.dig(:green, :income_cents).nil? ? "#{target[:label]}: unknown; add the missing approved balances and plan details" :
+          "#{target[:label]}: #{money(needed)} monthly surplus, #{money(target.dig(:green, :income_cents))} total monthly income"
+      end
+      "To turn each light green independently: #{lines.join('; ')}. Debt is a principal-only estimate excluding the mortgage; interest can extend payoff. Nothing changed."
+    end
+
     def job_transition_answer
       return nil unless normalized_message.match?(JOB_TRANSITION_PATTERN)
 
-      business_cents = business_income_cents
-      "Not yet as a full leap; this is a runway decision, not a motivation decision. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, business income entered is #{money(business_cents)} per month, and the emergency fund gap is #{money(emergency_fund_gap_cents)}. Keep stable income in the picture until household runway and repeatable business income can carry the baseline without panic. Next CFO move: define the monthly business-income floor and runway number that must be true before you revisit leaving the job."
+      unless normalized_message.match?(/how long|could we last|runway/i)
+        business_cents = business_income_cents
+        return "Not yet as a full leap; this is a runway decision, not a motivation decision. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, business income entered is #{money(business_cents)} per month, and the emergency fund gap is #{money(emergency_fund_gap_cents)}. Keep stable income in the picture until household runway and repeatable business income can carry the baseline without panic. Next CFO move: define the monthly business-income floor and runway number that must be true before you revisit leaving the job."
+      end
+
+      result = tool_presenter.optionality_scenario
+      return "I cannot calculate your transition runway yet. Add the missing savings balances, planned household costs and replacement income first. Unknown is not $0. Nothing changed." unless result[:tone]
+
+      duration = result[:sustainable] ? "savings do not run out in this model" : "#{result[:months]} fully funded months"
+      "Your transition runway is #{duration}: #{result[:label]}. The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. This assumes 5% effective yearly savings growth, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Explore other amounts in Optionality; nothing changed."
     end
 
     def emotional_stress_answer

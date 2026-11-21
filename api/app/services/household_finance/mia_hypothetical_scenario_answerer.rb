@@ -68,7 +68,17 @@ module HouseholdFinance
       priced_item = PurchaseQuestionText.priced_item(item, amount_cents)
       before = left.negative? ? "is #{money(left.abs)} short" : "has #{money(left)} left"
       period = date.beginning_of_month == Date.current.beginning_of_month ? "This month’s" : "Your #{facts[:period_label]}"
-      "#{period} plan #{before}, so #{priced_item} #{comparison} if it is extra spending, and that's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      filter_read = if date.beginning_of_month == Date.current.beginning_of_month
+        filter = DataPresenter.new(household, ensure_plan: false).cfo_filter_scenario(spend_cents: amount_cents)
+        after = filter.fetch(:after)
+        if after[:emergency_tone]
+          pace = after[:emergency_months] ? "#{after[:emergency_months]} months" : "not reached at that surplus"
+          " CFO Filter: emergency fund #{pace} (#{after[:emergency_tone]}); remaining surplus #{money(filter[:after_spend_surplus_cents])} (#{after[:surplus_tone]}). That pace assumes the remaining surplus each month, with savings untouched."
+        else
+          " CFO Filter: emergency fund timing is unknown until savings and planned costs are known."
+        end
+      end
+      "#{period} plan #{before}, so #{priced_item} #{comparison} if it is extra spending, and that's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?#{filter_read}"
     end
 
     # "a $300 purchase" reads better than "This purchase at $300" when the

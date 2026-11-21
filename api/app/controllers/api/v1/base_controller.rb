@@ -344,13 +344,14 @@ module Api
         current_data_presenter.app_data
       end
 
-      def current_data_presenter(household: current_household, annual_plan: nil, ensure_plan: !(request.get? || request.head?))
+      def current_data_presenter(household: current_household, annual_plan: nil, ensure_plan: !(request.get? || request.head?),
+        initialize_missing_plan: request.get? || request.head?)
         HouseholdFinance::DataPresenter.new(
           household,
           user: current_user,
           annual_plan: annual_plan,
           ensure_plan: ensure_plan,
-          initialize_missing_plan: annual_plan.nil? && (request.get? || request.head?),
+          initialize_missing_plan: annual_plan.nil? && initialize_missing_plan,
           persona: current_persona,
           cohort_membership: current_cohort_membership,
           experience_capabilities: current_experience_capabilities,
