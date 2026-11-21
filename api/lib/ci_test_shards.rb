@@ -8,10 +8,11 @@ require "json"
 #
 # A file's weight is its measured run time in seconds from lib/ci_test_shard_weights.json (files that take
 # at least a second), or an estimate from its size for any file not listed, such as a new one. Refresh the
-# weights when the shards drift apart: run `bin/rails test -v`, add up each test class's seconds per file,
-# and keep the files at one second or more.
+# weights when the shards drift apart with script/ci_test_shard_weights.rb and a green run's shard logs.
 module CiTestShards
   WEIGHTS_FILE = "lib/ci_test_shard_weights.json"
+  # How many shards CI runs; keep it in step with the rails_test_shard matrix in .github/workflows/ci.yml.
+  SHARDS = 2
   # Seconds of run time per byte of test source, for a file without a measured weight.
   SECONDS_PER_BYTE = 0.00003
 

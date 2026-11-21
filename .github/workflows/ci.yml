@@ -16,6 +16,8 @@ permissions:
 jobs:
   synthetic_documents:
     runs-on: ubuntu-24.04
+    # Each job's limit is about twice its usual time, so a hung job frees its slot (the org runs at most 20 jobs at once).
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -39,6 +41,7 @@ jobs:
   rails_security:
     # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: api
@@ -61,6 +64,7 @@ jobs:
   rails_lint:
     # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: api
@@ -96,6 +100,7 @@ jobs:
   scorecard_ratchet:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -162,16 +167,18 @@ jobs:
           echo "Explicit ratchet change: $reason"
   # scorecard-ratchet:end
 
-  # The Rails tests split into shards that run side by side. Each shard has its own database; the file split
-  # is deterministic (api/lib/ci_test_shards.rb), so every test file runs in exactly one shard.
+  # The Rails tests split into two shards that run side by side, each in four processes. Each shard has its own
+  # database; the file split is deterministic (api/lib/ci_test_shards.rb), so every test file runs in exactly
+  # one shard. Two shards finish well before the browser jobs, and every extra job takes one of the org's slots.
   rails_test_shard:
-    name: rails_test_shard (${{ matrix.shard }}/3)
+    name: rails_test_shard (${{ matrix.shard }}/2)
     # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [ 1, 2, 3 ]
+        shard: [ 1, 2 ]
     defaults:
       run:
         working-directory: api
@@ -197,7 +204,8 @@ jobs:
       DATABASE_TEST_NAME: household_cfo_api_test
     steps:
       - name: Install PostgreSQL client libraries
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev
+        # The runner image usually ships libpq-dev; apt only runs when it doesn't.
+        run: dpkg -s libpq-dev >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev)
         working-directory: .
 
       - name: Checkout code
@@ -229,9 +237,9 @@ jobs:
 
       - name: Run this shard's Rails tests
         run: |
-          files="$(ruby script/ci_test_shard.rb "${{ matrix.shard }}" 3)"
+          files="$(ruby script/ci_test_shard.rb "${{ matrix.shard }}" 2)"
           echo "$files" | wc -l | xargs echo "Test files in this shard:"
-          bin/rails test $files
+          bin/rails test -v $files
 
       - name: Check Zeitwerk autoloading
         if: ${{ matrix.shard == 1 }}
@@ -247,6 +255,7 @@ jobs:
       # scorecard-ratchet:end
       - rails_test_shard
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Require every Rails test shard
         env:
@@ -267,8 +276,10 @@ jobs:
   # browser jobs run on every push to main and on pull requests that change one of those paths.
   changes:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       web: ${{ steps.filter.outputs.web }}
+      browser-matrix: ${{ steps.partitions.outputs.matrix }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -298,8 +309,27 @@ jobs:
             echo "web=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The one list of browser partitions: the web-browser matrix runs it and the web check requires a
+      # report from each. web/scripts/browser-shard.mjs deals each script's tests round-robin across its
+      # partitions, so every test runs in exactly one partition and the partitions take about as long.
+      # The org runs at most 20 jobs at once, so a run uses a few large partitions rather than many small ones:
+      # four Chromium and one WebKit, each about 22 minutes of tests at three workers.
+      - name: List the browser test partitions
+        id: partitions
+        env:
+          CHROMIUM_SHARDS: 4
+          WEBKIT_SHARDS: 1
+        run: |
+          set -euo pipefail
+          matrix="$(jq -cn --argjson chromium "$CHROMIUM_SHARDS" --argjson webkit "$WEBKIT_SHARDS" '
+            [range(1; $chromium + 1) | {target: "chromium-\(.)", browser: "chrome", script: "test:browser:chromium", index: ., total: $chromium}]
+            + [range(1; $webkit + 1) | {target: "mobile-webkit-\(.)", browser: "webkit", script: "test:browser:webkit", index: ., total: $webkit}]')"
+          echo "$matrix" | jq -r '.[] | "\(.target): \(.script), partition \(.index)/\(.total)"'
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   web-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       TZ: UTC
     defaults:
@@ -339,36 +369,22 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
+    # About 25 minutes of tests plus setup; the browser install's apt retries can add up to 20 more in an outage.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: mobile-webkit
-            browser: webkit
-            script: test:browser:webkit
-            shard: 1/1
-          - target: chromium-1
-            browser: chrome
-            script: test:browser:chromium
-            shard: 1/4
-          - target: chromium-2
-            browser: chrome
-            script: test:browser:chromium
-            shard: 2/4
-          - target: chromium-3
-            browser: chrome
-            script: test:browser:chromium
-            shard: 3/4
-          - target: chromium-4
-            browser: chrome
-            script: test:browser:chromium
-            shard: 4/4
+        include: ${{ fromJSON(needs.changes.outputs.browser-matrix) }}
     defaults:
       run:
         working-directory: web
     env:
       TZ: UTC
       PLAYWRIGHT_PORT: 6274
+      # Playwright workers per partition. The standard runner has four vCPUs; one worker's browser and the
+      # shared Vite dev server already use more than one, so three workers run about 1.5 times as many tests
+      # per minute as one, and each test takes about twice as long.
+      PLAYWRIGHT_WORKERS: 3
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -382,6 +398,23 @@ jobs:
 
       - name: Install web dependencies
         run: npm ci
+
+      # CI's Chromium is the runner's branded Chrome, which Playwright installs system-wide, so only WebKit's
+      # download can be cached. Its system libraries still come from apt in the next step.
+      # Playwright downloads a different WebKit build for each Ubuntu release, so the key names the runner image too.
+      - name: Read the Playwright version and runner image
+        if: ${{ matrix.browser == 'webkit' }}
+        id: playwright
+        run: |
+          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright WebKit
+        if: ${{ matrix.browser == 'webkit' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ runner.arch }}-webkit-${{ steps.playwright.outputs.version }}
 
       - name: Install browser dependencies
         # --with-deps installs system libraries through apt. When the runner can't reach the Ubuntu
@@ -430,11 +463,14 @@ jobs:
           echo "::error::Could not install $browser"
           exit 1
 
+      - name: Choose this partition's tests
+        run: node scripts/browser-shard.mjs '${{ matrix.script }}' '${{ matrix.index }}' '${{ matrix.total }}' "$RUNNER_TEMP/browser-tests.txt"
+
       - name: Run browser checks
-        run: npm run ${{ matrix.script }} -- --shard=${{ matrix.shard }} --workers=1 --reporter=github,blob,json
+        run: npm run ${{ matrix.script }} -- --test-list "$RUNNER_TEMP/browser-tests.txt" --workers=$PLAYWRIGHT_WORKERS --reporter=github,blob,json
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: playwright-results.json
-          # WebKit's 1/1 and Chromium's 1/4 would both default to report-1.zip and overwrite each other when merged.
+          # Every partition's blob would default to report.zip and overwrite the others when merged.
           PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.target }}.zip
 
       - name: Preserve browser reports and retry traces
@@ -456,6 +492,7 @@ jobs:
     if: ${{ always() }}
     needs: [changes, web-quality, web-browser]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       BROWSER_RAN: ${{ needs.changes.outputs.web == 'true' }}
     steps:
@@ -489,8 +526,13 @@ jobs:
 
       - name: Check every partition produced a report
         if: ${{ !cancelled() && env.BROWSER_RAN == 'true' }}
+        env:
+          BROWSER_MATRIX: ${{ needs.changes.outputs.browser-matrix }}
         run: |
-          for target in mobile-webkit chromium-1 chromium-2 chromium-3 chromium-4; do
+          set -euo pipefail
+          targets="$(echo "$BROWSER_MATRIX" | jq -r '.[].target')"
+          test -n "$targets"
+          for target in $targets; do
             test -s "browser-evidence/browser-$target/playwright-results.json"
             compgen -G "browser-evidence/browser-$target/blob-report/*.zip" > /dev/null
           done

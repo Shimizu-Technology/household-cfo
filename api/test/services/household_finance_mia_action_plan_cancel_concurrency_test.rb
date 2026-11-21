@@ -2,7 +2,6 @@ require "test_helper"
 
 class HouseholdFinanceMiaActionPlanCancelConcurrencyTest < ActiveSupport::TestCase
   self.use_transactional_tests = false
-  parallelize(workers: 1)
 
   setup do
     @user = User.create!(
