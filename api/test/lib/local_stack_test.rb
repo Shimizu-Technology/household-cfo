@@ -21,6 +21,16 @@ class LocalStackTest < ActiveSupport::TestCase
     LocalStack.problems(env: env, rails_env: rails_env, repo_root: REPO, database_configs: database_configs, shared_env_files: shared_env_files)
   end
 
+  test "replay requires test local-stack mode and no live key" do
+    replay = safe_env("LOCAL_STACK_REPLAY" => "1")
+    assert_empty problems(replay)
+    assert_raises(LocalStack::Refused) { LocalStack.check_replay!(env: replay, rails_env: "production") }
+    assert_raises(LocalStack::Refused) { LocalStack.check_replay!(env: replay.merge("HCFO_LOCAL_STACK" => "0"), rails_env: "test") }
+    assert_raises(LocalStack::Refused) { LocalStack.check_replay!(env: replay.merge("OPENROUTER_API_KEY" => "invented-no-network-key"), rails_env: "test") }
+    assert_raises(LocalStack::Refused) { LocalStack.check_replay!(env: safe_env, rails_env: "test") }
+    assert_match(/requires an empty OPENROUTER_API_KEY/, problems(replay.merge("OPENROUTER_API_KEY" => "invented")).join)
+  end
+
   test "production build instructions stop the running stack before enabling build mode" do
     instructions = Rails.root.parent.join("docs/testing/local-stack.md").read
     assert_match(/bin\/local-stack down

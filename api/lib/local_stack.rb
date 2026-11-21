@@ -39,10 +39,25 @@ module LocalStack
     env["HCFO_LOCAL_STACK"] == "1"
   end
 
+  def replay_problems(env, rails_env)
+    return [] unless env["LOCAL_STACK_REPLAY"] == "1"
+
+    issues = []
+    issues << "LOCAL_STACK_REPLAY requires the guarded local stack in RAILS_ENV=test." unless enabled?(env) && rails_env.to_s == "test"
+    issues << "LOCAL_STACK_REPLAY requires an empty OPENROUTER_API_KEY; recordings never use a live reader." if env["OPENROUTER_API_KEY"].present?
+    issues
+  end
+
+  def check_replay!(env: ENV, rails_env: Rails.env)
+    issues = replay_problems(env, rails_env)
+    issues << "LOCAL_STACK_REPLAY must be explicitly enabled." unless env["LOCAL_STACK_REPLAY"] == "1"
+    raise Refused, issues.join(" ") if issues.any?
+  end
+
   # database_configs: the connection settings Rails will really use, after any
   # DATABASE_URL or <NAME>_DATABASE_URL has been merged into database.yml.
   def problems(env:, rails_env:, repo_root:, database_configs: [], shared_env_files: [])
-    found = []
+    found = replay_problems(env, rails_env)
     found << "Run it with RAILS_ENV=test (the local stack signs in with test identities)." unless rails_env.to_s == "test"
     found << "Set STORAGE_BACKEND=local so uploads stay on this machine." unless env["STORAGE_BACKEND"] == "local"
     HOSTED_SERVICE_VARIABLES.each do |name|

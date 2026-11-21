@@ -50,6 +50,11 @@ fail() { printf 'local-stack: %s\n' "$*" >&2; exit 1; }
 MODEL_KEY=""
 MODEL_STATUS="off (no model key; statements that need the AI reader won't read)"
 check_model_key() {
+  if [[ "${LOCAL_STACK_REPLAY:-}" == "1" ]]; then
+    MODEL_KEY=""
+    MODEL_STATUS="offline Talun recordings (no live reader or key probe)"
+    return 0
+  fi
   [[ -f "$SECRETS" ]] || return 0
   local main_env result
   main_env="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../api/.env"
@@ -91,6 +96,7 @@ guarded_env() {
   local name
   for name in "${HOSTED_API[@]}" "${HOSTED_WEB[@]}"; do export "$name="; done
   for name in "${UNSET_ALWAYS[@]}" $(env | sed -nE 's/^([A-Za-z0-9_]*DATABASE_URL)=.*/\1/p'); do unset "$name"; done
+  export LOCAL_STACK_REPLAY="${LOCAL_STACK_REPLAY:-0}"
   export HCFO_LOCAL_STACK=1 RAILS_ENV=test DATABASE_TEST_NAME="$DB" STORAGE_BACKEND=local
   export LOCAL_STORAGE_ROOT="$STATE/storage" LOCAL_STORAGE_URL="$API_URL"
   export FRONTEND_URL="$WEB_URL" FRONTEND_URLS="$WEB_URL" PARALLEL_WORKERS=1
