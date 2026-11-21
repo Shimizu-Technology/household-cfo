@@ -141,3 +141,8 @@ body #root .home-plan-link .ui-btn { padding-inline: 0; border-radius: 0; }
 .home-month-answer:has(.home-money-values > div:not(:first-child) .is-long-money) .home-spent { flex-direction: row; }
 
 .home-mia .ui-monogram::before { content: attr(data-initial); }
+.home-status { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); padding: 0; list-style: none; }
+.home-status li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--space-3); align-items: baseline; }
+.home-status__name { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-size: var(--text-sm); }
+.home-status strong { font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.home-status small { grid-column: 1 / -1; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums lining-nums; }

@@ -252,7 +252,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       invitation_status: "accepted"
     )
     household = Household.create!(created_by_user: user, name: "Readiness household")
-    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
+    # A $100 surplus is 165 months from a $16,500 gap.
+    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 310_000, cadence: "monthly")
     household.expense_items.create!(label: "Essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
     household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)
@@ -261,7 +262,9 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Why is my baseline yellow?").call
 
     assert_includes answer, "readiness is Red, not Yellow"
-    assert_includes answer, "mainly a runway problem"
+    assert_includes answer, "about 165 months away"
+    assert_includes answer, "Yellow needs about $459 a month"
+    assert_includes answer, "mainly an emergency fund pace problem"
     refute_match(/your baseline is yellow/i, answer)
   end
 
@@ -280,7 +283,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Why is my readiness Red?").call
 
     assert_includes answer, "cash flow is at breakeven"
-    assert_includes answer, "cash-flow margin and runway problem"
+    assert_includes answer, "cash-flow margin and emergency fund problem"
     refute_includes answer, "short by $0.00"
   end
 
@@ -301,7 +304,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "How do I get to yellow?").call
 
     assert_includes answer, "approved household numbers"
-    assert_includes answer, "yellow gap"
+    assert_includes answer, "Yellow needs about $459 a month and Green about $1,375 a month"
     assert_includes answer, "Next CFO move"
   end
 
@@ -433,7 +436,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "$7,845"
     assert_includes answer, "$655"
     assert_includes answer, "40%"
-    assert_includes answer, "$262"
+    # Yellow holds only while $610.56 a month goes to the $21,980 gap ($21,980 ÷ 36, rounded up).
+    assert_includes answer, "$655 − $610.56 = $44.44, less than 40% ($262)"
     assert_includes answer, "not a purchase amount"
   end
 
@@ -445,7 +449,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "How much is safe to spend?"
     ).call
 
-    assert_includes answer, "$262 monthly safe-to-spend guardrail"
+    assert_includes answer, "$44.44 monthly safe-to-spend guardrail"
     assert_includes answer, "$655 positive baseline surplus"
     assert_includes answer, "not a purchase amount"
   end
@@ -456,7 +460,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     safe_to_spend = HouseholdFinance::MiaCoachAnswerer.new(household, "What's my safe-to-spend?").call
     readiness = HouseholdFinance::MiaCoachAnswerer.new(household, "What's my readiness?").call
 
-    assert_includes safe_to_spend, "$262 monthly safe-to-spend guardrail"
+    assert_includes safe_to_spend, "$44.44 monthly safe-to-spend guardrail"
     assert_includes readiness, "approved readiness is Yellow"
   end
 
@@ -506,7 +510,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     ).call
 
     assert_includes answer, "$1,650"
-    assert_includes answer, "$638"
+    assert_includes answer, "$855.56"
     assert_includes answer, "$995"
     assert_includes answer, "not a second safe-to-spend allowance"
     assert_includes answer, "Nothing is approved"

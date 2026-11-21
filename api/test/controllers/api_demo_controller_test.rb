@@ -51,8 +51,9 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal "You are 2.8 months away from the six-month founder transition target.", runway_alert.fetch("body")
     assert_equal body.fetch("summary").fetch("runway_months"), body.fetch("readiness_path").fetch("current_runway_months")
     assert_equal 25_090, body.fetch("readiness_path").fetch("protected_liquid_amount")
-    assert_equal true, body.fetch("readiness_path").fetch("yellow").fetch("reached")
-    assert_equal false, body.fetch("readiness_path").fetch("green").fetch("reached")
+    fund = body.fetch("readiness_path").fetch("emergency_fund")
+    assert_equal [ demo_facts.fetch(:readiness_tone), 21_980.0, demo_facts.fetch(:months_to_target) ], fund.values_at("tone", "gap", "months_to_target")
+    assert_equal 36, body.dig("readiness_path", "status_rule", "target_yellow_months")
     assert body.fetch("accounts").any?
     assert body.fetch("alerts").any?
   end
@@ -259,7 +260,8 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "$8,500"
     assert_includes content, "$655"
     assert_includes content, "40%"
-    assert_includes content, "$262"
+    # Green holds only while $610.56 a month goes to the gap, so the guardrail is $655 − $610.56, below 40% ($262).
+    assert_includes content, "$655 − $610.56 = $44.44, less than 40% ($262)"
     assert_includes content, "not a purchase amount"
   end
 
@@ -275,8 +277,8 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "$900"
     assert_includes content, "$750"
     assert_includes content, "$1,650"
-    assert_includes content, "$262"
-    assert_includes content, "$638"
+    assert_includes content, "$44.44"
+    assert_includes content, "$855.56"
     assert_includes content, "$655"
     assert_includes content, "$995"
     assert_includes content, "not a second safe-to-spend allowance"
@@ -470,9 +472,11 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
 
   test "demo financial basis follows recurring income changes without treating a one-time bonus as recurring" do
     {
-      Date.new(2026, 7, 15) => { income: 8_250, surplus: 405, safe: 162 },
-      Date.new(2026, 8, 15) => { income: 8_500, surplus: 655, safe: 262 },
-      Date.new(2026, 12, 15) => { income: 8_500, surplus: 655, safe: 262 }
+      # July's $405 surplus is 55 months from the $21,980 gap: Red under the method, so no safe-to-spend.
+      Date.new(2026, 7, 15) => { income: 8_250, surplus: 405, safe: 0 },
+      # $655 reaches the gap in 12 months (Green) only if $610.56 of it keeps going there.
+      Date.new(2026, 8, 15) => { income: 8_500, surplus: 655, safe: 44.44 },
+      Date.new(2026, 12, 15) => { income: 8_500, surplus: 655, safe: 44.44 }
     }.each do |date, expected|
       travel_to date do
         get "/api/demo/dashboard"

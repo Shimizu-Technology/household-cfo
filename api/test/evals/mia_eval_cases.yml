@@ -134,9 +134,9 @@ cases:
 
   - id: readiness_status_corrects_user_color
     route: controller
-    prompt: Why is my baseline yellow?
+    prompt: Why is my baseline red?
     expected_phrases:
-      - Your approved readiness is Red, not Yellow
+      - Your approved readiness is Yellow, not Red
       - runway
       - Next CFO move
     forbidden_phrases:
@@ -222,7 +222,7 @@ cases:
     prompt: What should I do with a $1,000 bonus?
     expected_phrases:
       - $1,000
-      - runway
+      - emergency fund gap
       - Next CFO move
     forbidden_phrases:
       - guaranteed
@@ -647,7 +647,7 @@ cases:
   - id: mel_month_overview
     route: controller
     prompt: How am I doing this month?
-    expected_phrases: [spent, plan leaves, cushion]
+    expected_phrases: [spent, plan leaves, emergency fund]
     forbidden_phrases: [not have enough approved data, confirmed actuals recorded]
     live_expected:
       - [leaves, short]

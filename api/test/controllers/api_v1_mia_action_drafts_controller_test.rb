@@ -330,7 +330,8 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   test "model general question still routes recognized readiness language through approved coaching facts" do
     user = create_user(email: "mia-model-readiness-question@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
-    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
+    # A $100 surplus leaves the $16,500 emergency fund gap 165 months away: Red.
+    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 310_000, cadence: "monthly")
     household.expense_items.create!(label: "Essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
     household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)

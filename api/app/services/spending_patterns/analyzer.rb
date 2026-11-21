@@ -11,9 +11,25 @@ module SpendingPatterns
     FAMILY_SUPPORT = /(?:family|child|spousal|parent(?:al)?)\s+support|support\s+(?:for|to)\s+(?:my\s+|our\s+|the\s+)?(?:family|kids?|child(?:ren)?|parents?|mom|dad|lola|lolo|nana|tata|auntie|aunt|uncle|relatives?|grand(?:ma|pa|parents?))/i
     # "Health and beauty" or "Health & fitness" is shopping, not care.
     NOT_HEALTH_CARE = /\s*(?:and|&|\+)\s*(?:beauty|fitness)\b/i
-    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health(?!#{NOT_HEALTH_CARE})|healthcare|pharmacy|prescriptions?|hospital|clinic|therapy|prenatal|pediatrics?|optical|child(?:ren)?|childcare|daycare|preschool|nann(?:y|ies)|after\s*-?\s*school|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|#{FAMILY_SUPPORT}|remittances?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
-    # Bills, not a store habit. Kept apart from the words above because "cut your debt" is good advice.
-    BILL_CATEGORY = /\b(?:insurance|premiums?|loans?|debts?|(?:car|card|credit\s+card)\s+payments?)\b/i
+    # Category words for each protected category a program can choose (CohortExperience::MethodSettings).
+    PROTECTED_CATEGORY_WORDS = {
+      "housing" => /\b(?:rent|mortgage|housing)\b/i,
+      "utilities" => /\b(?:utilities|utility|power|water|electric(?:ity)?)\b/i,
+      "medical" => /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health(?!#{NOT_HEALTH_CARE})|healthcare|pharmacy|prescriptions?|hospital|clinic|therapy|prenatal|pediatrics?|optical)\b/i,
+      "childcare_school" => /\b(?:child(?:ren)?|childcare|daycare|preschool|nann(?:y|ies)|after\s*-?\s*school|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?)\b/i,
+      "family_support" => /\b(?:family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|#{FAMILY_SUPPORT}|remittances?)\b/i,
+      # Bills, not a store habit. Kept apart from the care words because "cut your debt" is good advice.
+      "debt_minimums" => /\b(?:loans?|debts?|(?:car|card|credit\s+card)\s+payments?)\b/i,
+      # Only when the program adds them.
+      "groceries" => /\b(?:groceries|grocery|supermarkets?|food\s+at\s+home)\b/i,
+      "giving" => /\b(?:giving|tith(?:e|es|ing)|donations?|offerings?|charit(?:y|able)|church)\b/i,
+      "community" => /\b(?:community|fiestas?|novenas?|funerals?|rosary|rosaries)\b/i
+    }.freeze
+    CORE_PROTECTED = CohortExperience::MethodSettings::CORE_PROTECTED
+    PROTECTED_CATEGORY = Regexp.union(PROTECTED_CATEGORY_WORDS.slice(*CORE_PROTECTED).except("debt_minimums").values)
+    # Insurance is a contract bill whatever the program chooses, like the store names below.
+    ALWAYS_PROTECTED_CATEGORY = /\b(?:insurance|premiums?)\b/i
+    BILL_CATEGORY = Regexp.union(ALWAYS_PROTECTED_CATEGORY, PROTECTED_CATEGORY_WORDS.fetch("debt_minimums"))
     # A store name that is care or a bill, whatever category it was filed under: a clinic filed as
     # "Flexible spending" is still medical care. Narrower than the category words, so "Family Mart" or
     # "Mom's Kitchen" can still be a store.
@@ -55,11 +71,21 @@ module SpendingPatterns
     KNOWN_SERVICE = /\b(?:netflix|hulu|disney|youtube|spotify|apple\.com|icloud|apple\s+(?:music|tv|one)|google\s+(?:one|workspace|storage)|amazon\s+prime|prime\s+video|audible|peacock|paramount|hbo|starlink|chatgpt|zoom|adobe|microsoft\s+365|dropbox|xbox|playstation|nintendo|crunchyroll)/i
     BANK_RECURRING = /\Arecurring\s+payment\b/i
 
-    def self.protected_category?(name) = name.to_s.match?(PROTECTED_CATEGORY) || name.to_s.match?(BILL_CATEGORY)
+    # protected: the program's protected categories. The core ones are always protected.
+    def self.protected_category?(name, protected = CORE_PROTECTED)
+      text = name.to_s
+      text.match?(ALWAYS_PROTECTED_CATEGORY) || PROTECTED_CATEGORY_WORDS.slice(*(CORE_PROTECTED | Array(protected))).values.any? { |words| text.match?(words) }
+    end
     def self.protected_merchant?(name) = name.to_s.match?(PROTECTED_MERCHANT)
 
-    def initialize(household, today: Time.current.in_time_zone("Pacific/Guam").to_date, from: nil, to: nil)
+    # protected: the program's protected categories; nil reads the household's own program.
+    def initialize(household, today: Time.current.in_time_zone("Pacific/Guam").to_date, from: nil, to: nil, protected: nil)
       @household, @today, @from, @to = household, today, from, to
+      @protected = protected
+    end
+
+    def protected_categories
+      @protected_categories ||= CORE_PROTECTED | Array(@protected || CohortExperience::MethodSettings.for_household(@household).fetch("protected"))
     end
 
     def call
@@ -129,7 +155,7 @@ module SpendingPatterns
         merchants: merchants, categories: all_categories, discretionary_merchants: flexible_merchants, recurring_discretionary_merchants: cuttable,
         discretionary_categories: categories,
         small_purchase_clusters: clusters(purchases), possible_subscriptions: recurring(purchases), candidate_changes: choices,
-        savings_inferred: false }
+        protected_categories: protected_categories, savings_inferred: false }
     end
 
     private
@@ -173,7 +199,7 @@ module SpendingPatterns
 
     def split(category, amount)
       { category_id: category&.id, name: category&.name || "Uncategorized", amount_cents: amount,
-        discretionary: category&.stack_key == "discretionary" && !self.class.protected_category?(category&.name) }
+        discretionary: category&.stack_key == "discretionary" && !self.class.protected_category?(category&.name, protected_categories) }
     end
 
     def group_totals(rows, key)

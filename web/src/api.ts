@@ -154,7 +154,8 @@ export type ExperienceCapability = {
 }
 
 export type ExperienceCapabilities = {
-  schema_version: 1 | 2 | 3 | 4
+  schema_version: 1 | 2 | 3 | 4 | 5
+  method?: MethodSettings
   experience_mode?: ExperienceMode
   module_order?: ExperienceModuleId[]
   cohort_release?: null | { id: number; number: number }
@@ -440,13 +441,14 @@ export type ProfileData = {
   sections: ProfileSection[]
 }
 
-export type ReadinessMilestone = {
-  tone: 'yellow' | 'green'
-  runway_months: number
-  protected_liquid_target: number
-  protected_liquid_gap: number
-  cash_flow_requirement: string
-  reached: boolean
+export type StatusTone = 'red' | 'yellow' | 'green'
+
+/** The program's colour rule (Mrs. Mel's method): months to reach a target, and monthly surplus in cents. */
+export type MethodStatusRule = {
+  target_green_months: number
+  target_yellow_months: number
+  surplus_green_cents: number
+  surplus_yellow_cents: number
 }
 
 export type MiaMonthAnswer = {
@@ -470,9 +472,16 @@ export type MiaMonthAnswer = {
   pending_count: number | null
   pending_cents: number | null
   pending_list_truncated: boolean
-  readiness_tone: 'red' | 'yellow' | 'green' | null
+  readiness_tone: StatusTone | null
   readiness_guidance: string
   runway_months: number | null
+  target_runway_months?: number
+  emergency_fund_gap_cents?: number | null
+  /** Months this month's surplus needs to reach the emergency fund target; null when it can't. */
+  months_to_target?: number | null
+  /** The program's colour for this month's planned surplus; null when unknown. */
+  surplus_tone?: StatusTone | null
+  status_rule?: MethodStatusRule
 }
 
 export type DashboardData = {
@@ -486,7 +495,7 @@ export type DashboardData = {
     runway_months: number | null
     next_safe_to_spend_amount: number | null
     readiness_available: boolean
-    readiness_tone: 'red' | 'yellow' | 'green'
+    readiness_tone: StatusTone
     readiness_label: string
   }
   action_center: {
@@ -513,8 +522,10 @@ export type DashboardData = {
     target_runway_months: number
     protected_liquid_amount: number
     monthly_surplus: number | null
-    yellow: ReadinessMilestone
-    green: ReadinessMilestone
+    target_runway_source?: 'household' | 'program'
+    emergency_fund?: null | { tone: StatusTone; label: string; target: number; gap: number; months_to_target: number | null }
+    surplus?: null | { tone: StatusTone; label: string }
+    status_rule?: { target_green_months: number; target_yellow_months: number; surplus_green: number; surplus_yellow: number }
   }
   accounts: Array<{ name: string; type: string; balance: number }>
   alerts: Array<{ tone: string; title: string; body: string; action?: 'open_debt' }>
@@ -1015,6 +1026,8 @@ export type CfoFilterData = {
   }>
   targets: Array<{ label: string; current: number; target: number }>
   priority_stack: string[]
+  windfall_steps?: string[]
+  income_split?: string[]
 }
 
 export type MiaMessageAttachment = {
@@ -2039,19 +2052,38 @@ export type ExperienceMode = 'household_cfo' | 'savings_challenge'
 
 export type ConfigurableExperienceModuleId = Exclude<ExperienceModuleId, 'home' | 'ask_mia'>
 
+export type MethodCoreProtectedCategory = 'housing' | 'utilities' | 'medical' | 'childcare_school' | 'debt_minimums' | 'family_support'
+export type MethodOptionalProtectedCategory = 'groceries' | 'giving' | 'community'
+export type MethodProtectedCategory = MethodCoreProtectedCategory | MethodOptionalProtectedCategory
+export type MethodPriority = 'emergency_fund' | 'debt' | 'wealth' | 'experiences'
+export type MethodWindfallStep = 'emergency_fund' | 'consumer_debt' | 'surplus'
+
+/** Mrs. Mel's coaching method for a group (schema 5). Older schemas read as the defaults. */
+export type MethodSettings = {
+  status: MethodStatusRule
+  emergency_fund_months: number
+  protected: MethodProtectedCategory[]
+  priorities: MethodPriority[]
+  windfall: MethodWindfallStep[]
+  income_split: { emergency_fund: number; debt: number; surplus: number }
+}
+
 export type ConfigurableCohortExperienceDraft = {
-  schema_version: 4
+  schema_version: 4 | 5
   experience_mode: ExperienceMode
   /** Empty or absent retains the existing navigation order. Unlisted modules follow in default order. */
   module_order?: ExperienceModuleId[]
   optional_modules: Record<ConfigurableExperienceModuleId, boolean>
+  /** Schema 5 only. */
+  method?: MethodSettings
 }
 
-/** Historical schemas retain their sealed meaning; schema 4 adds module visibility and order. */
+/** Historical schemas retain their sealed meaning; schema 4 adds module visibility and order; schema 5 adds the method. */
 export type CohortExperienceDraft = ConfigurableCohortExperienceDraft | {
   schema_version: 1 | 2 | 3
   experience_mode?: ExperienceMode
   module_order?: never
+  method?: never
   optional_modules: { cfo_filter: boolean; optionality: boolean }
 }
 

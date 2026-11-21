@@ -1226,7 +1226,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     content = body.fetch("assistant_message").fetch("content")
     assert_includes content, "approved household numbers"
     assert_includes content, "Yellow"
-    assert_includes content, "green gap"
+    assert_includes content, "Green about $2,117 a month"
     assert_includes content, "Next CFO move"
     refute_includes content, "confirmed get spending"
   end
@@ -1375,7 +1375,8 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_includes content, "This week"
-    assert_includes content, "yellow runway gap"
+    assert_includes content, "emergency fund gap is $25,400"
+    assert_includes content, "reaches yellow with about $706 a month"
     assert_includes content, "Next CFO move"
     refute_includes content, "For out of red"
     refute_includes content, "need or a want"

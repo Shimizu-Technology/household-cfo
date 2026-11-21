@@ -28,6 +28,21 @@ Each cohort has one editable configuration and immutable published versions:
 
 Draft, preview, publish, and restore are available to administrators and coaches assigned to the cohort. Completed and archived cohorts are read-only. Participants cannot access these endpoints.
 
+## Method settings (schema 5)
+
+Schema 5 adds a compact `method` block: Mrs. Mel's method as group settings. It goes live through the same draft, preview, publish and Go live steps as tools; there is no separate path. Release catalog 7 carries schema 4 and 5 experiences with the same tools as catalog 6. A schema 1–4 config or release reads as the defaults. Go live's upgrade-to-current step rewrites only a draft from before schema 4; a schema 4 draft becomes schema 5 when a coach edits it, so reviewing Go live never changes a draft that is open in the tools editor.
+
+| Setting | Default | Where it applies |
+| --- | --- | --- |
+| `status` | A target is Green within 12 months at the current monthly surplus, Yellow within 36, Red beyond or never. Monthly surplus is Green from $1,000 and Yellow from $500. | `HouseholdFinance::ReadinessCalculator`; Home status; Mia's readiness answers and context |
+| `emergency_fund_months` | 3 months of planned costs. A household's own runway goal (`goals.target_months`) wins. | `SnapshotBuilder` target; Home; Mia |
+| `protected` | Housing, utilities, medical, childcare and school, debt minimums, family support. These are always protected; a program can only add groceries, giving (tithes and donations) or family & community. | `SpendingPatterns::Analyzer` category protection. Care and bill store names, money sent to people and insurance stay protected too. A config that drops a core item is rejected (422). |
+| `priorities` | 1 Emergency fund · 2 Debt acceleration · 3 Wealth building · 4 Experiences and life | CFO Filter priority stack; Mia's debt-or-savings answer and context |
+| `windfall` | Emergency fund gap, then consumer debt (not the mortgage), then surplus | CFO Filter; Mia's one-time money split (`HouseholdFinance::WindfallSplit`). Consumer debt is unknown when debts are one summary total (it may include a mortgage) unless that total is a confirmed $0, or when no debts are listed; the rest of the money then waits on the debt step and Mia asks for the cards and loans. |
+| `income_split` | 50% emergency fund, 25% extra debt payments, 25% surplus | CFO Filter; Mia's raise or new-job answer, with the dollars worked out in Rails (`HouseholdFinance::IncomeSplit`) |
+
+`CohortExperience::MethodSettings` validates the block. In a request, a household's method is the signed-in caller's program, resolved once and reused for the rest of the request. Without a caller it is the asking member's or the owner's (then a partner's) program, never a coach viewer's. Any fault reads as the defaults. Readiness is the emergency fund target's colour, computed on the whole surplus. Safe-to-spend is 40% of a positive surplus outside Red, capped so that spending it still keeps the colour shown (the rest of the surplus still reaches the target inside that colour's months). The method adds under 1 KB to a release's 16 KB experience snapshot.
+
 ## Participant enforcement
 
 `GET /api/v1/workspace` includes `workspace.capabilities`, resolved from the same effective cohort membership used for the Mia persona. The web app builds participant navigation only after that response arrives.

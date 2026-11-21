@@ -426,7 +426,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     old_attributes = old_release.attributes.deep_dup
     post "/api/v1/admin/cohorts/#{cohort.id}/experience_configuration/preview", params: { experience_configuration: { draft_revision: configuration.draft_revision, upgrade_to_current: true } }, headers: { "Authorization" => "Bearer test_token_#{coach.id}" }, as: :json
     assert_response :success
-    assert_equal 4, configuration.reload.draft_config.fetch("schema_version")
+    # Go live upgrades to the current schema; the method reads as the defaults.
+    assert_equal 5, configuration.reload.draft_config.fetch("schema_version")
+    assert_equal CohortExperience::MethodSettings::DEFAULTS, configuration.draft_config.fetch("method")
     assert_equal "This update adds Statements", response.parsed_body.dig("preview", "upgrade_notice")
     assert_equal true, configuration.draft_config.dig("optional_modules", "cfo_filter")
     assert_equal old_config, old_version.reload.config
@@ -437,7 +439,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: old_version.id)
     cohort.reload
     release = CohortReleases::Sealer.new(cohort: cohort, actor: coach).call!(request_key: "current-household", expected_bundle_digest: CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call.bundle_digest)
-    assert_equal 6, release.tool_registry_version
+    assert_equal 7, release.tool_registry_version
     launcher = CohortReleases::InitialLauncher.new(cohort: cohort, actor: coach)
     launcher.call!(release_id: release.id, preview_digest: launcher.preview.fetch(:preview_digest), request_key: "launch-household")
     approve_lines({ lines: @events.values.map { |event| { event_id: event.id, decision: "leave_out" } }, coverage_answer: "nothing_missing" })
@@ -495,7 +497,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     # Publishing a release must retain the same coach-selected restriction.
     CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
     cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
-    assert_equal 6, cohort.active_cohort_release.tool_registry_version
+    assert_equal 7, cohort.active_cohort_release.tool_registry_version
     approve_lines({ lines: as_read(review_plan.fetch("ready_event_ids")) })
     assert_response :forbidden
     assert_equal 0, SourceReviewVersion.where(household: @household).count

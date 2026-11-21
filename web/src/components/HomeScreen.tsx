@@ -92,6 +92,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
     </section>}
     <section className="home-cushion ui-card" aria-label="Your emergency cushion">
       <h3>{answer?.runway_months == null ? 'Your emergency cushion' : formatRunway(answer.runway_months)}</h3>
+      <HomeStatus answer={answer} />
       <p>{answer?.readiness_guidance ?? 'Add the missing starting numbers before judging your cushion.'}</p>
       {answer?.runway_months == null && answer?.cushion_missing_inputs?.map(input => {
         const open = { profile: onOpenProfile, budget: onOpenBudget, debt: onOpenDebt, accounts: onOpenAccounts }[input.destination]
@@ -110,6 +111,29 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
       {onChoosePrompt && <div className="home-mia-prompts">{starterPrompts.map(prompt => <button type="button" className="ui-chip" key={prompt.label} onClick={() => onChoosePrompt(prompt.message)}>{prompt.label}</button>)}</div>}
     </section>}
   </section></div>
+}
+
+const toneWord = { green: 'Green', yellow: 'Yellow', red: 'Red' } as const
+const monthsText = (count: number) => `${count} month${count === 1 ? '' : 's'}`
+
+/** The program's status colours: a dot and a word, never colour alone. Unknown stays unshown. */
+export function HomeStatus({ answer }: { answer?: DashboardData['month_answer'] }) {
+  const rule = answer?.status_rule
+  if (!answer || !rule || (!answer.readiness_tone && !answer.surplus_tone)) return null
+  const months = answer.months_to_target
+  const reach = months === 0 ? 'Target reached' : months == null ? 'Needs a monthly surplus to reach' : `About ${monthsText(months)} away`
+  return <ul className="home-status" aria-label="Status">
+    {answer.readiness_tone && <li>
+      <span className="home-status__name"><i className={`ui-dot ui-dot--${answer.readiness_tone}`} aria-hidden="true" />Emergency fund</span>
+      <strong>{toneWord[answer.readiness_tone]}</strong>
+      <small>{reach} · green within {monthsText(rule.target_green_months)}, yellow within {monthsText(rule.target_yellow_months)}</small>
+    </li>}
+    {answer.surplus_tone && answer.plan_left_cents != null && <li>
+      <span className="home-status__name"><i className={`ui-dot ui-dot--${answer.surplus_tone}`} aria-hidden="true" />Monthly surplus</span>
+      <strong>{toneWord[answer.surplus_tone]}</strong>
+      <small>{answer.plan_left_cents < 0 ? `${formatReviewMoney(-answer.plan_left_cents)} short in this month’s plan` : `${formatReviewMoney(answer.plan_left_cents)} planned this month`} · green from {formatReviewMoney(rule.surplus_green_cents)}, yellow from {formatReviewMoney(rule.surplus_yellow_cents)}</small>
+    </li>}
+  </ul>
 }
 
 function Chevron() {

@@ -39,7 +39,7 @@ module Demo
     attr_reader :message, :facts
 
     def readiness_answer
-      "Your approved readiness is Yellow. The monthly basis is #{money(facts.fetch(:monthly_income))} income, a #{money(facts.fetch(:category_plan))} category plan, and #{money(facts.fetch(:debt_minimums))} in separate monthly debt payments, for #{money(facts.fetch(:total_monthly_outflow))} total money out and a #{money(facts.fetch(:baseline_surplus))} baseline surplus. #{money(facts.fetch(:protected_liquid))} protected liquid divided by total money out gives #{facts.fetch(:runway_months)} months of runway; the six-month Green target is #{money(facts.fetch(:green_runway_target))}, so the exact Green gap is #{money(facts.fetch(:green_runway_gap))}. Next CFO move: keep monthly debt payments outside the category-plan subtotal and direct approved surplus toward that Green gap."
+      "Your approved readiness is #{facts.fetch(:readiness_tone).capitalize}. The monthly basis is #{money(facts.fetch(:monthly_income))} income, a #{money(facts.fetch(:category_plan))} category plan, and #{money(facts.fetch(:debt_minimums))} in separate monthly debt payments, for #{money(facts.fetch(:total_monthly_outflow))} total money out and a #{money(facts.fetch(:baseline_surplus))} baseline surplus. #{money(facts.fetch(:protected_liquid))} protected liquid divided by total money out gives #{facts.fetch(:runway_months)} months of runway; the six-month emergency fund target is #{money(facts.fetch(:green_runway_target))}, so the exact gap is #{money(facts.fetch(:green_runway_gap))}. At that surplus it is about #{facts.fetch(:months_to_target)} months away: Green means within #{facts.dig(:status_rule, 'target_green_months')} months, Yellow within #{facts.dig(:status_rule, 'target_yellow_months')}. Next CFO move: keep monthly debt payments outside the category-plan subtotal and direct approved surplus toward that gap."
     end
 
     def safe_to_spend_formula_answer
@@ -52,6 +52,14 @@ module Demo
       end
       if facts.fetch(:readiness_tone) == "red"
         return "Your monthly safe-to-spend guardrail is $0. #{basis} Although the baseline surplus is positive, Red readiness holds safe-to-spend at $0 until protected runway reaches Yellow; the #{rate}% rule is not active yet. It is not a purchase amount or account balance. Next CFO move: direct the available surplus toward essential bills, expected expenses, and protected runway."
+      end
+
+      kept = facts[:surplus_kept_for_tone]
+      rate_amount = (surplus * HouseholdFinance::ReadinessCalculator::SAFE_TO_SPEND_RATE).round(2)
+      if kept && safe < rate_amount
+        tone = facts.fetch(:readiness_tone)
+        line = facts.dig(:status_rule, tone == "green" ? "target_green_months" : "target_yellow_months")
+        return "Your #{money(safe)} monthly safe-to-spend guardrail is what your #{money(surplus)} positive baseline surplus leaves after keeping your #{tone.capitalize}: #{basis} #{tone.capitalize} needs about #{money(kept)} a month toward the #{money(facts.fetch(:green_runway_gap))} emergency fund gap to reach it within #{line} months, so #{money(surplus)} − #{money(kept)} = #{money(safe)}, less than #{rate}% (#{money(rate_amount)}). It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
       end
 
       "Your #{money(safe)} monthly safe-to-spend guardrail is #{rate}% of your #{money(surplus)} positive baseline surplus: #{basis} #{money(surplus)} × #{rate}% = #{money(safe)}. It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. The guardrail is available only in Yellow or Green with a positive surplus; Red returns $0. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
@@ -114,7 +122,7 @@ module Demo
     def extra_money_answer
       amount = message[AMOUNT_PATTERN, 1]&.then { |text| HouseholdFinance::Money.chat_decimal(text).to_f }
       amount_label = amount&.positive? ? "The #{money(amount)} bonus" : "The bonus"
-      "#{amount_label} is one-time money, so I would not add it to the #{money(facts.fetch(:monthly_income))} recurring monthly income or use it to inflate readiness. Your approved baseline surplus is #{money(facts.fetch(:baseline_surplus))}, safe-to-spend is #{money(facts.fetch(:safe_to_spend))}, and the six-month runway gap is #{money(facts.fetch(:green_runway_gap))}. Protect any due expected expense or debt minimum first, then direct the remainder toward that runway gap. Next CFO move: verify the bonus net amount and deposit date before assigning it in the annual plan."
+      "#{amount_label} is one-time money, so I would not add it to the #{money(facts.fetch(:monthly_income))} recurring monthly income or use it to inflate readiness. Your approved baseline surplus is #{money(facts.fetch(:baseline_surplus))}, safe-to-spend is #{money(facts.fetch(:safe_to_spend))}, and the six-month emergency fund gap is #{money(facts.fetch(:green_runway_gap))}. Protect any due expected expense or debt minimum first, then direct the remainder toward that emergency fund gap. Next CFO move: verify the bonus net amount and deposit date before assigning it in the annual plan."
     end
 
     def forward_spending_answer

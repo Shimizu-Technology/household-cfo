@@ -80,7 +80,7 @@ module HouseholdFinance
     end
 
     def one_time_income_answer
-      "For this possibility#{timing_phrase}, #{label} at #{money(amount_cents)} is not saved or approved income. It would be one-time money, so recurring monthly income remains #{money(snapshot.fetch(:monthly_income_cents))} and readiness does not automatically change. Protect due essentials and expected bills first, then compare the remainder with the gap to the Yellow runway threshold of #{money(yellow_runway_gap_cents)} before considering extra debt or wants."
+      "For this possibility#{timing_phrase}, #{label} at #{money(amount_cents)} is not saved or approved income. It would be one-time money, so recurring monthly income remains #{money(snapshot.fetch(:monthly_income_cents))} and readiness does not automatically change. Protect due essentials and expected bills first, then compare the remainder with the emergency fund gap of #{money(emergency_fund_gap_cents)} before considering extra debt or wants."
     end
 
     def essential_expense_answer
@@ -109,8 +109,8 @@ module HouseholdFinance
       ).call
     end
 
-    def yellow_runway_gap_cents
-      target = (snapshot.fetch(:total_outflow_cents) * snapshot.fetch(:target_runway_months).to_f / 2.0).round
+    def emergency_fund_gap_cents
+      target = (snapshot.fetch(:total_outflow_cents) * snapshot.fetch(:target_runway_months).to_f).round
       [ target - snapshot.fetch(:liquid_assets_cents), 0 ].max
     end
 

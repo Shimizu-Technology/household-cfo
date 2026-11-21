@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminPersonaAssignableCohort, CohortExperienceConfiguration } from '../api'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
+import { defaultMethod } from '../lib/methodSettings'
 
 const apiMocks = vi.hoisted(() => ({
   fetchCohortExperienceConfiguration: vi.fn(),
@@ -86,7 +87,7 @@ describe('CohortExperienceStudio experience choice', () => {
     expect(summary.textContent).not.toContain('Budget')
     await user.click(screen.getByRole('switch', { name: 'Include Statements' }))
     expect(summary.textContent).not.toContain('Statements')
-    const expected = { schema_version: 4, experience_mode: 'household_cfo', module_order: [], optional_modules: {
+    const expected = { schema_version: 5, experience_mode: 'household_cfo', module_order: [], method: defaultMethod, optional_modules: {
       review: false, budget: false, profile: false, statements: false, wealth: false, cfo_filter: false, optionality: false,
     } }
     apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected as CohortExperienceConfiguration['draft']))
@@ -106,7 +107,7 @@ describe('CohortExperienceStudio experience choice', () => {
     expect(within(summary).getAllByText(/Review|Home|Ask Mia|Budget/, { selector: 'b' }).map(item => item.textContent)).toEqual(['Review', 'Home', 'Ask Mia', 'Budget'])
     await user.click(screen.getByRole('radio', { name: /90-day Savings Challenge/ }))
     expect(screen.getByRole('switch', { name: 'Include Wealth' })).toHaveProperty('checked', false)
-    const expected = { schema_version: 4, experience_mode: 'savings_challenge', module_order: ['review', 'home', 'ask_mia', 'budget', 'profile', 'wealth', 'cfo_filter', 'optionality', 'statements'], optional_modules: {
+    const expected = { schema_version: 5, experience_mode: 'savings_challenge', module_order: ['review', 'home', 'ask_mia', 'budget', 'profile', 'wealth', 'cfo_filter', 'optionality', 'statements'], method: defaultMethod, optional_modules: {
       review: true, budget: true, profile: true, statements: true, wealth: false, cfo_filter: false, optionality: false,
     } }
     apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected as CohortExperienceConfiguration['draft']))
@@ -121,7 +122,8 @@ describe('CohortExperienceStudio experience choice', () => {
     } })
     apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(custom)
     if (custom.draft.schema_version !== 4) throw new Error("Expected a schema 4 fixture")
-    const expected = { ...custom.draft, module_order: [] }
+    // A schema 4 draft saves as schema 5 with the usual method; tools and hidden modules are kept.
+    const expected = { ...custom.draft, schema_version: 5 as const, method: defaultMethod, module_order: [] }
     apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected))
     renderStudio()
     await user.click(await screen.findByRole('button', { name: 'Use the usual order' }))
@@ -130,6 +132,64 @@ describe('CohortExperienceStudio experience choice', () => {
     expect(within(summary).getAllByText(/Home|Ask Mia|Budget|Review/, { selector: 'b' }).map(item => item.textContent)).toEqual(['Home', 'Ask Mia', 'Budget', 'Review'])
     await user.click(screen.getByRole('button', { name: 'Save draft' }))
     await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, expected))
+  })
+
+  it('shows the usual method for an older draft and saves a coach’s method changes as schema 5', async () => {
+    const user = userEvent.setup()
+    renderStudio()
+    const method = await screen.findByRole('article', { name: 'Method' })
+    expect((within(method).getByLabelText(/A goal is green if it can be reached within/) as HTMLInputElement).value).toBe('12')
+    expect((within(method).getByLabelText(/^Target/) as HTMLInputElement).value).toBe('3')
+    // The core protections are fixed text, not switches; only additions are checkboxes.
+    expect(within(method).getByText(/Always protected:/).parentElement?.textContent).toBe('Always protected: Housing, Utilities, Medical, Childcare and school, Debt minimums, Family support.')
+    expect(within(method).queryByRole('checkbox', { name: 'Family support' })).toBeNull()
+    expect(within(method).getAllByRole('checkbox').map(box => (box as HTMLInputElement).labels?.[0]?.textContent)).toEqual(['Groceries', 'Giving (tithes and donations)', 'Family & community'])
+    expect(within(method).getByRole('checkbox', { name: 'Groceries' })).toHaveProperty('checked', false)
+    expect(within(method).getByLabelText(/A goal is green if it can be reached within/).getAttribute('min')).toBe('1')
+    expect(within(method).getByLabelText(/^Target/).getAttribute('min')).toBe('1')
+    expect(within(within(method).getByRole('list', { name: 'Priority order' })).getAllByRole('listitem').map(item => item.textContent)).toEqual(['1. Emergency fund↑↓', '2. Debt acceleration↑↓', '3. Wealth building↑↓', '4. Experiences and life↑↓'])
+    expect(within(method).getByRole('button', { name: 'Use the usual method' })).toHaveProperty('disabled', true)
+
+    const target = within(method).getByLabelText(/^Target/)
+    await user.clear(target)
+    await user.type(target, '6')
+    await user.click(within(method).getByRole('checkbox', { name: 'Family & community' }))
+    await user.click(within(method).getByRole('checkbox', { name: 'Groceries' }))
+    await user.click(within(method).getByRole('button', { name: 'Move Debt acceleration up' }))
+    await user.click(within(method).getByRole('button', { name: 'Move Pay down consumer debt (cards and loans, not the mortgage) up' }))
+    const debtSplit = within(method).getByLabelText(/^Extra debt payments/)
+    await user.clear(debtSplit)
+    await user.type(debtSplit, '30')
+    expect(within(method).getByRole('alert').textContent).toContain('add up to 100%')
+    expect(screen.getByRole('button', { name: 'Save draft' })).toHaveProperty('disabled', true)
+    const surplusSplit = within(method).getByLabelText(/^Surplus/)
+    await user.clear(surplusSplit)
+    await user.type(surplusSplit, '20')
+    expect(within(method).queryByRole('alert')).toBeNull()
+
+    const expected = { schema_version: 5, experience_mode: 'household_cfo', module_order: [], optional_modules: {
+      review: true, budget: true, profile: true, statements: true, wealth: true, cfo_filter: false, optionality: false,
+    }, method: { ...defaultMethod, emergency_fund_months: 6, protected: [...defaultMethod.protected, 'groceries', 'community'],
+      priorities: ['debt', 'emergency_fund', 'wealth', 'experiences'], windfall: ['consumer_debt', 'emergency_fund', 'surplus'],
+      income_split: { emergency_fund: 50, debt: 30, surplus: 20 } } }
+    apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected as CohortExperienceConfiguration['draft']))
+    await user.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, expected))
+    expect(await screen.findByText('Tools saved. Review them in Go live.')).toBeTruthy()
+  })
+
+  it('rejects a status rule whose yellow is not longer than green and can go back to the usual method', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(configuration({ schema_version: 5, experience_mode: 'household_cfo', module_order: [], optional_modules: {
+      review: true, budget: true, profile: true, statements: true, wealth: true, cfo_filter: false, optionality: false,
+    }, method: { ...defaultMethod, status: { ...defaultMethod.status, target_yellow_months: 10 } } }))
+    renderStudio()
+    const method = await screen.findByRole('article', { name: 'Method' })
+    expect(within(method).getByRole('alert').textContent).toContain('yellow longer than green')
+    expect(screen.getByRole('button', { name: 'Save draft' })).toHaveProperty('disabled', true)
+    await user.click(within(method).getByRole('button', { name: 'Use the usual method' }))
+    expect(within(method).queryByRole('alert')).toBeNull()
+    expect((within(method).getByLabelText(/^Yellow within/) as HTMLInputElement).value).toBe('36')
   })
 
   it('offers no direct publishing: the saved draft goes live in Coaching, Go live', async () => {

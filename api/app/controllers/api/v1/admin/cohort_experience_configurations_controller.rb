@@ -148,7 +148,7 @@ module Api
           return unless action_params[:upgrade_to_current] == true
 
           config = editable_configuration.draft_config
-          return unless config.fetch("schema_version") == 4 && config.dig("optional_modules", "statements")
+          return unless CohortExperience::Schema.configurable?(config) && config.dig("optional_modules", "statements")
 
           release = cohort.active_cohort_release || cohort.cohort_releases.order(release_number: :desc).first
           previous = release&.experience_snapshot&.fetch("config") || editable_configuration.current_published_version&.config

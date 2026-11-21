@@ -1020,7 +1020,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     const participantSections = data
       ? participantSectionsForModules(data.workspace.capabilities.modules.filter((module) => module.enabled).map((module) => module.id), {
         moduleOrder: data.workspace.capabilities.module_order,
-        independentStatements: data.workspace.capabilities.schema_version === 4,
+        independentStatements: data.workspace.capabilities.schema_version >= 4,
         statementsAvailable: !data.workspace.capabilities.modules.some((module) => module.id === 'statements' && !module.enabled),
       })
       : []
@@ -5144,6 +5144,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             <ol>
               {data.cfoFilter.priority_stack.map((item) => <li key={item}>{item}</li>)}
             </ol>
+            {data.cfoFilter.windfall_steps?.length ? <><h3>One-time money</h3><ol>{data.cfoFilter.windfall_steps.map((item) => <li key={item}>{item}</li>)}</ol></> : null}
+            {data.cfoFilter.income_split?.length ? <><h3>New monthly income</h3><p>{data.cfoFilter.income_split.join(' · ')}</p></> : null}
           </article>
         </section>
       )}

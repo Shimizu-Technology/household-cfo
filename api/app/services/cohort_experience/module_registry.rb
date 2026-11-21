@@ -27,7 +27,7 @@ module CohortExperience
     module_function
 
     def for_schema(version)
-      version == 4 ? CONFIGURABLE_MODULES : MODULES
+      version.to_i >= 4 ? CONFIGURABLE_MODULES : MODULES
     end
 
     def ordered(definitions, order)

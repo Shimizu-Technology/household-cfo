@@ -35,7 +35,7 @@ module CohortReleases
           ToolContracts.supported_snapshot?(snapshot, version: version) &&
           keys.all? { |key| snapshot.fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION }) }
         if keys.any? { |key| key.start_with?("source_review.") }
-          module_id = runtime.capabilities[:schema_version] == 4 ? "statements" : "profile"
+          module_id = runtime.capabilities[:schema_version].to_i >= 4 ? "statements" : "profile"
           allowed &&= runtime.capabilities.fetch(:modules).any? { |item| item[:id] == module_id && item[:enabled] }
         end
       else

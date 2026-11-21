@@ -10,10 +10,12 @@ module HouseholdFinance
       @reference_month = reference_month.to_i.clamp(1, 12)
       @conversation_context = conversation_context
       @experience_capabilities = experience_capabilities
+      @method_settings = experience_capabilities ? CohortExperience::MethodSettings.from_capabilities(experience_capabilities) : CohortExperience::MethodSettings.for_household(household)
       @snapshot = SnapshotBuilder.new(
         household,
         annual_budget_manager: snapshot_budget_manager,
-        reference_date: snapshot_reference_date
+        reference_date: snapshot_reference_date,
+        method: @method_settings
       ).call
     end
 
@@ -76,8 +78,14 @@ module HouseholdFinance
           debt_balance_known: debt_balance_known,
           debt_minimums_known: debt_minimums_known,
           liquid_assets: liquid_assets_known ? money(snapshot.fetch(:liquid_assets_cents)) : nil,
-          liquid_assets_known: liquid_assets_known
+          liquid_assets_known: liquid_assets_known,
+          emergency_fund_target_months: snapshot.fetch(:target_runway_months),
+          emergency_fund_target_set_by: snapshot.fetch(:target_runway_source) == "household" ? "household" : "program",
+          emergency_fund_gap: guidance_available ? money(snapshot.fetch(:emergency_fund_gap_cents)) : nil,
+          months_to_emergency_fund_target: guidance_available ? snapshot.fetch(:months_to_target) : nil,
+          monthly_surplus_status: surplus_known ? snapshot.fetch(:surplus_label) : nil
         },
+        coaching_method: coaching_method,
         financial_accounts: financial_accounts_context,
         income_sources: income_context,
         debts: debt_context,
@@ -110,6 +118,22 @@ module HouseholdFinance
         safety_note: "Only enabled modules may be presented as named Household CFO cohort tools.",
         enabled: @experience_capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) },
         disabled: @experience_capabilities.fetch(:modules).reject { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }
+      }
+    end
+
+    # The program's method as Rails facts; Mia words them, never invents them.
+    def coaching_method
+      status = @method_settings.fetch("status")
+      label = ->(key) { CohortExperience::MethodSettings.label(key) }
+      {
+        status_colours: "A target is Green when the monthly surplus reaches it within #{status.fetch('target_green_months')} months, Yellow within #{status.fetch('target_yellow_months')} months, Red beyond. Monthly surplus is Green at #{Money.plain(status.fetch('surplus_green_cents'))} or more, Yellow at #{Money.plain(status.fetch('surplus_yellow_cents'))} or more.",
+        emergency_fund_default_months: @method_settings.fetch("emergency_fund_months"),
+        protected_categories: @method_settings.fetch("protected").map(&label),
+        protected_rule: "Never suggest cutting these; they always still count in spending.",
+        priority_order: @method_settings.fetch("priorities").map(&label),
+        windfall_order: @method_settings.fetch("windfall").map(&label),
+        new_monthly_income_split: @method_settings.fetch("income_split").to_h { |key, percent| [ label.call(key), "#{percent}%" ] },
+        new_monthly_income_split_rule: "Dollar amounts for a raise or new job come from Rails in a ready answer. Never work them out; without them, ask how much more lands each month."
       }
     end
 
