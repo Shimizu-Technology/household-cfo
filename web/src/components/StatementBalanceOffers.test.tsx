@@ -101,6 +101,14 @@ describe('StatementBalanceOffers', () => {
     expect(onChanged).not.toHaveBeenCalled()
   })
 
+  it('asks no account question when the only answer is adding it', async () => {
+    apiMocks.fetchStatementBalanceOffers.mockResolvedValue([{ ...card, kind: 'account', choices: [], new_label: 'Checking ····4410', statement_label: 'Checking ····4410' }])
+    render(<StatementBalanceOffers onChanged={vi.fn()} />)
+    expect(await screen.findByText('Add Checking ····4410 to My Money with $4,296.96 from your Oct 31 statement?')).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Which account is this?' })).toBeNull()
+    expect((screen.getByRole('button', { name: 'Add account' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('renders nothing when there is no offer or the offers cannot load', async () => {
     apiMocks.fetchStatementBalanceOffers.mockRejectedValue(new Error('offline'))
     const { container } = render(<StatementBalanceOffers onChanged={vi.fn()} />)

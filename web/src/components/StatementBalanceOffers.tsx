@@ -85,7 +85,7 @@ function OfferCard({ offer, onApplied, onDismiss }: {
   return <article className="statement-balance-offer" aria-label={`Balance from your statement for ${offer.statement_label}`}>
     <p className="statement-balance-question">{offerQuestion(offer, choice)}</p>
     {chosen && <p className="statement-balance-now">Now: {currentBalance(chosen)}</p>}
-    {!linked && (options.length > 0 || offer.can_add_new) && <fieldset className="statement-balance-choices" disabled={saving}>
+    {!linked && options.length > 0 && <fieldset className="statement-balance-choices" disabled={saving}>
       <legend>{offer.kind === 'debt' ? 'Which card is this?' : 'Which account is this?'}</legend>
       {options.map((row) => <label className="ui-check" key={row.id}>
         <input type="radio" name={name} checked={choice === row.id} onChange={() => setChoice(row.id)} />
@@ -159,7 +159,7 @@ export function StatementBalanceOffers({ onChanged, className = '', refreshKey }
   }
 
   return <section className={`statement-balance-offers ui-card ${className}`.trim()} aria-label="Balances from your statements">
-    <h3 className="ui-section">{visible.length === 1 ? 'Balance from your statement' : 'Balances from your statements'}</h3>
+    <h3 className="ui-section">{visible.length > 1 ? 'Balances from your statements' : 'Balance from your statement'}</h3>
     {notice && <p className="statement-balance-notice" role="status">{notice}</p>}
     {visible.map((offer) => <OfferCard key={offer.key} offer={offer} onApplied={applied} onDismiss={() => dismiss(offer.key)} />)}
   </section>
