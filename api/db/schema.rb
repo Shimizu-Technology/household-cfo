@@ -105,10 +105,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_140000) do
     t.integer "repeat_months"
     t.boolean "must_pay", default: true, null: false
     t.boolean "estimate", default: false, null: false
+    t.date "paid_on"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["budget_category_id"], name: "index_bills_on_budget_category_id"
     t.index ["household_id"], name: "index_bills_on_household_id"
+    t.check_constraint "paid_on IS NULL OR repeat_months IS NULL", name: "bills_paid_only_one_time"
   end
 
   create_table "budget_allocations", force: :cascade do |t|

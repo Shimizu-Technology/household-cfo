@@ -23,7 +23,9 @@ Rails.application.routes.draw do
       resources :brand_logos, only: :show
     end
     namespace :v1 do
-      resources :bills, only: %i[create update destroy]
+      resources :bills, only: %i[create update destroy] do
+        post :paid, on: :member
+      end
       resources :enterprise_organizations, only: %i[index show create update] do
         member do
           post :portal

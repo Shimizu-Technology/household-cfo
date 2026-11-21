@@ -86,6 +86,8 @@ export type WorkspaceData = {
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean
+  // Owners and partners save changes; others only read. Absent in demo data.
+  can_edit_household?: boolean
   setup_status: WorkspaceSetupStatus
   setup_values: WorkspaceSetupValues
   income_sources: IncomeTimelineSource[]
@@ -5598,10 +5600,15 @@ export function updateChallengeChatCard(id: number, input: { action: 'save_state
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }
 
-export type ScheduledBill = { id: number; name: string; amount_cents: number; due_on: string; repeat_months: number | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean }
-export type ForecastMonth = { label: string; starts_on: string; opening_cents: number | null; income_cents: number | null; income_basis: string; actual_partial: boolean | null; outflow_cents: number | null; ending_cents: number | null; bills: ScheduledBill[]; reasons: string[] }
-export type YearForecast = { starting_cash_cents: number | null; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: string; bills: ScheduledBill[]; debt_bills: { name: string; amount_cents: number | null; due_on: string | null; must_pay: boolean }[]; rule: string }
-export async function saveBill(id: number | null, bill: object) {
+export type ScheduledBill = { id: number; name: string; amount_cents: number; due_on: string; repeat_months: number | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean; paid_on: string | null; was_this_paid: boolean; looks_like_debt: string | null }
+export type ForecastIncomeBasis = 'planned' | 'approved_so_far' | 'approved' | 'after_balance' | 'estimated_after_balance'
+export type ForecastMonth = { label: string; starts_on: string; from_on: string | null; opening_cents: number | null; income_cents: number | null; income_basis: ForecastIncomeBasis; approved_so_far_cents: number | null; outflow_cents: number | null; spending_plan_known: boolean; ending_cents: number | null; bills: ScheduledBill[]; reasons: string[]; includes_estimates: boolean; higher_costs: boolean }
+export type YearForecast = { starting_cash_cents: number | null; starting_on: string | null; starting_note: string; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: 'short' | 'no_short_month' | 'unknown'; missing: string[]; bills: ScheduledBill[]; debt_bills: { name: string; amount_cents: number | null }[] }
+export type BillInput = { name: string; amount: string; due_on: string; repeat_months: string | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean }
+export async function saveBill(id: number | null, bill: BillInput) {
   return fetchJson(`/api/v1/bills${id ? `/${id}` : ''}`, { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bill }) })
 }
 export async function removeBill(id: number) { return fetchJson(`/api/v1/bills/${id}`, { method: 'DELETE' }) }
+export async function markBillPaid(id: number, paid: boolean) {
+  return fetchJson(`/api/v1/bills/${id}/paid`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid }) })
+}

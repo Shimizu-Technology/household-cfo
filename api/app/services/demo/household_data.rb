@@ -269,11 +269,36 @@ module Demo
           upcoming_spikes: [ december ],
           next_irregular_month: outlook_months.find { |month| Date.iso8601(month[:starts_on]) >= on.beginning_of_month }
         },
+        year_forecast: year_forecast(outlook_months, rows, on: on),
         pending_transaction_drafts: [],
         pending_mia_action_drafts: [],
         recent_transactions: [],
         archived_categories: []
       }
+    end
+
+    # The demo family's cash through December, from balances dated at the end of last month. No saved bills, so each
+    # category counts its plan, the way a real plan does before bills are added.
+    def self.year_forecast(outlook_months, rows, on: Date.current)
+      cash = HouseholdFinance::Money.cents(PROTECTED_LIQUID)
+      starting = cash
+      months = outlook_months.select { |month| Date.iso8601(month[:starts_on]) >= on.beginning_of_month }.map do |month|
+        income = HouseholdFinance::Money.cents(month[:income])
+        out = HouseholdFinance::Money.cents(month[:planned_outflow])
+        opening = cash
+        cash += income - out
+        index = month[:period_id] - 1
+        { label: Date.iso8601(month[:starts_on]).strftime("%B"), starts_on: month[:starts_on], from_on: nil,
+          opening_cents: opening, income_cents: income, income_basis: "planned", approved_so_far_cents: nil,
+          outflow_cents: out, spending_plan_known: true, ending_cents: cash, bills: [],
+          reasons: rows.sort_by { |row| -row[:months][index][:planned] }.first(3).map { |row| row[:name] },
+          includes_estimates: false, higher_costs: HouseholdFinance::Money.cents(month[:planned_outflow]) > HouseholdFinance::Money.cents(CATEGORY_PLAN + MONTHLY_DEBT_MINIMUMS) }
+      end
+      short = months.find { |month| month[:ending_cents].negative? }
+      { starting_cash_cents: starting, starting_on: (on.beginning_of_month - 1).iso8601,
+        starting_note: "Starting from your cash balances on #{(on.beginning_of_month - 1).strftime('%B %-d')}.",
+        months: months, first_short_month: short, status: short ? "short" : "no_short_month", missing: [], bills: [],
+        debt_bills: [ { name: "Monthly debt payments", amount_cents: HouseholdFinance::Money.cents(MONTHLY_DEBT_MINIMUMS) } ] }
     end
 
     def self.financial_facts(on: Date.current)

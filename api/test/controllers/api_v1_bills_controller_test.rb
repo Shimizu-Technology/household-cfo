@@ -19,6 +19,34 @@ class ApiV1BillsControllerTest < ActionDispatch::IntegrationTest
     delete "/api/v1/bills/#{bill.id}", headers: @headers
     assert_response :success
     assert_empty @household.bills
+    events = @household.household_audit_events.where(auditable_type: "Bill").order(:id)
+    assert_equal %w[bill.created bill.updated bill.removed], events.map(&:event_type)
+    assert_equal [ [ nil, 1234 ], [ 1234, 5000 ], [ 5000, nil ] ], events.map { |event| event.metadata.values_at("amount_cents_before", "amount_cents_after") }
+  end
+
+  test "only a one time bill is marked paid, by her, and audited" do
+    post "/api/v1/bills", params: { bill: { name: "Talun repair", amount: "690", due_on: "2026-09-22" } }, headers: @headers, as: :json
+    bill = @household.bills.sole
+    post "/api/v1/bills/#{bill.id}/paid", params: { paid: true }, headers: @headers, as: :json
+    assert_response :success
+    assert_equal Date.current, bill.reload.paid_on
+    assert_equal "bill.paid", @household.household_audit_events.order(:id).last.event_type
+    post "/api/v1/bills/#{bill.id}/paid", params: { paid: false }, headers: @headers, as: :json
+    assert_nil bill.reload.paid_on
+    assert_equal "bill.unpaid", @household.household_audit_events.order(:id).last.event_type
+
+    bill.update!(repeat_months: 1)
+    assert_no_difference -> { @household.household_audit_events.count } do
+      post "/api/v1/bills/#{bill.id}/paid", params: { paid: true }, headers: @headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_nil bill.reload.paid_on
+  end
+
+  test "the workspace says whether she can change bills" do
+    get "/api/v1/workspace", headers: @headers
+    assert_response :success
+    assert_equal true, response.parsed_body.dig("workspace", "can_edit_household")
   end
 
   test "reject another household category and invalid amounts" do
