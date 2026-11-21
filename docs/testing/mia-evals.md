@@ -103,3 +103,17 @@ These apply to every reply in every case, in both modes (`HouseholdFinance::MiaE
 `known_gap` records a question the app can't answer correctly today. It names the checks expected to fail: `expected_phrases`, `forbidden_phrases`, `expected_amounts`, `strict_amounts` or a rule name. The case still runs and reports every failing check. Only the named checks are excused; any other failure, such as a rule violation or a wrong amount the gap doesn't name, fails the run as for any case. A crash or an empty reply is never excused. `reason` is required and should say what is wrong. `modes: [deterministic]` limits a gap to deterministic runs, for answers that only fail without the model reader; in live runs the case is then checked like any other.
 
 When a named check starts passing, the harness lists the case as a closed gap. The deterministic CFO test fails on it, and the live report and task output call it out. Check the reply, then take the check (or the whole `known_gap`) off, along with its id in the test's `CFO_KNOWN_GAPS`. Don't loosen a case's expectations to make it pass; mark it a gap and say why.
+
+### Phase 2 coverage (2026-11-21)
+
+This test-only update starts from main `3d286114` and exercises the controller deterministically with fictional records. Acceptance is the CFO question set, eval checks, runner tests, and RuboCop; no model or external service is called. Browser/device QA is outside this backend eval change.
+
+The baseline has 29 cases and seven known gaps (not eight). None closed: clinic protection, family support, the one-off nursery payment, savings by March, both payday questions, and job-loss runway still fail their named checks. Global safety rules remain enforced.
+
+New coverage checks unknown approved income against the saved plan, the $400 raise's $200/$100/$100 split, the $5,300 windfall allocation, readiness colours, and the three-month emergency-fund target. Existing records and numbers are unchanged. With $4,080 of planned monthly outflow, the target is $12,240; $2,500 saved leaves $9,740 to fill. The bonus therefore goes entirely to the emergency fund rather than using the raise percentages.
+
+Two additional deterministic routing gaps are pinned: “How much came in this month vs plan?” reaches general readiness coaching because the income recognizer excludes “vs”; “Are we green?” deflects because it does not match readiness routing. Explicit readiness wording checks the published 12/36-month rule separately. Unknown-month cases require “not known yet” and reject $0 or a claim that planned income arrived. A positive approved-income fixture remains future coverage; this household has no approved income statements.
+
+At the merge-state check, #359 (balances), #360 (bills/year forecast), and #362 (CFO Filter/Optionality) were open. Proposed follow-ups: checking balance with an “as of” date; year-end forecast, next big bill and March bills; a one-time $500 purchase against annual surplus; steps to green; and quitting-job runway. Reassess both payday gaps and job-loss runway after those features merge. Unmerged work has no new known gaps in this set.
+
+Validation: Ruby 3.3.14, 55 tests / 554 assertions, no failures, errors or skips. CFO: 27/36 pass, nine known gaps, none closed. RuboCop: 1,527 files, no offenses. A parallel attempt exhausted PostgreSQL shared locks; the final serial run passed. Task databases are dropped after validation.
