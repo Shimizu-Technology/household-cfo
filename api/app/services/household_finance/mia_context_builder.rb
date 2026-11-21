@@ -290,6 +290,8 @@ module HouseholdFinance
         preserved_individual_records_excluded: portfolio.mode == "summary" ? debts.count : 0,
         coverage: total_count > MAX_FINANCIAL_RECORDS ? "first_50_approved_records" : "all_approved_records",
         unavailable_fields: debt_unavailable_fields(canonical_debts),
+        # Owed now and paid before any extra principal, in either tracking mode.
+        past_due: debt_arrears_context,
         records: canonical_debts.limit(MAX_FINANCIAL_RECORDS).map do |debt|
           {
             label: sanitized_text(debt.label, max_length: 120),
@@ -299,6 +301,9 @@ module HouseholdFinance
             balance_as_of_on: StatementBalanceOffers.statement_balance_on(debt)&.iso8601,
             minimum_payment: debt.minimum_payment_known? ? money(debt.minimum_payment_cents) : nil,
             apr_percent: debt.interest_rate_percent&.to_f,
+            due_day: debt.due_day,
+            # nil is not entered (unknown), never $0 behind.
+            past_due: debt.past_due_cents && money(debt.past_due_cents),
             updated_at: debt.updated_at.iso8601
           }
         end
@@ -306,11 +311,23 @@ module HouseholdFinance
     end
 
     def debt_unavailable_fields(debts)
-      fields = %w[due_date fees exact_payoff_amount]
+      fields = %w[fees exact_payoff_amount]
+      fields.unshift("due_date") if debts.where(due_day: nil).exists?
       fields.unshift("apr") if debts.where(interest_rate_percent: nil).exists?
       fields.unshift("balance") if debts.where(balance_known: false).exists?
       fields.unshift("minimum_payment") if debts.where(minimum_payment_known: false).exists?
       fields
+    end
+
+    def debt_arrears_context
+      arrears = DebtArrears.new(household)
+      return { total: nil, debts: [], rule: nil } unless arrears.any?
+
+      {
+        total: money(arrears.total_cents),
+        debts: arrears.debts.first(MAX_FINANCIAL_RECORDS).map { |debt| { label: sanitized_text(debt.label, max_length: 120), past_due: money(debt.past_due_cents), due_day: debt.due_day } },
+        rule: "Catching up past-due amounts comes first, before any extra principal; the payoff order applies after that. A past-due amount is part of the balance, owed now."
+      }
     end
 
     def document_context

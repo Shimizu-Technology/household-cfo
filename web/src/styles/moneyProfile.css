@@ -126,6 +126,8 @@ body #root .money-screen .income-schedule-row > div:last-child > button { width:
   .money-screen .debt-row .money-edit-row > span:first-of-type > span { grid-column: 2 / -1; grid-row: 2; text-align: start; }
   .money-screen .debt-row .money-edit-row > span:nth-of-type(2) { grid-column: 3; grid-row: 1; text-align: end; }
   .money-screen .debt-row .money-edit-label { grid-column: 2; grid-row: 3; justify-self: start; }
+  .money-screen .debt-row .money-edit-row > span:first-of-type > span.debt-past-due { grid-row: 3; }
+  .money-screen .debt-row .money-edit-row:has(.debt-past-due) .money-edit-label { grid-row: 4; }
   body #root .money-screen :is(.account-row, .goal-row) > .money-edit-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); }
   .money-screen :is(.account-row, .goal-row) .money-edit-row > span:nth-of-type(2) { grid-column: 3; grid-row: 1; text-align: end; }
   .money-screen :is(.account-row, .goal-row) .money-edit-label { grid-column: 2; grid-row: 2; justify-self: start; }
@@ -146,3 +148,5 @@ body #root :is(.money-screen, .annual-income-planner) .money-edit-row > span:nth
 .annual-income-planner .income-schedule-row:has(.income-remove-question) > div:last-child { grid-column: 1 / -1; min-width: 0; max-width: 100%; }
 
 .profile-screen .setup-save-notice { flex-basis: 100%; margin: 0; }
+/* How far behind on a debt: plain text in the danger colour, with tabular figures. */
+body #root .money-edit-row > span > span.debt-past-due { color: var(--color-danger); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }

@@ -411,6 +411,12 @@ module HouseholdFinance
       purchase_question? || readiness_coaching || debt_strategy || matched_guardrail || tax_context || conditional_monthly_income_question?
     end
 
+    # A debt she is behind on is the first thing to pay, whatever the payoff order.
+    def arrears_first_answer
+      DebtStrategyPlanner.new(household, message, conversation_messages: conversation_messages, ensure_plan: ensure_plan,
+        debt_order: method_settings.fetch("debt_order")).arrears_first_answer
+    end
+
     def debt_strategy_answer
       return nil if normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
       return nil if normalized_message.match?(/balance transfer/i)
@@ -548,6 +554,9 @@ module HouseholdFinance
       return nil unless normalized_message.match?(BILL_TRIAGE_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
       return nil if readiness_follow_up?
+
+      arrears_first = arrears_first_answer
+      return arrears_first if arrears_first
 
       "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and monthly debt payments outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
     end

@@ -16,6 +16,8 @@ module HouseholdFinance
           values.merge!(normalize_optional_money(input, :balance, :balance_cents, label: "Balance")) if input.key?(:balance) || input.key?(:balance_cents)
           values.merge!(normalize_optional_money(input, :minimum_payment, :minimum_payment_cents, label: "Minimum payment")) if input.key?(:minimum_payment) || input.key?(:minimum_payment_cents)
           values[:interest_rate_percent] = normalize_apr(input[:interest_rate_percent]) if input.key?(:interest_rate_percent)
+          values[:due_day] = normalize_due_day(input[:due_day]) if input.key?(:due_day)
+          values.merge!(normalize_past_due(input))
           raise ArgumentError, "Choose at least one debt field to update" if values.one?
           values
         end

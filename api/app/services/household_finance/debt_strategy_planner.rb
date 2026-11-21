@@ -45,7 +45,7 @@ module HouseholdFinance
       if portfolio.mode == "summary" && parsed_scenario_debts.empty?
         balance = portfolio.balance_known? ? money(portfolio.total_balance_cents) : "an unconfirmed total balance"
         minimum = portfolio.minimum_payment_known? ? "#{money(portfolio.monthly_minimum_cents)} in monthly debt payments" : "unconfirmed monthly debt payments"
-        return "Your approved debt summary shows #{balance} and #{minimum}. Individual debt details are not canonical in summary mode. Add each balance and APR, then explicitly switch to individual tracking before I rank saved lenders; I will not guess which lender should come first. No payment is made automatically."
+        return "#{"#{arrears_line} " if arrears.any?}Your approved debt summary shows #{balance} and #{minimum}. Individual debt details are not canonical in summary mode. Add each balance and APR, then explicitly switch to individual tracking before I rank saved lenders; I will not guess which lender should come first. No payment is made automatically."
       end
       approved_debts = portfolio.mode == "individual" ? household.debts.active.order(:id).to_a : []
       scenario_debts = parsed_scenario_debts
@@ -56,12 +56,8 @@ module HouseholdFinance
 
       balances_known = debts.all? { |debt| debt_value_known?(debt, :balance) }
       outstanding_debts = debts.select { |debt| debt_value_known?(debt, :balance) && debt_value(debt, :balance_cents).to_i.positive? }
-      avalanche = if balances_known && outstanding_debts.all? { |debt| debt_value(debt, :interest_rate_percent).present? }
-        outstanding_debts.max_by { |debt| [ debt_value(debt, :interest_rate_percent).to_d, debt_value(debt, :balance_cents).to_i ] }
-      end
-      snowball = if balances_known
-        outstanding_debts.min_by { |debt| [ debt_value(debt, :balance_cents).to_i, -debt_value(debt, :interest_rate_percent).to_d ] }
-      end
+      avalanche = avalanche_target(outstanding_debts) if balances_known
+      snowball = snowball_target(outstanding_debts) if balances_known
       minimums = debts.select { |debt| debt_value_known?(debt, :minimum_payment) }.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
       snapshot = SnapshotBuilder.new(household, ensure_plan: ensure_plan).call
       temporary_drop = temporary_income_drop_cents
@@ -72,6 +68,7 @@ module HouseholdFinance
 
       lines = []
       lines << source_line(approved_debts, scenario_debts, scenario_only_debts, debts)
+      lines << arrears_line
       snowball_line = "Snowball: #{strategy_target(snowball, include_apr: false)}" if snowball
       lines << snowball_line if debt_order == "snowball"
       lines << "Avalanche: #{strategy_target(avalanche, include_apr: true)}" if avalanche
@@ -92,8 +89,24 @@ module HouseholdFinance
       lines << "The household's canonical monthly debt payment is not fully entered, so I cannot calculate available extra principal from cash flow yet." unless cash_flow_known
       lines << extra_money_line(extra_amount, avalanche, snowball, snapshot) if extra_amount.positive? && cash_flow_known && (avalanche || snowball)
       lines << numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known: cash_flow_known, balances_known: balances_known)
+      lines << "Snowball and avalanche apply to extra payments after the past-due amounts are caught up." if arrears.any? && (avalanche || snowball)
       lines << missing_apr_line(outstanding_debts)
       lines.compact_blank.join(" ")
+    end
+
+    # "What should I pay first?" when she has entered a past-due amount: the catch-up
+    # comes first, then the program's payoff order for anything extra. nil when no
+    # approved debt is past due.
+    def arrears_first_answer
+      return unless arrears.any?
+
+      [
+        "Catch up what you are behind on first: #{arrears.debts.map { |debt| arrears.detail(debt) }.to_sentence}#{arrears.debts.many? ? " (#{money(arrears.total_cents)} in all)" : ''}.",
+        "A past-due amount is owed now and can add late fees, so it comes before any extra payment.",
+        "Keep housing, food, utilities, and medical needs covered alongside it, and keep every other minimum current.",
+        after_catch_up_line,
+        "If you cannot pay the whole past-due amount at once, call the lender before the next due date and ask about a catch-up plan. No payment is made automatically."
+      ].compact.join(" ")
     end
 
     def confirmed_debt_free?
@@ -133,7 +146,71 @@ module HouseholdFinance
       "#{details.join(', ')}."
     end
 
+    # Past-due amounts are owed now, so catching up is step 1 and comes out of this
+    # month's surplus before any extra principal.
     def numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known:, balances_known:)
+      return payoff_plan(avalanche, snowball, adjusted_surplus, cash_flow_known: cash_flow_known, balances_known: balances_known) unless arrears.any?
+
+      after_catch_up = adjusted_surplus - arrears.total_cents
+      if cash_flow_known && after_catch_up <= 0
+        return "1. #{catch_up_step} 2. Protect essential bills and keep every other minimum current. 3. Hold extra principal until the past-due amounts are caught up#{adjusted_surplus.positive? ? "; this month's #{money(adjusted_surplus)} surplus does not cover all of it" : ''}. If a lender's catch-up cannot fit, call them before the next due date and ask about a payment arrangement. No payment is made automatically."
+      end
+
+      rest = payoff_plan(avalanche, snowball, after_catch_up, cash_flow_known: cash_flow_known, balances_known: balances_known)
+      "1. #{catch_up_step} #{rest.gsub(/(?<!\S)([1-3])\. /) { "#{Regexp.last_match(1).to_i + 1}. " }}"
+    end
+
+    def avalanche_target(outstanding)
+      return unless outstanding.all? { |debt| debt_value(debt, :interest_rate_percent).present? }
+
+      outstanding.max_by { |debt| [ debt_value(debt, :interest_rate_percent).to_d, debt_value(debt, :balance_cents).to_i ] }
+    end
+
+    def snowball_target(outstanding)
+      outstanding.min_by { |debt| [ debt_value(debt, :balance_cents).to_i, -debt_value(debt, :interest_rate_percent).to_d ] }
+    end
+
+    # The program's payoff order still applies once the past-due amounts are caught up.
+    def after_catch_up_line
+      return unless DebtPortfolio.new(household).mode == "individual"
+
+      debts = household.debts.active.order(:id).to_a
+      return unless debts.all?(&:balance_known?)
+
+      outstanding = debts.select { |debt| debt.balance_cents.positive? }
+      return if outstanding.empty?
+
+      snowball = snowball_target(outstanding)
+      avalanche = avalanche_target(outstanding)
+      if avalanche == snowball
+        return "After you are caught up, extra payments go to #{snowball.label} first: it is both the smallest balance (snowball) and the highest APR (avalanche)."
+      end
+
+      snowball_text = "snowball (smallest balance first) starts with #{snowball.label}"
+      avalanche_text = avalanche ? "avalanche (highest APR first) starts with #{avalanche.label}" : "avalanche (highest APR first) needs every APR entered"
+      order = case debt_order
+      when "snowball" then "your program's #{snowball_text}; #{avalanche_text}"
+      when "avalanche" then "your program's #{avalanche_text}; #{snowball_text}"
+      else "#{avalanche_text}, or #{snowball_text}"
+      end
+      "After you are caught up, extra payments follow your payoff order: #{order}."
+    end
+
+    def catch_up_step
+      "Catch up the #{money(arrears.total_cents)} past due first: #{arrears.debts.map { |debt| arrears.detail(debt) }.to_sentence}."
+    end
+
+    def arrears
+      @arrears ||= DebtArrears.new(household)
+    end
+
+    def arrears_line
+      return unless arrears.any?
+
+      "You are behind on #{arrears.debts.map { |debt| arrears.detail(debt) }.to_sentence}. Past-due amounts are part of each balance and are owed now, so catching them up comes before any extra principal."
+    end
+
+    def payoff_plan(avalanche, snowball, adjusted_surplus, cash_flow_known:, balances_known:)
       target = debt_order == "snowball" ? snowball || avalanche : avalanche || snowball
       extra = [ adjusted_surplus, 0 ].max
       target_line = target ? "#{debt_label(target)}" : "the selected target debt"
@@ -169,7 +246,9 @@ module HouseholdFinance
     end
 
     def extra_cap(debt, extra)
-      remaining_after_minimum = [ debt_value(debt, :balance_cents).to_i - debt_value(debt, :minimum_payment_cents).to_i, 0 ].max
+      # The catch-up payment comes off the balance first, so the cap allows for it too.
+      past_due = debt.respond_to?(:past_due?) && debt.past_due? ? debt.past_due_cents : 0
+      remaining_after_minimum = [ debt_value(debt, :balance_cents).to_i - past_due - debt_value(debt, :minimum_payment_cents).to_i, 0 ].max
       [ extra, remaining_after_minimum ].min
     end
 
