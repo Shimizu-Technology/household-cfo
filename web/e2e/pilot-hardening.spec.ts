@@ -15692,7 +15692,7 @@ test('BOG UI Review redesign keeps purchase drafts through queue paging and show
   } } }))
   await page.goto('/?pilot_e2e_role=participant#Review')
   await expect(page.getByRole('heading', { name: 'Review', exact: true })).toBeVisible()
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total).toContainText('$12,345.67')
   await expect(total).not.toContainText('100 purchases')
   await page.getByRole('button', { name: 'Add a purchase', exact: true }).click()
@@ -15751,7 +15751,7 @@ test('BOG UI P5 figure 2 editing another month preserves the current total and o
     await route.fulfill({ json: p5Report(route, calls > 1 ? 55.25 : 43.10) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
   await total.locator('summary').click()
   await expect(total.getByText('Current confirmed market')).toBeVisible()
@@ -15782,7 +15782,7 @@ test('BOG UI P5 figure 4 quiet success overtakes initial loading and rejects its
     }
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total).toContainText('Loading report')
   await p5Edit(page)
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
@@ -15811,7 +15811,7 @@ test('BOG UI P5 figure 4 later quiet success clears a quiet error', async ({ pag
     return calls === 2 ? route.fulfill({ status: 503, json: { error: 'Fictional refresh failure' } }) : route.fulfill({ json: p5Report(route, calls === 1 ? 43.10 : 57.25) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
   await p5Edit(page)
   await expect(total.getByRole('alert')).toBeVisible()
@@ -17299,7 +17299,7 @@ test('BOG UI F4 HEIC and HEIF bytes convert locally to a readable JPEG and bad p
 })
 
 for (const permanent of [true, false]) test(`BOG UI F4 ${permanent ? 'permanent' : 'temporary'} file failure gives the right next step`, async ({ page }) => {
-  const source = { ...f4Source(), status: 'failed', metadata: { extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes.' }
+  const source = { ...f4Source(), status: 'failed', metadata: { extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so open File options and choose Try again in a few minutes.' }
   await f4Chat(page, [source])
   await expect(page.getByRole('region', { name: /Could not read/ })).toBeVisible()
   await f4Evidence(page, permanent ? 'permanent-failure' : 'temporary-failure')
