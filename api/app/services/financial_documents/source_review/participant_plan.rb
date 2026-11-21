@@ -55,10 +55,10 @@ module FinancialDocuments
       }.freeze
       # Answers that leave a line unfinished: it counts nowhere until the rest of its question is answered.
       UNFINISHED_REFERENCES = %w[unpaired-transfer: ownership-needed: overlap-cleared:].freeze
-      # Pay, benefits, pensions, tax refunds and interest are money she earned or received.
-      EARNED_INCOME = /\b(?:payroll|salary|salaries|wages?|pay\s*check|direct\s+dep(?:osit)?|dir\s+dep|pension|annuity|social\s+security|soc\s+sec|ssa|ssi|ssdi|tax\s+ref(?:und)?|unemployment|benefits?|dividends?|interest)\b/i
+      # Pay, bonuses, benefits, pensions, tax refunds and interest are money she earned or received.
+      EARNED_INCOME = /\b(?:payroll|pay|pay\s*check|salary|salaries|wages?|bonus(?:es)?|commissions?|stipend|direct\s+dep(?:osit)?|dir\s+dep|pension|annuity|social\s+security|soc\s+sec|ssa|ssi|ssdi|tax\s+ref(?:und)?|unemployment|benefits?|dividends?|interest)\b/i
       # Words that can mean her own money coming back from another account, a wallet or cash she put in.
-      OWN_MONEY = /\b(?:cash|atm|branch|teller|mobile|remote|check|counter)\s+deposit\b|\bdeposit\s+(?:from|at)\b|\bfrom\s+(?:my\s+|own\s+)?(?:savings|checking|share|account|acct)\b|\btransfers?\b|\bown\b|\bpaypal\b|\bvenmo\b|\bcash\s*app\b|\bzelle\b|\bapple\s+cash\b/i
+      OWN_MONEY = /\b(?:cash|atm|branch|teller|mobile|remote|check|counter)\s+deposit\b|\bdeposit\s+(?:from|at)\b|\bfrom\s+(?:my\s+|own\s+)?(?:savings|checking|share|account|acct)\b|\btransfers?\b|\bown\b|\bpaypal\b|\bvenmo\b|\bcash\s*app\b|\bzelle\b|\bapple\s+(?:cash|pay)\b/i
 
       # unlinked_account_ids: accounts linked by the save in progress. Their copies are read as she saw them before the link.
       def initialize(household, revision, unlinked_account_ids: [], overlap_context: nil, accounts: nil)

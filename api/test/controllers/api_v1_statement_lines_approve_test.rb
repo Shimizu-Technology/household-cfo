@@ -1334,7 +1334,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "one explicit answer leaves 300 approved copies out with linear query cost and safe retry" do
-    rows = (1..300).map { |index| [ "Store #{index}", 10_000 + index, "income", index ] }
+    rows = (1..300).map { |index| [ "Store #{index} payroll", 10_000 + index, "income", index ] }
     first = build_source(rows: rows, account: { period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     ids = first[:revision].financial_source_events.pluck(:id)
     ids.each_slice(100) { |slice| approve_lines({ paged: true, expect_ready_ids: slice, lines: as_read(slice, source: first) }, source: first) }
@@ -1359,10 +1359,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a file matching two approved lines keeps its individual question" do
-    first = build_source(rows: [ [ "Twin store", 1000, "income", 1 ], [ "Twin store", 1000, "income", 29 ] ])
+    first = build_source(rows: [ [ "Twin store payroll", 1000, "income", 1 ], [ "Twin store payroll", 1000, "income", 29 ] ])
     approve_lines({ lines: as_read(first[:revision].financial_source_events.pluck(:id), source: first) }, source: first)
     assert_response :success, response.body
-    copy = build_source(rows: [ [ "Twin store", 1000, "income", 1 ] ])
+    copy = build_source(rows: [ [ "Twin store payroll", 1000, "income", 1 ] ])
     approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
     assert_equal :duplicate, plan.lines.sole.kind
@@ -1370,9 +1370,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a repeated-file answer refuses a weaker match without saving anything" do
-    first = build_source(rows: [ [ "Store A", 1000, "income", 1 ] ])
+    first = build_source(rows: [ [ "Store A payroll", 1000, "income", 1 ] ])
     approve_lines({ lines: as_read(first[:revision].financial_source_events.pluck(:id), source: first) }, source: first)
-    copy = build_source(rows: [ [ "Different store", 1000, "income", 1 ] ])
+    copy = build_source(rows: [ [ "Different store payroll", 1000, "income", 1 ] ])
     approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
     assert_empty plan.repeated_lines

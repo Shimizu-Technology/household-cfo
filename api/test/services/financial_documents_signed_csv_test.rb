@@ -604,9 +604,10 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(document.household, revision)
     assert plan.lines.all? { |line| line.overlaps.empty? }
     line = plan.lines.find { |row| row.event.event_type == "income" }
-    assert line.ready?
+    # Money in with no payer named (a sign answer can turn "RENT PAYMENT" into money in) is asked; she says she received it.
+    assert line.ready? || line.kind == :money_in_source
     domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
-    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: line.event.id, decision: "as_read", shown: { event_type: line.event.event_type, category_id: line.category_id } } ] }).call
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: line.event.id, decision: line.ready? ? "as_read" : "someone_else", expected_head: line.expected_head, shown: { event_type: line.event.event_type, category_id: line.category_id } } ] }).call
     assert SourceReviewHead.find_by!(financial_source_event: line.event).approved_version
   end
 
