@@ -247,6 +247,49 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ -1_000, 2_000, @category.id ], [ version.signed_amount_cents, version.purchase_amount_cents, version.budget_category_id ], "Only the category changed"
   end
 
+  test "unchanged pending corrections preserve every staged answer on an approved purchase" do
+    document = @source[:import]
+    document.update!(metadata: document.metadata.merge("source_accounting_contract_version" => FinancialDocuments::AccountingContract::VERSION))
+    mutate("account_link", account_input)
+    input = stage_input(response.parsed_body.fetch("record").fetch("id"))
+    mutate("stage", input)
+    mutate("approve", approval_input(response.parsed_body.fetch("record")))
+    assert_response :success
+    head = SourceReviewHead.find_by!(financial_source_event: @source[:events].sole)
+    [
+      { disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded" },
+      { event_type: "transfer", purchase_amount_cents: nil, budget_category_id: nil, external_reference: "own-account:demo" },
+      { event_type: "purchase", external_reference: "sent-to-someone:demo", overlap_disposition: "distinct" },
+      { event_type: "cash_withdrawal", purchase_amount_cents: 2_000 }
+    ].each do |changes|
+      facts = input[:facts].merge(changes)
+      mutate("stage", input.merge(base_version_id: head.reload.approved_version_id, base_lock_version: head.lock_version, facts: facts))
+      assert_response :success, response.body
+      review_get
+      row = response.parsed_body.dig("source_review", "participant_review", "plan", "attention").sole
+      assert_equal "correction", row["kind"]
+      assert_equal facts[:disposition], row["disposition"]
+      assert_equal facts[:event_type], row["event_type"]
+      assert_equal [ facts[:purchase_amount_cents] ], [ row["purchase_amount_cents"] ]
+      assert_equal false, row["recipient_question"]
+      # A changed field must fail atomically rather than erase hidden proposal answers.
+      post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [ {
+        event_id: row["event_id"], expected_head: row["expected_head"], decision: "edited",
+        edit: { kind: "spending", merchant: "Changed store", posted_on: row["posted_on"], amount_cents: 999, category_id: row["category_id"] }
+      } ] } }, headers: auth_headers(@user).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+      assert_response :conflict, response.body
+      assert_includes response.body, "Nothing was saved"
+      assert_equal facts.stringify_keys, head.source_review_drafts.find_by!(status: "pending").facts.slice(*facts.stringify_keys.keys)
+      kind = { "purchase" => "spending", "transfer" => "moved", "cash_withdrawal" => "cash" }.fetch(row["event_type"])
+      post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [ {
+        event_id: row["event_id"], expected_head: row["expected_head"], decision: "edited",
+        edit: { kind: kind, merchant: row["editable_merchant"], posted_on: row["posted_on"], amount_cents: row["signed_amount_cents"].abs, category_id: row["category_id"] }
+      } ] } }, headers: auth_headers(@user).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+      assert_response :success, response.body
+      assert_equal facts.stringify_keys, head.reload.approved_version.reviewed_facts.stringify_keys.slice(*facts.stringify_keys.keys)
+    end
+  end
+
   def approval_input(draft)
     { draft_id: draft.fetch("id"), draft_lock_version: draft.fetch("lock_version"), draft_digest: draft.fetch("digest") }
   end

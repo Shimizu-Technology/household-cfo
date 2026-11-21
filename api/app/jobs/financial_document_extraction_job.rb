@@ -81,7 +81,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
     end
   rescue StandardError => e
     Rails.logger.error("[FinancialDocumentExtractionJob] import #{financial_document_import_id} failed_class=#{e.class}")
-    persist_failure_safely(document_import, attempt, "Document extraction could not finish. Try reprocessing the document.") if defined?(document_import) && document_import && attempt
+    persist_failure_safely(document_import, attempt, "Document extraction could not finish. Open File options and choose Try again.") if defined?(document_import) && document_import && attempt
   end
 
   private

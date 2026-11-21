@@ -96,7 +96,7 @@ module SpendingPatterns
 
     def self.bill_free_list?(merchants, category_names, choices, cluster)
       merchants.none? { |row| Analyzer.protected_merchant?(row[:label]) } &&
-        category_names.none? { |name| Analyzer.protected_category?(name) } &&
+        category_names.none? { |name| Analyzer.protected_category?(name) || Analyzer::UTILITY_COMPANY.match?(name.to_s) } &&
         choices.none? { |row| Analyzer.protected_merchant?(row[:merchant]) } &&
         !Analyzer.protected_merchant?(cluster&.dig(:label))
     end

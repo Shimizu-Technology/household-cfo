@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { LineKind } from '../lib/statementReview'
+import { lineSheetFromAttention, type LineKind } from '../lib/statementReview'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
 import { StatementAccountSheet, StatementLineSheet } from './StatementSheets'
 
@@ -122,4 +122,14 @@ it('keeps corrected purchase facts after a stale-match refusal and offers Save r
   expect((screen.getByLabelText('Amount') as HTMLInputElement).value).toBe('60.00')
   expect(screen.queryByRole('button', { name: /Same purchase/ })).toBeNull()
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ merchant: 'Talun Demo Hardware', posted_on: '2026-08-20', amount_cents: 6000 }))
+})
+
+it('shows a pending exclusion and saves its unchanged fields without offering another exclusion', () => {
+  const onSave = vi.fn()
+  const item = { ...participantReviewFixture().participant_review!.plan!.attention[0], kind: 'correction' as const, event_type: 'purchase' as const, disposition: 'exclude', merchant: 'Demo store', editable_merchant: 'Demo store', posted_on: '2026-10-01', signed_amount_cents: -1000, category_id: null }
+  render(<StatementLineSheet line={lineSheetFromAttention(item)} categories={[]} busy={false} error={null} onSave={onSave} onLeaveOut={vi.fn()} onClose={vi.fn()} />)
+  expect(screen.getByText('This line is left out of spending and income.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Leave this line out' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(onSave).toHaveBeenCalledWith({ kind: 'spending', merchant: 'Demo store', posted_on: '2026-10-01', amount_cents: 1000, category_id: null })
 })

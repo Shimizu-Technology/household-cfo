@@ -6,6 +6,10 @@ const ready = (count: number): StatementPlan['ready'] => Array.from({ length: co
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), ready: ready(24), coverage: { question: null, answer: null }, totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
   attention: [1, 2, 3].map((id) => ({ event_id: 100 + id, kind: 'refund' as const, event_type: 'refund' as const, question: 'Is this a refund?', answers: [], merchant: 'Amazon', posted_on: '2026-09-24', signed_amount_cents: 1299, category_id: null, category_name: null })), ...patch })
 afterEach(() => vi.useRealTimers())
+it('opens a pending exclusion on an approved purchase as left out', () => {
+  const item = { ...plan().attention[0], kind: 'correction' as const, event_type: 'purchase' as const, disposition: 'exclude', signed_amount_cents: -1000 }
+  expect(lineSheetFromAttention(item)).toMatchObject({ leftOut: true, kind: 'spending', amountCents: 1000 })
+})
 
 describe('a line whose direction she supplies', () => {
   const unsigned = (eventType: 'refund' | 'transfer' | 'cash_withdrawal') => ({ ...plan().attention[0], kind: 'direction' as never, event_type: eventType, signed_amount_cents: null, amount_cents: 10_000 })

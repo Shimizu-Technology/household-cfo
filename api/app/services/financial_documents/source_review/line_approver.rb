@@ -297,6 +297,18 @@ module FinancialDocuments
 
       # prior: the line's approved version even while unfinished, so an answer she already gave ("different charge") stands.
       def facts_for(line, decision, edit, identity_id, saved = nil, prior: nil)
+        if line.kind == :correction && decision == "edited"
+          proposed = line.saved
+          kind = KINDS[edit[:kind].to_s]
+          same_kind = kind == proposed.event_type || (edit[:kind] == "spending" && proposed.event_type.in?(ParticipantPlan::EXPENSE_TYPES))
+          unchanged = same_kind && edit[:amount_cents] == proposed.signed_amount_cents&.abs &&
+            edit[:posted_on].to_s == proposed.posted_on&.iso8601 && edit[:category_id].presence&.to_i == proposed.budget_category_id &&
+            edit[:merchant].to_s == AccountNumberMask.display(proposed.merchant) &&
+            (!edit[:money_direction] || edit[:money_direction] == (proposed.signed_amount_cents.to_i.negative? ? "out" : "in"))
+          raise Domain::StaleReview, "This correction has answers this form cannot change. Nothing was saved. Close it and review the proposed correction again." unless unchanged
+
+          return proposed.reviewed_facts
+        end
         base = ParticipantPlan.facts_as_read(line.event, identity_id: identity_id, merchant: line.merchant, category_id: line.category_id)
         # A line she already saved changes from what she saved, never from the statement as first read:
         # choosing a category must not undo a corrected amount, name, date or kind, or her "different charge".

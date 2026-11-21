@@ -76,7 +76,7 @@ module SpendingPatterns
       text = name.to_s
       text.match?(ALWAYS_PROTECTED_CATEGORY) || PROTECTED_CATEGORY_WORDS.slice(*(CORE_PROTECTED | Array(protected))).values.any? { |words| text.match?(words) }
     end
-    UTILITY_COMPANY = /\b(?:power|electric(?:ity)?|water|gas|sewer|telecom(?:munications)?|telephone|internet|broadband)\b(?:\s+(?:co\.?|company|corporation|corp\.?|inc\.?|llc|ltd\.?|authority|services?|utility|utilities|district|department|board))*\s*\z/i
+    UTILITY_COMPANY = /\b(?:power|electric(?:ity)?|water|gas(?=[,\s]+(?:co\b|company\b|corporation\b|corp\b|inc\b|llc\b|ltd\b|authority\b|services?\b|utilit(?:y|ies)\b|district\b|department\b|board\b))|sewer|telecom(?:munications)?|telephone|internet|broadband)\b(?:,?\s+(?:co\.?|company|corporation|corp\.?|inc\.?|llc|ltd\.?|authority|services?|utility|utilities|district|department|board))*\s*\z/i
 
     def self.protected_merchant?(name) = name.to_s.match?(PROTECTED_MERCHANT) || name.to_s.match?(UTILITY_COMPANY)
 

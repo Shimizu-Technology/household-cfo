@@ -8,8 +8,8 @@ class FinancialDocumentExtractionDispatch < ApplicationRecord
   # Reprocess (request! with restart) starts a fresh count.
   MAX_PROCESSING_ATTEMPTS = 3
   MAX_ENQUEUE_ATTEMPTS = 12
-  ATTEMPTS_EXHAUSTED_MESSAGE = "Mia couldn't finish reading this file after a few tries. Try Reprocess, or upload a smaller file, a CSV export, or a screenshot.".freeze
-  ADMISSION_EXHAUSTED_MESSAGE = "Mia couldn't start reading this file. Try Reprocess in a few minutes, or upload it again.".freeze
+  ATTEMPTS_EXHAUSTED_MESSAGE = "Mia couldn't finish reading this file after a few tries. Open File options and choose Try again, or upload a smaller file, a CSV export, or a screenshot.".freeze
+  ADMISSION_EXHAUSTED_MESSAGE = "Mia couldn't start reading this file. Open File options and choose Try again in a few minutes, or upload it again.".freeze
 
   belongs_to :financial_document_import, optional: true
 
@@ -84,7 +84,7 @@ class FinancialDocumentExtractionDispatch < ApplicationRecord
       document_import = financial_document_import
       if document_import && document_import.status.in?(%w[uploaded processing])
         message = case code
-        when "source_changed" then "The document source changed before extraction completed. Reprocess the current source."
+        when "source_changed" then "The document source changed before extraction completed. Open File options and choose Try again to read the current source."
         when "admission_exhausted" then ADMISSION_EXHAUSTED_MESSAGE
         else "Document source is no longer available for extraction."
         end

@@ -10,6 +10,8 @@ export type ExpectedLineHead = { approved_version_id: number | null; lock_versio
 /** A purchase she already confirmed (a receipt, chat, form or linked-account purchase) that this bank line may be. */
 export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
+  disposition?: string | null
+  purchase_amount_cents?: number | null
   raw_description?: string | null
   recipient_question?: boolean
   transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; description?: string; posted_on: string; signed_amount_cents: number }
@@ -133,7 +135,7 @@ export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'o
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
   return { rawDescription: item.raw_description, recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.editable_merchant ?? item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
-    kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
+    kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: item.disposition === 'exclude' }
 }
 
 /** The sheet her answer opens. "No" to "Did this move between your own accounts?", "Is this a payment on your own card or loan?"

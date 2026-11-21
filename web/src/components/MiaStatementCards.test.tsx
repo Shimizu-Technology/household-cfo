@@ -390,7 +390,7 @@ it('condenses an older statement to one opening line while the newest file stays
 })
 
 for (const permanent of [true, false]) it(`shows ${permanent ? 'permanent' : 'temporary'} failure recovery honestly`, () => {
-  mount([statement(1, { status: 'failed', extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it.' : 'This is usually temporary. Try Reprocess in a few minutes.', metadata: { extraction_failure_permanent: permanent } })])
+  mount([statement(1, { status: 'failed', extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it.' : 'This is usually temporary. Open File options and choose Try again in a few minutes.', metadata: { extraction_failure_permanent: permanent } })])
   expect(Boolean(screen.queryByRole('button', { name: 'Try reading it again' }))).toBe(!permanent)
   expect(Boolean(screen.queryByText(/few minutes/))).toBe(!permanent)
 })

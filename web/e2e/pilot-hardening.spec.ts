@@ -18861,3 +18861,34 @@ test('B5 round 4 cash answers stay disabled until a pending Mia response settles
   release()
   await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toBeEnabled()
 })
+
+
+test('BOG UI pending exclusion on an approved purchase stays left out when saved unchanged', async ({ page }) => {
+  let saved = false
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    expect(route.request().postDataJSON().input.lines[0]).toMatchObject({ decision: 'edited', expected_head: { pending_digest: 'demo-exclusion' }, edit: { kind: 'spending', amount_cents: 1000, category_id: null } })
+    saved = true
+    return route.fulfill({ json: { result: { approved: 1, left_out: 1, unchanged: 0, complete: true } } })
+  })
+  const review = await openTypedStatementReview(page, false, data => {
+    const event = { ...data.events[0], event_type: 'purchase' as const, signed_amount_cents: -1000 }
+    data.events = [event]
+    data.counts.all = 1
+    data.pagination = { page: 1, per_page: 50, total_count: 1, total_pages: 1, has_previous: false, has_next: false }
+    const participant = data.participant_review!
+    participant.rows[event.id] = { head: { id: 900, approved_version_id: saved ? 901 : 900, lock_version: saved ? 2 : 1 }, pending: null,
+      approved: { id: saved ? 901 : 900, digest: 'demo-purchase', version_number: saved ? 2 : 1, current: true, reason: 'Fictional approval', projection: { action: 'none' }, actual: null,
+        facts: { source_account_identity_version_id: 100, disposition: saved ? 'exclude' : 'include', event_type: 'purchase', signed_amount_cents: -1000, purchase_amount_cents: saved ? null : 1000, posted_on: event.posted_on, merchant: 'Demo purchase', budget_category_id: saved ? null : 10, overlap_disposition: saved ? 'excluded' : 'new' } } }
+    participant.plan = { ...participant.plan, total: 1, done: saved ? 1 : 0, ready: [], ready_event_ids: [], coverage: { question: null, answer: null }, attention: saved ? [] : [{ ...participant.plan.attention[0], event_id: event.id, kind: 'correction', event_type: 'purchase', disposition: 'exclude', signed_amount_cents: -1000, merchant: 'Demo purchase', editable_merchant: 'Demo purchase', posted_on: event.posted_on, category_id: null, recipient_question: false, question: 'Review your proposed correction.', answers: [{ id: 'edit', label: 'Review correction' }], expected_head: { approved_version_id: 900, lock_version: 1, account_version_id: 100, pending_digest: 'demo-exclusion' } }] }
+    return data
+  })
+  await review.getByRole('button', { name: 'Review correction' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Demo purchase' })
+  await expect(dialog.getByText('This line is left out of spending and income.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Leave this line out' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await review.getByText('See all 1 line', { exact: true }).click()
+  await expect(review.getByRole('cell', { name: 'Left out', exact: true })).toBeVisible()
+  expect(saved).toBe(true)
+})

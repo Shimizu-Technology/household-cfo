@@ -214,7 +214,7 @@ module FinancialDocuments
             category_id = heads[event.id].approved_version.budget_category_id
           end
           pending = heads[event.id]&.source_review_drafts&.find { |draft| draft.status == "pending" }
-          proposed = SourceReviewVersion.new(pending.facts.slice("event_type", "signed_amount_cents", "posted_on", "merchant", "budget_category_id")) if pending
+          proposed = SourceReviewVersion.new(pending.facts) if pending
           kind, category_id = :correction, proposed.budget_category_id if pending
           Line.new(pair: pair, event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && chosen.present?,
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id }.merge(pending ? { pending_digest: pending.digest } : {}),
