@@ -72,12 +72,12 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     participant, household = launch
     path = dashboard(participant, household).fetch(:readiness_path)
     assert_equal [ 3.0, "program", 5_300.0 ], [ path.fetch(:target_runway_months), path.fetch(:target_runway_source), path.dig(:emergency_fund, :gap) ]
-    assert_includes mia(household, "Why is my readiness green?"), "3 months emergency fund target ($6,300) still needs $5,300"
+    assert_includes mia(household, "Why is my readiness green?"), "3-month emergency fund target ($6,300) still needs $5,300"
 
     participant, household = launch("emergency_fund_months" => 6)
     path = dashboard(participant, household).fetch(:readiness_path)
     assert_equal [ 6.0, "program", 11_600.0, "yellow" ], [ path.fetch(:target_runway_months), path.fetch(:target_runway_source), path.dig(:emergency_fund, :gap), path.dig(:emergency_fund, :tone) ]
-    assert_includes mia(household, "Why is my readiness yellow?"), "6 months emergency fund target ($12,600) still needs $11,600"
+    assert_includes mia(household, "Why is my readiness yellow?"), "6-month emergency fund target ($12,600) still needs $11,600"
     assert_equal 6.0, context(participant, household).dig("metrics", "emergency_fund_target_months")
 
     household.goals.create!(label: "Runway target", goal_type: "runway", target_months: 4, priority: 1, record_kind: "policy", source_type: "setup")

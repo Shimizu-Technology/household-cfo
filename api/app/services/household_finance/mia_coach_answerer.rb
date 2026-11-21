@@ -1494,7 +1494,7 @@ module HouseholdFinance
     end
 
     def emergency_fund_target_line
-      "#{months_text(target_runway_months)} emergency fund target (#{money(emergency_fund_target_cents)})"
+      "#{line_text(months_text(target_runway_months).split.first)} emergency fund target (#{money(emergency_fund_target_cents)})"
     end
 
     def colour_rule_line
