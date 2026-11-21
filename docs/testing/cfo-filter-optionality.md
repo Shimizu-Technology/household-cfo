@@ -33,7 +33,7 @@ Fictional Talun fixture; offline local stack with `LOCAL_STACK_REPLAY=1`, API 34
 1. CFO spend: enter $100 against Talun's $1,010 base surplus; expect $910, updated target pace and surplus colour. Windfall calculation must preserve that spend result.
 2. Flip light: show all three independent targets, unknown-aware yellow/green surplus, total income and extra-income requirements.
 3. Windfall: enter $1,000; expect the emergency gap step to receive $1,000.
-4. Optionality: known $0 business income permits the initial $4,390 draw. Explore $60,000 savings, $4,000 costs and $1,000 replacement income using gap-derived draw; expect 20 fully funded months and yellow. Reload must restore approved $3,200 savings.
+4. Optionality: known $0 business income permits the initial $4,390 draw. Explore $60,000 savings, $4,000 costs and $1,000 replacement income without editing the draw; the prefill must follow the new $3,000 gap; expect 20 fully funded months and yellow. Reload must restore approved $3,200 savings.
 5. At both widths: no horizontal overflow or browser errors. Buttons stack full width. The results stay still and use live regions; no added motion.
 
 Run from repository root: `node web/scripts/check-finance-scenarios.mjs`, while the offline stack is running. Screenshots live under `docs/testing/evidence/cfo-filter-optionality/`. All five scenarios passed at both required Chromium sizes on the implementation content committed with this brief (screenshots refreshed after the unknown-business-income fix). The final PR/report records the head, automated counts and gate status. Screenshots alone do not establish acceptance.
@@ -41,3 +41,5 @@ Run from repository root: `node web/scripts/check-finance-scenarios.mjs`, while 
 ## Review and remaining work
 
 The lead reviews and merges. Obtain the original prototype, compare its correct sample calculations, resolve the spend/debt/growth interpretation above, and rerun affected tests and browser scenarios for any changes. No edit to `api/config/mia_personas.yml`. Netlify deploy previews remain off. A production web build is expected if this UI change is later merged.
+
+Independent advisory review of `b8a12d6` found two material issues: a stale default draw after editing costs/income, and Mia recommending a disabled Optionality destination. Both were fixed: the draw now follows current inputs until deliberately overridden (including explicit $0), and the answer keeps comparison guidance in chat. Component/Talun tests and the browser script cover the fixes. CodeRabbit was rate-limited, not a completed review. Final counts and CI state are recorded in the PR report.

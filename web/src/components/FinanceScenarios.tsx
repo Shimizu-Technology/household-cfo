@@ -92,11 +92,15 @@ export function OptionalityScenario({ initial }: { initial: RunwayScenario }) {
   const [savings, setSavings] = useState(initialMoney(initial.inputs.savings_cents))
   const [costs, setCosts] = useState(initialMoney(initial.inputs.monthly_costs_cents))
   const [income, setIncome] = useState(initialMoney(initial.inputs.replacement_income_cents))
-  const [draw, setDraw] = useState(initialMoney(initial.monthly_draw_cents))
+  const [drawOverride, setDrawOverride] = useState<string | null>(null)
+  const costCents = cents(costs)
+  const incomeCents = cents(income)
+  const gap = costCents !== null && incomeCents !== null ? Math.max(costCents - incomeCents, 0) : null
+  const draw = drawOverride ?? initialMoney(gap)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   async function calculate() {
-    const values = { savings_cents: cents(savings), monthly_costs_cents: cents(costs), replacement_income_cents: cents(income), ...(draw !== '' ? { monthly_draw_cents: cents(draw) } : {}) }
+    const values = { savings_cents: cents(savings), monthly_costs_cents: cents(costs), replacement_income_cents: cents(income), ...(drawOverride !== null && drawOverride !== '' ? { monthly_draw_cents: cents(drawOverride) } : {}) }
     if (Object.values(values).some(value => value === null)) { setError('Enter each missing amount, with up to two decimal places.'); return }
     setBusy(true); setError('')
     try { setResult(await fetchPrivateJson<RunwayScenario>(`/api/v1/optionality?scenario=1&${new URLSearchParams(Object.entries(values).map(([key, value]) => [key, String(value)]))}`)) }
@@ -110,8 +114,8 @@ export function OptionalityScenario({ initial }: { initial: RunwayScenario }) {
       <Amount label="Savings available ($)" value={savings} onChange={setSavings} />
       <Amount label="Monthly household costs ($)" value={costs} onChange={setCosts} />
       <Amount label="Monthly replacement income ($)" value={income} onChange={setIncome} />
-      <Amount label="Monthly savings draw ($; blank uses the gap)" value={draw} onChange={setDraw} />
-      <p>Draw from the gap: {money(cents(costs) !== null && cents(income) !== null ? Math.max(cents(costs)! - cents(income)!, 0) : null)}</p>
+      <Amount label="Monthly savings draw ($; blank uses the gap)" value={draw} onChange={setDrawOverride} />
+      <p>Draw from the gap: {money(gap)}</p>
       <Button type="submit" disabled={busy}>Explore this runway</Button>
     </form>
     {error && <p role="alert">{error}</p>}

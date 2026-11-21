@@ -1059,7 +1059,7 @@ module HouseholdFinance
       return "I cannot calculate your transition runway yet. Add the missing savings balances, planned household costs and replacement income first. Unknown is not $0. Nothing changed." unless result[:tone]
 
       duration = result[:sustainable] ? "savings do not run out in this model" : "#{result[:months]} fully funded months"
-      "Your transition runway is #{duration}: #{result[:label]}. The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. This assumes 5% effective yearly savings growth, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Explore other amounts in Optionality; nothing changed."
+      "Your transition runway is #{duration}: #{result[:label]}. The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. This assumes 5% effective yearly savings growth, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Ask me about another savings draw if you want to compare; nothing changed."
     end
 
     def emotional_stress_answer

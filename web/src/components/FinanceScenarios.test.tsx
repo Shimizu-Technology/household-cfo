@@ -15,7 +15,7 @@ test('draw prefills from computed gap; edits use read-only scenario GET', async 
   fireEvent.change(screen.getByLabelText(/Savings available/), { target: { value: '70000' } })
   fireEvent.click(screen.getByRole('button', { name: 'Explore this runway' }))
   await waitFor(() => expect(screen.getByText('25 fully funded months')).toBeTruthy())
-  expect(api.fetchPrivateJson).toHaveBeenCalledWith('/api/v1/optionality?scenario=1&savings_cents=7000000&monthly_costs_cents=400000&replacement_income_cents=100000&monthly_draw_cents=300000')
+  expect(api.fetchPrivateJson).toHaveBeenCalledWith('/api/v1/optionality?scenario=1&savings_cents=7000000&monthly_costs_cents=400000&replacement_income_cents=100000')
 })
 test('unknowns do not render as zero and invalid input never requests', () => {
   render(<CfoScenarios initial={filter} />)
@@ -32,4 +32,22 @@ test('request failure preserves inputs and offers recovery', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Split this windfall' }))
   await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Try again/))
   expect((screen.getByLabelText(/Windfall amount/) as HTMLInputElement).value).toBe('123.45')
+})
+
+test('default draw follows edited costs and income while a deliberate zero override stays zero', async () => {
+  api.fetchPrivateJson.mockResolvedValue(runway)
+  render(<OptionalityScenario initial={{ ...runway, inputs: { ...runway.inputs, monthly_costs_cents: 439000, replacement_income_cents: 0 }, monthly_gap_cents: 439000, monthly_draw_cents: 439000 }} />)
+  const draw = screen.getByLabelText(/Monthly savings draw/) as HTMLInputElement
+  expect(draw.value).toBe('4390')
+  fireEvent.change(screen.getByLabelText(/Monthly household costs/), { target: { value: '4000' } })
+  fireEvent.change(screen.getByLabelText(/Monthly replacement income/), { target: { value: '1000' } })
+  expect(draw.value).toBe('3000')
+  fireEvent.click(screen.getByRole('button', { name: 'Explore this runway' }))
+  await waitFor(() => expect(api.fetchPrivateJson).toHaveBeenCalledWith('/api/v1/optionality?scenario=1&savings_cents=6000000&monthly_costs_cents=400000&replacement_income_cents=100000'))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Explore this runway' }).hasAttribute('disabled')).toBe(false))
+  fireEvent.change(draw, { target: { value: '0' } })
+  fireEvent.change(screen.getByLabelText(/Monthly household costs/), { target: { value: '5000' } })
+  expect(draw.value).toBe('0')
+  fireEvent.click(screen.getByRole('button', { name: 'Explore this runway' }))
+  await waitFor(() => expect(api.fetchPrivateJson).toHaveBeenLastCalledWith('/api/v1/optionality?scenario=1&savings_cents=6000000&monthly_costs_cents=500000&replacement_income_cents=100000&monthly_draw_cents=0'))
 })

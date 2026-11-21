@@ -26,7 +26,11 @@ class HouseholdFinanceTalunToolsTest < ActiveSupport::TestCase
     assert_equal 439_000, runway[:monthly_draw_cents]
     assert_equal 0, runway[:months]
     mia = ->(message) { HouseholdFinance::MiaCoachAnswerer.new(household, message, ensure_plan: false).call }
-    assert_includes mia.call("How long could we last if I quit to run my business?"), "0 fully funded months"
+    transition_answer = mia.call("How long could we last if I quit to run my business?")
+    assert_includes transition_answer, "0 fully funded months"
+    hidden_tool_guidance = CohortExperience::MiaModuleGuidance.new(modules: [ { id: "optionality", enabled: false } ])
+    refute_includes hidden_tool_guidance.filter(transition_answer), "Optionality"
+    assert_equal transition_answer, hidden_tool_guidance.filter(transition_answer)
     assert_includes mia.call("What does it take to get to green?"), "Emergency fund: $830.84 monthly surplus"
     assert_includes mia.call("Can I afford $100?"), "CFO Filter:"
     assert_equal before, [ household.reload.attributes, household.accounts.map(&:attributes), household.income_sources.map(&:attributes),
