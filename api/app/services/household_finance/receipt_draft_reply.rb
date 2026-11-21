@@ -20,7 +20,7 @@ module HouseholdFinance
 
       parts = [ "Your receipt from #{merchant} reads #{amount}#{date}." ]
       if message.to_s.match?(NOT_NEW_MONEY)
-        parts << "A voucher, gift card, store credit or rewards isn’t new money, so only what you paid by card or cash should count. Check the amount on the card before you approve it."
+        parts << "A voucher, gift card, store credit, rewards or points isn’t new money, so only what you paid by card or cash should count. Check the amount on the card before you approve it."
       end
       parts << APPROVAL
       parts.join(" ")

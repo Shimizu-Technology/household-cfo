@@ -118,7 +118,7 @@ import { formatHouseholdDay, formatHouseholdMonth, guamTodayIso } from './lib/ho
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { budgetViewForWorkspace, isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
-import { documentNeedsReview, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
+import { documentNeedsReview, importIdsForRevisions, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage, withStatementProgress } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   captureApiOperation,
@@ -1206,6 +1206,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       if (!quiet) setDocumentsLoading(false)
     }
   }, [firstSessionUploadOpen, isRealWorkspace])
+
+  // One store answer can save lines in other statements too. Read back only those statements' progress, so their uploads'
+  // status moves without reloading the list (which would reload the review she has open).
+  function refreshStatementProgress(revisionIds: number[]) {
+    const ids = importIdsForRevisions(documentImports, revisionIds)
+    if (ids.length === 0) return
+    // A statement that can't be read back keeps its status until the list next loads.
+    void Promise.all(ids.map(id => fetchDocumentImport(id).then(row => row.statement_review ? [[id, row.statement_review] as const] : [], () => [])))
+      .then(rows => setDocumentImports(current => withStatementProgress(current, new Map(rows.flat()))))
+  }
 
   const replaceMiaHistory = useCallback((mia: MiaMessagesData) => {
     const retainLocalReplies = challengeNotOpen && messagesStorageKey === chatStorageKey
@@ -4929,7 +4939,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
-            onStatementProgress={(importId, progress) => setDocumentImports(current => current.map(row => row.id === importId && row.statement_review ? { ...row, statement_review: progress } : row))}
+            onStatementProgress={(importId, progress) => setDocumentImports(current => withStatementProgress(current, new Map([[importId, progress]])))}
+            onOtherStatementsSaved={refreshStatementProgress}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -4975,7 +4986,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
-            onStatementProgress={(importId, progress) => setDocumentImports(current => current.map(row => row.id === importId && row.statement_review ? { ...row, statement_review: progress } : row))}
+            onStatementProgress={(importId, progress) => setDocumentImports(current => withStatementProgress(current, new Map([[importId, progress]])))}
+            onOtherStatementsSaved={refreshStatementProgress}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -5583,6 +5595,7 @@ function DocumentImportWorkspace({
   onReturnToStart,
   onStatementSaved,
   onStatementProgress,
+  onOtherStatementsSaved,
   sectionRef,
   isRealWorkspace,
   imports,
@@ -5622,6 +5635,7 @@ function DocumentImportWorkspace({
   onStatementSaved?: () => void
   /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
   onStatementProgress?: (importId: number, progress: StatementProgress) => void
+  onOtherStatementsSaved?: (revisionIds: number[]) => void
   onReturnToStart?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
@@ -5725,6 +5739,7 @@ function DocumentImportWorkspace({
           onAskMia={onAskMia}
           onStatementSaved={onStatementSaved}
           onStatementProgress={onStatementProgress}
+          onOtherStatementsSaved={onOtherStatementsSaved}
         />}
       </div>
 
@@ -5972,6 +5987,7 @@ export function DocumentReviewPanel({
   onAskMia,
   onStatementSaved,
   onStatementProgress,
+  onOtherStatementsSaved,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -6001,6 +6017,7 @@ export function DocumentReviewPanel({
   onStatementSaved?: () => void
   /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
   onStatementProgress?: (importId: number, progress: StatementProgress) => void
+  onOtherStatementsSaved?: (revisionIds: number[]) => void
 }) {
   const { assistantName } = useBrand()
   const [signFocus, setSignFocus] = useState<{ importId: number; revisionId: number } | null>(null)
@@ -6111,6 +6128,7 @@ export function DocumentReviewPanel({
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           onSaved={onStatementSaved}
           onProgress={progress => onStatementProgress?.(documentImport.id, progress)}
+          onOtherStatementsSaved={onOtherStatementsSaved}
           onSignAnswered={revisionId => setSignFocus({ importId: documentImport.id, revisionId })}
           focusAfterSign={signFocus?.importId === documentImport.id && signFocus.revisionId === documentImport.metadata.source_accounting_revision_id}
           onSignFocusDone={() => setSignFocus(null)}

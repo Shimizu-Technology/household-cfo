@@ -42,6 +42,28 @@ describe('statement review a participant can finish', () => {
     ] })
   })
 
+  it('tells the page which other statements a store answer saved, so their uploads show it', async () => {
+    const data = participantReviewFixture()
+    const plan = data.participant_review!.plan
+    const first = { ...plan.attention[0], kind: 'no_category' as const, merchant: 'Island Demo Mart', category_id: null, category_name: null,
+      question: 'What was this for?', answers: [{ id: 'edit' as const, label: 'Choose one' }] }
+    plan.attention = [first]
+    plan.store_groups = [[{ ...first, revision_id: 88 }, { ...first, event_id: 9101, revision_id: 99, statement_name: 'October statement' }, { ...first, event_id: 9102, revision_id: 99, statement_name: 'October statement' }]]
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }]
+    fetchReview.mockResolvedValue(data)
+    const others = vi.fn()
+    mutate.mockRejectedValueOnce(new ApiRequestError('We couldn’t save that answer.', { status: 422 }))
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onOtherStatementsSaved={others} />)
+    expect(await screen.findByText('3 lines across your statements. What are these for?')).toBeTruthy()
+    // A save that didn't go through moved nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries: Island Demo Mart' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(others).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: 'Groceries: Island Demo Mart' }))
+    await waitFor(() => expect(others).toHaveBeenCalledWith([99]))
+    expect(mutate.mock.calls[1][3]).toMatchObject({ store_lines: [{ event_id: first.event_id, revision_id: 88 }, { event_id: 9101, revision_id: 99 }, { event_id: 9102, revision_id: 99 }] })
+  })
+
   it.each([true, false])('asks once before leaving repeated lines out (%s)', async (leaveOut) => {
     const data = participantReviewFixture()
     const plan = data.participant_review!.plan

@@ -82,9 +82,18 @@ module HouseholdFinance
     def receipt_draft_reply(rows)
       return unless evidence_imports.any? && evidence_imports.all? { |document_import| document_import.document_kind == "receipt" }
       return unless rows.one? && rows.first.fetch(:status) == "pending"
-      return unless payment_only? || (transaction_question? && unmatched_store_named?(rows))
+      return unless payment_only? || not_new_money_amount_question? || (transaction_question? && unmatched_store_named?(rows))
 
       ReceiptDraftReply.call(rows.first.fetch(:record), message: message)
+    end
+
+    # "Paid with points. How much was it?": a gift card, voucher, store credit or points isn't new money
+    # (decision 4), so the answer is the receipt's draft and what counts, never a bare row total. Another
+    # kind of question beside it, a date or an amount filter is still answered as that question.
+    def not_new_money_amount_question?
+      message.match?(ReceiptDraftReply::NOT_NEW_MONEY) && transaction_total_question? &&
+        !(duplicate_question? || plan_fit_question? || largest_question? || transaction_list_question? || category_question? || date_question?) &&
+        !date_scope_requested? && !threshold_requested?
     end
 
     # "How much did I spend at Kmart?" about a Ross receipt. A category she names that the receipt

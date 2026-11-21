@@ -97,6 +97,34 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     end
   end
 
+  test "a store whose name only looks like care, rent or a bill can still be a cut" do
+    stores = [ "Dr Juice Bar", "Whole Health Foods", "Vision Buffet", "Rent-A-Center", "Utility Trailer Sales", "Island Garden Nursery", "TARGET 1234 BALTIMORE MD" ]
+    stores.each { |name| refute SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    [ "Ana Cruz MD", "ANA CRUZ MD", "Cruz, M.D.", "Dr. Ana Cruz", "DR LEON GUERRERO", "Little Stars Daycare", "Island Nursery", "Island Pediatric Clinic",
+      "Island Vision Center", "Guam Health Care", "Tamuning Apartments Rent", "Monthly rent", "Guam Power Authority", "City Utilities", "UTILITY PAYMENT",
+      "Guam Waterworks", "Harbor Mutual Insurance", "Coral Reef Pharmacy" ].each { |name| assert SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    refute SpendingPatterns::Analyzer.protected_category?("Health and beauty")
+    refute SpendingPatterns::Analyzer.protected_category?("Health & fitness")
+    [ "Health", "Healthcare", "Medical", "Childcare", "Rent", "Utilities", "Car insurance", "Family support" ].each { |name| assert SpendingPatterns::Analyzer.protected_category?(name), name }
+
+    beauty = @household.budget_categories.create!(name: "Health and beauty", stack_key: "discretionary", sort_order: 2)
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      stores.each { |name| purchase(date, name, 4_000) }
+      purchase(date, "Island Beauty Supply", 3_000, category: beauty)
+      purchase(date, "Little Stars Daycare", 30_000)
+      purchase(date, "Zelle to Tia Rosa", 15_000)
+    end
+    result = analyze
+    flexible = result[:discretionary_merchants].pluck(:label)
+    assert_includes flexible, "Dr Juice Bar"
+    assert_includes flexible, "Island Garden Nursery"
+    assert_includes flexible, "Island Beauty Supply"
+    assert_equal stores.length + 1, flexible.length
+    refute_includes flexible, "Little Stars Daycare"
+    refute_includes flexible, "Zelle to Tia Rosa"
+    assert_includes result[:discretionary_categories].pluck(:label), "Health and beauty"
+  end
+
   test "a family support category is protected, other support is not" do
     assert SpendingPatterns::Analyzer.protected_category?("Family support")
     assert SpendingPatterns::Analyzer.protected_category?("Child support")

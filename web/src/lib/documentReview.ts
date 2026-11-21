@@ -1,4 +1,4 @@
-import { statementProgressStatus } from './statementReview'
+import { statementProgressStatus, type StatementProgress } from './statementReview'
 import type { DocumentImportItem, FinancialDocumentImport } from '../api'
 
 export function documentNeedsReview(documentImport: FinancialDocumentImport): boolean {
@@ -51,4 +51,18 @@ export function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
 export function uploadStatusLabel(documentImport: FinancialDocumentImport): string {
   if (!['uploaded', 'queued', 'processing', 'failed', 'source_deleted'].includes(documentImport.status) && documentImport.statement_review) return statementProgressStatus(documentImport.statement_review)
   return { uploaded: 'Waiting to read', queued: 'Waiting to read', processing: 'Reading', needs_review: 'Ready to review', partially_applied: 'Some saved', applied: 'Saved', nothing_applied: 'Nothing saved', failed: 'Couldn’t read this file', source_deleted: 'Original file removed' }[documentImport.status]
+}
+
+/**
+ * Each statement's progress as just read back after a save, so its upload's status in the list moves without a reload.
+ * Nothing else about the upload changes, so an open review isn't reloaded.
+ */
+export function withStatementProgress(imports: FinancialDocumentImport[], progress: ReadonlyMap<number, StatementProgress>): FinancialDocumentImport[] {
+  if (progress.size === 0) return imports
+  return imports.map(row => row.statement_review && progress.has(row.id) ? { ...row, statement_review: progress.get(row.id) } : row)
+}
+
+/** The uploads whose current statement reading is one of these revisions. */
+export function importIdsForRevisions(imports: FinancialDocumentImport[], revisionIds: number[]): number[] {
+  return imports.filter(row => row.metadata.source_accounting_revision_id != null && revisionIds.includes(row.metadata.source_accounting_revision_id)).map(row => row.id)
 }

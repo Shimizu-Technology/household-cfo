@@ -633,6 +633,7 @@ body #root .mia-chat-shell .ask-row textarea:focus-visible { outline: none; }
 .cash-purchase-questions { display: grid; gap: 10px; margin-bottom: 20px; }
 .cash-purchase-questions > h3 { margin: 0; }
 .cash-purchase-questions__intro { margin: 0; color: var(--muted); font: 400 var(--text-sm)/1.45 var(--font-body); }
+.cash-purchase-questions__done { margin: 0 0 20px; color: var(--muted); font: 400 var(--text-sm)/1.45 var(--font-body); }
 .cash-purchase-questions__list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .cash-purchase-question { display: grid; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: var(--surface-card); }
 .cash-purchase-question__title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin: 0; min-width: 0; color: var(--ink); font: 400 var(--text-sm)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }

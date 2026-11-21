@@ -69,6 +69,24 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     end
   end
 
+  test "asking how much a receipt was after paying with points, a gift card or a voucher says it isn't new money" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    [ "Paid with points. How much was it?", "I used my rewards points, how much was it?", "Paid with a gift card. How much was it?",
+      "Paid with a voucher. What was the total?", "Store credit paid for it. How much did I spend at Ross?" ].each do |message|
+      answer = answer_for(message)
+      assert_includes answer, "Your receipt from Ross reads $184.88, dated Nov 14, 2026.", message
+      assert_includes answer, "A voucher, gift card, store credit, rewards or points isn’t new money", message
+      assert_includes answer, "until you approve the card below", message
+      refute_includes answer, "transaction row", message
+    end
+    # Card or cash is new money: the plain total, as before.
+    assert_includes answer_for("Paid with my debit card. How much was it?"), "1 transaction row totaling $184.88"
+    # Another question beside the points is still answered as that question.
+    refute_includes answer_for("Paid with points. When was it?"), "isn’t new money"
+    refute_includes answer_for("Paid with points. What category is this?"), "isn’t new money"
+  end
+
   test "the receipt reply keeps the failed-file notice and leaves an unmatched category to the row answer" do
     @document_import.update!(document_kind: "receipt")
     create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))

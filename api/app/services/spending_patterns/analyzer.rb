@@ -9,25 +9,35 @@ module SpendingPatterns
     # "Family support", "child support", "support for Nana": money for family. Not "Tech support", nor a reply's
     # "to support your savings goal".
     FAMILY_SUPPORT = /(?:family|child|spousal|parent(?:al)?)\s+support|support\s+(?:for|to)\s+(?:my\s+|our\s+|the\s+)?(?:family|kids?|child(?:ren)?|parents?|mom|dad|lola|lolo|nana|tata|auntie|aunt|uncle|relatives?|grand(?:ma|pa|parents?))/i
-    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health|healthcare|pharmacy|prescriptions?|hospital|clinic|therapy|prenatal|pediatrics?|optical|child(?:ren)?|childcare|daycare|preschool|nann(?:y|ies)|after\s*-?\s*school|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|#{FAMILY_SUPPORT}|remittances?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
+    # "Health and beauty" or "Health & fitness" is shopping, not care.
+    NOT_HEALTH_CARE = /\s*(?:and|&|\+)\s*(?:beauty|fitness)\b/i
+    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health(?!#{NOT_HEALTH_CARE})|healthcare|pharmacy|prescriptions?|hospital|clinic|therapy|prenatal|pediatrics?|optical|child(?:ren)?|childcare|daycare|preschool|nann(?:y|ies)|after\s*-?\s*school|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|#{FAMILY_SUPPORT}|remittances?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
     # Bills, not a store habit. Kept apart from the words above because "cut your debt" is good advice.
     BILL_CATEGORY = /\b(?:insurance|premiums?|loans?|debts?|(?:car|card|credit\s+card)\s+payments?)\b/i
     # A store name that is care or a bill, whatever category it was filed under: a clinic filed as
     # "Flexible spending" is still medical care. Narrower than the category words, so "Family Mart" or
     # "Mom's Kitchen" can still be a store.
+    # A food or shop word right after a care word makes the name a store: "Dr Juice Bar", "Whole Health Foods",
+    # "Vision Buffet". "Island Vision Center" and "Dr. Cruz" are still care.
+    STORE_AFTER = /(?:\s+[\w'&-]+)?\s+(?:buffet|restaurant|grill|bar|cafe|café|coffee|tea|pizza|kitchen|bakery|burgers?|bbq|diner|deli|juice|smoothies?|boba|foods?|nutrition)\b/i
+    # A plant nursery, not childcare: "Island Garden Nursery", "Nursery & Garden Center".
+    PLANT_NURSERY = /(?<!garden\s|plant\s|plants\s|tree\s)nursery\b(?!(?:\s*(?:&|and)\s*|\s+)(?:garden|plants?|landscap\w*|trees?|greenhouse)\b)/i
     PROTECTED_MERCHANT = /
-      \b(?:clinic|hospital|medical|health|health\s*care|pharm\w*|drugs?(?:\s*store)?|walgreens|cvs|rite\s*-?\s*aid
+      \b(?:clinic|hospital|medical|health(?!#{STORE_AFTER}|#{NOT_HEALTH_CARE})|health\s*care|pharm\w*|drugs?(?:\s*store)?|walgreens|cvs|rite\s*-?\s*aid
         |dental|dentist|orthodont\w*|doctors?|physicians?|pediatric\w*|prenatal|ob\s*[-\/&]?\s*gyn|obstetric\w*|urgent\s+care
-        |optometr\w*|optical|eye\s*care|vision|chiropract\w*|therapy|counsel(?:ing|ling|or)|laborator(?:y|ies)|labcorp
+        |optometr\w*|optical|eye\s*care|vision(?!#{STORE_AFTER})|chiropract\w*|therapy|counsel(?:ing|ling|or)|laborator(?:y|ies)|labcorp
         |(?:diagnostic|clinical|medical|blood|imaging|x-?ray)\s+labs?
-        |daycare|day\s+care|childcare|child\s+care|pre-?school|nursery|babysit\w*|nann(?:y|ies)|after\s*-?\s*school|montessori
-        |insurance|assurance|takecare|loan|mortgage|rent|apartments?|realty|property\s+management|power\s+authority|waterworks|utilit(?:y|ies))\b
+        |daycare|day\s+care|childcare|child\s+care|pre-?school|#{PLANT_NURSERY}|babysit\w*|nann(?:y|ies)|after\s*-?\s*school|montessori
+        # "Rent-A-Center" rents out furniture; "Utility Trailer Sales" sells trailers.
+        |insurance|assurance|takecare|loan|mortgage|rent\b(?!\s*-\s*a\s*-|\s+a\s+(?:center|car|wreck)\b)|apartments?|realty|property\s+management|power\s+authority|waterworks
+        |utilit(?:y|ies)\b(?!\s+(?:trailers?|vehicles?|trucks?|carts?|sinks?|knife|knives)\b))\b
       # "Island Rx", "Rx Express", but not "Rx Pizza".
       |\brx(?:\s*\#?\s*\d+)?\z|\brx\s+(?:express|plus|care|center|centre|shop|mart|depot)\b
-      # A doctor's name: "Dr. Cruz", "DR LEON GUERRERO"; never "Dr Pepper" or "Dr. Martens".
-      |(?:\A|\s)dr\.?\s+(?!pepper\b|martens?\b)[a-z]
-      # "Ana Cruz MD", "Cruz, M.D.": the letters themselves, as a word after the name.
-      |(?-i:(?:\s|,)M\.?D\b\.?)(?=\s|,|\z)
+      # A doctor's name: "Dr. Cruz", "DR LEON GUERRERO"; never "Dr Pepper", "Dr. Martens" or "Dr Juice Bar".
+      |(?:\A|\s)dr\.?(?!#{STORE_AFTER})\s+(?!pepper\b|martens?\b)[a-z]
+      # "Ana Cruz MD", "Cruz, M.D.": the letters themselves, as a word after the name. Plain "MD" after a
+      # store number is the bank's state code: "TARGET 1234 BALTIMORE MD".
+      |(?-i:,\s*M\.?D\b\.?|\sM\.D\b\.?|\A[^\d\#]*\sMD\b)(?=\s|,|\z)
     /ix
     # Money sent to a person is usually support or paying someone back, not a store habit to halve.
     PERSON_TRANSFER = /\A(?:zelle\b|venmo\b|cash\s*app\b|money\s+transfer\b|online\s+transfer\b|transfer\s+(?:to|from)\b|payment\s+to\b)|paypal\s*\*\s*[a-z]+\.[a-z]+/i
