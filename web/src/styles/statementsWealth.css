@@ -192,3 +192,10 @@ body :is(#root, [role='dialog']) .setup-help-topics button.ui-row { border-top: 
 }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header :is(h2, h3) { font-weight: var(--weight-regular); }
 body :is(#root, [role='dialog'], [role='alertdialog']) .daily-dialog .daily-close { width: auto; height: auto; min-height: 44px; padding: 10px 16px; font-size: var(--text-sm); }
+
+.finance-scenarios { display: grid; gap: 20px; font-variant-numeric: tabular-nums; min-width: 0; }
+.finance-scenarios form { display: grid; gap: 12px; }
+.finance-scenarios .scenario-field { display: grid; gap: 6px; }
+.finance-scenarios input { width: 100%; min-width: 0; padding: 12px; font: inherit; font-variant-numeric: tabular-nums; }
+.finance-scenarios .button { width: 100%; min-height: 44px; }
+.finance-scenarios .scenario-target { border-top: 1px solid var(--rule); padding-block: 12px; }

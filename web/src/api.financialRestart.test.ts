@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyMiaActionDraft, confirmTransactionDraft, fetchDocumentSourceReview, fetchFinancialBaseline, captureApiOperation, createIncomeSource, fetchAppData, fetchBudget, fetchFinancialRestartStatus, setActiveParticipantCohortId, setApiActorIdentity, setApiFinancialGeneration, setAuthTokenGetter, subscribeFinancialPictureChanges } from './api'
+import { fetchPrivateJson, applyMiaActionDraft, confirmTransactionDraft, fetchDocumentSourceReview, fetchFinancialBaseline, captureApiOperation, createIncomeSource, fetchAppData, fetchBudget, fetchFinancialRestartStatus, setActiveParticipantCohortId, setApiActorIdentity, setApiFinancialGeneration, setAuthTokenGetter, subscribeFinancialPictureChanges } from './api'
 
 function json(value: unknown, generation?: number) {
   return new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json', ...(generation == null ? {} : { 'X-Financial-Generation': String(generation) }) } })
@@ -9,6 +9,8 @@ afterEach(() => { setAuthTokenGetter(null); setApiActorIdentity(null); setActive
 
 describe('financial picture request boundaries', () => {
   it.each([
+    ['CFO Filter', () => fetchPrivateJson('/api/v1/cfo-filter?scenario=1&lift_cents=100')],
+    ['Optionality', () => fetchPrivateJson('/api/v1/optionality?scenario=1')],
     ['baseline', () => fetchFinancialBaseline()],
     ['source review', () => fetchDocumentSourceReview(1, 2, 1, 'all')],
     ['Mia apply', () => applyMiaActionDraft(1, 'qa-review')],

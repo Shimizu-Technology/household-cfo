@@ -1,3 +1,4 @@
+import { CfoScenarios, OptionalityScenario } from './components/FinanceScenarios'
 import { useHomeView } from './lib/useHomeView'
 import { localTestAuth } from './lib/localTestAuth'
 import { cashCoverage } from './lib/cashCoverage'
@@ -5153,6 +5154,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             copy={data.cfoFilter.prompt}
           />
 
+          {data.cfoFilter.calculator && <CfoScenarios key={`${data.workspace.household_id}:${data.workspace.financial_generation}`} initial={data.cfoFilter.calculator} onAsk={visibleSections.includes('Ask Mia') ? prompt => { if (switchSection('Ask Mia', { focusHeading: false })) prepareMiaUpdate(prompt) } : undefined} />}
           <div className="decision-list ui-card ui-rows">
             {data.cfoFilter.decisions.map((decision) => (
               <article className={`decision-card ui-row ${decision.recommendation.toLowerCase()}`} key={decision.item}>
@@ -5182,9 +5184,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           <ScreenHeading
             eyebrow="Optionality"
             title={data.optionality.question}
-            copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
+            copy={data.optionality.calculator ? (data.optionality.available === false ? data.optionality.unavailable_reason ?? data.optionality.calculator.label : 'Explore how savings could cover the gap while your business grows.') : data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
           />
 
+          {data.optionality.calculator && <OptionalityScenario key={`${data.workspace.household_id}:${data.workspace.financial_generation}`} initial={data.optionality.calculator} />}
           {data.optionality.levers.length > 0 && <div className="lever-row ui-card wealth-figures">
             {data.optionality.levers.map((lever) => (
               <Metric key={lever.label} label={lever.label} value={formatReviewMoney(Math.round((lever.amount) * 100))} />

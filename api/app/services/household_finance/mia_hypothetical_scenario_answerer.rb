@@ -11,7 +11,9 @@ module HouseholdFinance
       "extra_debt_payment" => "Extra debt payment"
     }.freeze
 
-    def initialize(household, scenario_type:, amount:, label:, effective_on: nil, timing_unavailable: false, annual_budget_manager:, reference_month:)
+    def initialize(household, scenario_type:, amount:, label:, effective_on: nil, timing_unavailable: false, annual_budget_manager:, reference_month:, user: nil, experience_capabilities: nil)
+      @experience_capabilities = experience_capabilities
+      @user = user
       @household = household
       @scenario_type = scenario_type.to_s
       @amount_cents = Money.cents!(amount, message: "Scenario amount must be a number")
@@ -68,7 +70,20 @@ module HouseholdFinance
       priced_item = PurchaseQuestionText.priced_item(item, amount_cents)
       before = left.negative? ? "is #{money(left.abs)} short" : "has #{money(left)} left"
       period = date.beginning_of_month == Date.current.beginning_of_month ? "This month’s" : "Your #{facts[:period_label]}"
-      "#{period} plan #{before}, so #{priced_item} #{comparison} if it is extra spending, and that's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      presenter = DataPresenter.new(household, user: @user,
+        ensure_plan: false,
+        experience_capabilities: @experience_capabilities || @user && ::Mia::ParticipantRuntimeResolver.new(user: @user).call.capabilities)
+      filter_read = if presenter.tool_enabled?("cfo_filter") && date.beginning_of_month == Date.current.beginning_of_month
+        filter = presenter.cfo_filter_scenario(spend_cents: amount_cents)
+        after = filter.fetch(:after)
+        if after[:emergency_tone]
+          pace = after[:emergency_months] ? "#{after[:emergency_months]} months" : "not reached at that surplus"
+          " CFO Filter: emergency fund #{pace} (#{after[:emergency_tone]}); remaining annual surplus #{money(filter[:after_spend_surplus_cents])} (#{after[:surplus_tone]}). The one-time purchase reduces this year’s base surplus before the method split.#{filter[:exceeds_annual_surplus] ? " It exceeds the year’s surplus and draws from savings." : ""}"
+        else
+          " CFO Filter: emergency fund timing is unknown until savings and planned costs are known."
+        end
+      end
+      "#{period} plan #{before}, so #{priced_item} #{comparison} if it is extra spending, and that's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion.#{filter_read} Which account and spending category would cover it?"
     end
 
     # "a $300 purchase" reads better than "This purchase at $300" when the

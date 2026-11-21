@@ -187,6 +187,8 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     assert_response :forbidden
     assert_equal "module_disabled", response.parsed_body.fetch("code")
     assert_equal "cfo_filter", response.parsed_body.fetch("module_id")
+    get "/api/v1/cfo-filter", params: { scenario: "1", spend_cents: 10_000 }, headers: auth_headers(participant)
+    assert_response :forbidden
 
     get "/api/v1/optionality", headers: auth_headers(participant)
     assert_response :success

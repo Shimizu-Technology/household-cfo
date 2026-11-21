@@ -1,3 +1,4 @@
+import type { FilterScenario, RunwayScenario } from './components/FinanceScenarios'
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import type { StatementProgress } from './lib/statementReview'
 import { checkedSavingsChallenge } from './lib/savingsChallenge'
@@ -1006,6 +1007,7 @@ export type WealthData = {
 }
 
 export type OptionalityData = {
+  calculator?: RunwayScenario
   available?: boolean
   unavailable_reason?: string
   scenario: string
@@ -1024,6 +1026,7 @@ export type OptionalityData = {
 }
 
 export type CfoFilterData = {
+  calculator?: FilterScenario
   framework: string
   prompt: string
   decisions: Array<{
@@ -2562,7 +2565,7 @@ export function subscribeFinancialPictureChanges(listener: (generation: number) 
 class FinancialPictureChangedError extends Error {}
 function financialDataPath(path: string) {
   if (/^\/api\/v1\/setup_help(\/|\?|$)/.test(path)) return !path.startsWith('/api/v1/setup_help/restart/')
-  return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
+  return /^\/api\/v1\/(cfo-filter|optionality|workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
 }
 function checkedFinancialReply(generation: number | null, expected: number | null) {
   if (generation === null || expected === null || generation === expected) return

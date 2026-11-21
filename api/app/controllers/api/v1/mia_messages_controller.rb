@@ -2163,6 +2163,7 @@ module Api
         read_only_result = if read_only_plan
           HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
             current_household,
+            experience_capabilities: current_experience_capabilities, user: current_user,
             plan: read_only_plan,
             annual_budget_manager: annual_budget_manager,
             annual_plan: annual_plan,
@@ -2262,7 +2263,7 @@ module Api
               annual_plan: annual_plan,
               reference_month: budget_month_param,
               conversation_messages: @mia_conversation_messages,
-              user: current_user
+              experience_capabilities: current_experience_capabilities, user: current_user
             )
             coach_answer = coach_answerer.call
             @mia_month_answer ||= coach_answerer.prepared_month_answer
@@ -2338,7 +2339,7 @@ module Api
               annual_plan: annual_plan,
               reference_month: budget_month_param,
               conversation_messages: @mia_conversation_messages,
-              user: current_user
+              experience_capabilities: current_experience_capabilities, user: current_user
             )
             coach_answer = coach_answerer.call
             @mia_month_answer ||= coach_answerer.prepared_month_answer
@@ -2438,7 +2439,7 @@ module Api
           annual_plan: annual_plan,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages,
-          user: current_user
+          experience_capabilities: current_experience_capabilities, user: current_user
         )
         answer = answerer.support_answer
         @mia_month_answer ||= answerer.prepared_month_answer
@@ -2452,7 +2453,7 @@ module Api
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages,
-          user: current_user
+          experience_capabilities: current_experience_capabilities, user: current_user
         ).guardrail_answer
       end
 
@@ -2504,7 +2505,7 @@ module Api
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages,
-          user: current_user
+          experience_capabilities: current_experience_capabilities, user: current_user
         )
         coach_answer = support_answer || ((pending_draft_answer || transaction_lookup_answer || action_result) ? nil : followup.direct_answer || coach_answerer.call)
         transaction_lookup_answer ||= (coach_answer || pending_draft_answer || action_result) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
