@@ -299,6 +299,7 @@ module Demo
         readiness_tone: result.fetch(:readiness_tone),
         readiness_label: result.fetch(:readiness_label),
         safe_to_spend: dollars(result.fetch(:safe_to_spend_cents)),
+        surplus_kept_for_tone: result.fetch(:surplus_kept_for_tone_cents)&.then { |cents| dollars(cents) },
         green_runway_target: dollars(result.fetch(:emergency_fund_target_cents)),
         green_runway_gap: dollars(result.fetch(:emergency_fund_gap_cents)),
         months_to_target: result.fetch(:months_to_target),

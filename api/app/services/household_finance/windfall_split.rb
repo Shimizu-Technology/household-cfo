@@ -3,12 +3,18 @@
 module HouseholdFinance
   # Where one-time money goes under the program's windfall order: the emergency
   # fund gap, then consumer debt (cards and loans, never the mortgage), then surplus.
-  # A step whose size is unknown takes the rest and says so; unknown is never $0.
+  # A step whose size is unknown stops the split: the rest waits on that fact
+  # (room_known: false) and is never sent past it as if the step were $0.
   class WindfallSplit
-    # Every debt but the mortgage. The setup summary is the household's card debt.
+    # Every listed debt but the mortgage, or nil when that is not known.
+    # The setup summary is one total for all debts and may include a mortgage, so it
+    # only counts when it is a confirmed $0. An empty list is not "no debt".
     def self.consumer_debt_cents(household)
       portfolio = DebtPortfolio.new(household)
-      return portfolio.balance_known? ? portfolio.total_balance_cents : nil if portfolio.mode == "summary"
+      if portfolio.mode == "summary"
+        return portfolio.balance_known? && portfolio.total_balance_cents.zero? ? 0 : nil
+      end
+      return nil if portfolio.active_debts.empty?
 
       debts = portfolio.active_debts.reject { |debt| debt.debt_type == "mortgage" }
       debts.all?(&:balance_known?) ? debts.sum(&:balance_cents) : nil
@@ -20,7 +26,8 @@ module HouseholdFinance
       @room = { "emergency_fund" => emergency_fund_gap_cents, "consumer_debt" => consumer_debt_cents, "surplus" => Float::INFINITY }
     end
 
-    # [{ key:, cents:, room_known: }]; a step with no money left is left out.
+    # [{ key:, cents:, room_known: }] in order, summing exactly to the amount; a step
+    # with no money left is left out. An unknown step holds the rest and ends the split.
     def call
       left = @amount_cents
       @order.each_with_object([]) do |key, steps|

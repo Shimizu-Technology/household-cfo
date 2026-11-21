@@ -70,6 +70,7 @@ module HouseholdFinance
         emergency_fund_target_cents: readiness_calculation.fetch(:emergency_fund_target_cents),
         emergency_fund_gap_cents: liquid_known_fact(:emergency_fund_gap_cents),
         months_to_target: liquid_known_fact(:months_to_target),
+        surplus_kept_for_tone_cents: liquid_known_fact(:surplus_kept_for_tone_cents),
         surplus_tone: readiness_calculation.fetch(:surplus_tone),
         surplus_label: readiness_calculation.fetch(:surplus_label),
         status_rule: readiness_calculation.fetch(:status_rule),

@@ -4,6 +4,33 @@ require_relative "../support/mel_persona_test_helper"
 
 require_relative "../support/reply_guard_test_helper"
 
+# Counts program lookups so a test can prove one Mia turn reads the method once.
+module MethodLookupCounter
+  mattr_accessor :runtimes, :household_lookups, default: 0
+
+  module Runtime
+    def call
+      MethodLookupCounter.runtimes += 1
+      super
+    end
+  end
+
+  module HouseholdLookup
+    def resolve_for(...)
+      MethodLookupCounter.household_lookups += 1
+      super
+    end
+  end
+
+  def self.count
+    self.runtimes = self.household_lookups = 0
+    yield
+    [ runtimes, household_lookups ]
+  end
+end
+Mia::ParticipantRuntimeResolver.prepend(MethodLookupCounter::Runtime)
+CohortExperience::MethodSettings.singleton_class.prepend(MethodLookupCounter::HouseholdLookup)
+
 class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
   include ReplyGuardTestHelper
   include ParticipantReaderTestSupport
@@ -370,6 +397,22 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_equal 2026, response.parsed_body.dig("month_answer", "year")
     assert_equal 7, response.parsed_body.dig("month_answer", "month")
     assert_includes reply, "July 2026"
+  end
+
+  test "a raise is split in dollars by Rails from the program's method, in a real turn" do
+    post_message("I got a $400 raise, how should I split it?")
+    assert_includes reply, "For $400 more a month that is $200 to the emergency fund, $100 to extra debt payments, and $100 kept as surplus."
+  end
+
+  test "one Mia turn reads the caller's program once, however many months it reads" do
+    runtimes_baseline, = MethodLookupCounter.count { post_message("hello") }
+    runtimes, household_lookups = MethodLookupCounter.count { post_message("How much came in this year?") }
+    assert_match(/2026/, reply)
+    # The year answer reads twelve months; none of them looks the program up again.
+    assert_equal 0, household_lookups
+    assert_operator runtimes, :<=, [ runtimes_baseline, 2 ].max
+    _, raise_lookups = MethodLookupCounter.count { post_message("I got a $400 raise, how should I split it?") }
+    assert_equal 0, raise_lookups
   end
 
   private

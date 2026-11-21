@@ -119,7 +119,9 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
     # $36,000 short of six months at $3,500 a month: 11 months, inside the 12-month Green line.
     assert_equal 11, snapshot.fetch(:months_to_target)
     assert_equal "green", snapshot.fetch(:readiness_tone)
-    assert_equal 140_000, snapshot.fetch(:safe_to_spend_cents)
+    # Green holds only while $3,000 a month ($36,000 ÷ 12) keeps going to the gap: $500 is safe, not 40% ($1,400).
+    assert_equal 300_000, snapshot.fetch(:surplus_kept_for_tone_cents)
+    assert_equal 50_000, snapshot.fetch(:safe_to_spend_cents)
 
     data = HouseholdFinance::DataPresenter.new(household).app_data
     assert_equal 6_500, data.dig(:dashboard, :summary, :fixed_expenses)
@@ -134,7 +136,8 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
     ).call
     assert_includes mia_answer, "$6,500 category plan"
     assert_includes mia_answer, "$3,500 baseline surplus"
-    assert_includes mia_answer, "$1,400 monthly safe-to-spend guardrail"
+    assert_includes mia_answer, "$500 monthly safe-to-spend guardrail"
+    assert_includes mia_answer, "$3,500 − $3,000 = $500, less than 40% ($1,400)"
   end
 
   test "does not let an allocation in another month change the active month snapshot" do

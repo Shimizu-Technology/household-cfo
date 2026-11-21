@@ -5,6 +5,9 @@ module HouseholdFinance
   # a target is Green when this month's surplus reaches it within the green
   # months, Yellow within the yellow months, Red beyond (or never). The monthly
   # base surplus has its own colour. Readiness is the emergency fund target's colour.
+  #
+  # The colour assumes the whole surplus goes to the target, so safe-to-spend is
+  # never more than the household can spend and still keep the colour shown.
   class ReadinessCalculator
     SAFE_TO_SPEND_RATE = 0.4
 
@@ -27,6 +30,7 @@ module HouseholdFinance
         readiness_tone: readiness_tone,
         readiness_label: readiness_label,
         safe_to_spend_cents: safe_to_spend_cents,
+        surplus_kept_for_tone_cents: surplus_kept_for_tone_cents,
         emergency_fund_target_cents: emergency_fund_target_cents,
         emergency_fund_gap_cents: emergency_fund_gap_cents,
         months_to_target: months_to_target,
@@ -93,6 +97,8 @@ module HouseholdFinance
     end
 
     def readiness_label
+      return "Setup incomplete — add planned monthly costs to set the emergency fund target" unless total_outflow_cents.positive?
+
       case readiness_tone
       when "green"
         emergency_fund_gap_cents.zero? ? "Green — emergency fund target reached" : "Green — emergency fund target within #{months(status.fetch('target_green_months'))}"
@@ -120,7 +126,25 @@ module HouseholdFinance
     def safe_to_spend_cents
       return 0 unless baseline_surplus_cents.positive? && readiness_tone != "red"
 
-      (baseline_surplus_cents * SAFE_TO_SPEND_RATE).round
+      rate_cents = (baseline_surplus_cents * SAFE_TO_SPEND_RATE).round
+      return rate_cents unless emergency_fund_gap_cents.positive?
+
+      [ rate_cents, baseline_surplus_cents - surplus_to_keep_tone_cents ].min.clamp(0, rate_cents)
+    end
+
+    # The part of the surplus that must keep going to the target for the colour to hold,
+    # when that is what limits safe-to-spend; nil otherwise.
+    def surplus_kept_for_tone_cents
+      return nil unless baseline_surplus_cents.positive? && readiness_tone != "red" && emergency_fund_gap_cents.positive?
+
+      surplus_to_keep_tone_cents
+    end
+
+    # The least whole-cent monthly surplus that still reaches the gap inside the shown
+    # colour's months: ceil(gap / s) <= months exactly when s >= ceil(gap / months).
+    def surplus_to_keep_tone_cents
+      line = status.fetch(readiness_tone == "green" ? "target_green_months" : "target_yellow_months")
+      (emergency_fund_gap_cents + line - 1) / line
     end
 
     def months(count)

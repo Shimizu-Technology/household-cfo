@@ -2052,7 +2052,9 @@ export type ExperienceMode = 'household_cfo' | 'savings_challenge'
 
 export type ConfigurableExperienceModuleId = Exclude<ExperienceModuleId, 'home' | 'ask_mia'>
 
-export type MethodProtectedCategory = 'housing' | 'utilities' | 'medical' | 'childcare_school' | 'debt_minimums' | 'family_support'
+export type MethodCoreProtectedCategory = 'housing' | 'utilities' | 'medical' | 'childcare_school' | 'debt_minimums' | 'family_support'
+export type MethodOptionalProtectedCategory = 'groceries' | 'giving' | 'community'
+export type MethodProtectedCategory = MethodCoreProtectedCategory | MethodOptionalProtectedCategory
 export type MethodPriority = 'emergency_fund' | 'debt' | 'wealth' | 'experiences'
 export type MethodWindfallStep = 'emergency_fund' | 'consumer_debt' | 'surplus'
 

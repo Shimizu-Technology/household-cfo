@@ -87,6 +87,7 @@ module Api
         %i[@current_participant_runtime @current_persona @current_experience_capabilities @current_brand @savings_program_selected].each do |name|
           remove_instance_variable(name) if instance_variable_defined?(name)
         end
+        CohortExperience::MethodSettings.forget!
       end
 
       def financial_picture_request
@@ -161,6 +162,8 @@ module Api
       def current_household
         @current_household ||= HouseholdFinance::WorkspaceResolver.new(current_user).household
         ChallengePrivacy::PrivateFinanceAccess.authorize!(@current_household, user: current_user)
+        # Every method lookup for this household in this request reads the caller's program, once.
+        CohortExperience::MethodSettings.use_viewer(@current_household.id) { current_experience_capabilities } if @current_household
         @current_household
       end
 

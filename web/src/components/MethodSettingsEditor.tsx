@@ -1,6 +1,6 @@
-import type { MethodProtectedCategory, MethodSettings } from '../api'
+import type { MethodOptionalProtectedCategory, MethodSettings } from '../api'
 import { Button } from './Button'
-import { defaultMethod, methodProblems, priorityLabels, protectedLabels, splitLabels, windfallLabels } from '../lib/methodSettings'
+import { coreProtected, defaultMethod, methodProblems, optionalProtected, priorityLabels, protectedLabels, splitLabels, windfallLabels } from '../lib/methodSettings'
 
 type Props = {
   method: MethodSettings
@@ -24,10 +24,11 @@ export function MethodSettingsEditor({ method, disabled, onChange }: Props) {
   const status = method.status
   const setStatus = (key: keyof MethodSettings['status'], value: number) => onChange({ ...method, status: { ...status, [key]: value } })
   const setDollars = (key: 'surplus_green_cents' | 'surplus_yellow_cents', value: string) => setStatus(key, Math.round(wholeNumber(value) * 100))
-  const toggleProtected = (key: MethodProtectedCategory) => onChange({
-    ...method,
-    protected: method.protected.includes(key) ? method.protected.filter(item => item !== key) : (Object.keys(protectedLabels) as MethodProtectedCategory[]).filter(item => item === key || method.protected.includes(item)),
-  })
+  // The core list always stays; only the optional ones toggle, kept in the API's order.
+  const toggleProtected = (key: MethodOptionalProtectedCategory) => {
+    const chosen = method.protected.includes(key) ? method.protected.filter(item => item !== key) : [...method.protected, key]
+    onChange({ ...method, protected: [...coreProtected, ...optionalProtected.filter(item => chosen.includes(item))] })
+  }
   const isDefault = JSON.stringify(method) === JSON.stringify(defaultMethod)
 
   return (
@@ -37,8 +38,8 @@ export function MethodSettingsEditor({ method, disabled, onChange }: Props) {
       <fieldset disabled={disabled}>
         <legend>Status colours</legend>
         <div className="experience-method-fields">
-          <MethodNumber label="A goal is green if it can be reached within" unit="months" value={status.target_green_months} onChange={value => setStatus('target_green_months', wholeNumber(value))} />
-          <MethodNumber label="Yellow within" unit="months" value={status.target_yellow_months} onChange={value => setStatus('target_yellow_months', wholeNumber(value))} />
+          <MethodNumber label="A goal is green if it can be reached within" unit="months" min={1} value={status.target_green_months} onChange={value => setStatus('target_green_months', wholeNumber(value))} />
+          <MethodNumber label="Yellow within" unit="months" min={2} value={status.target_yellow_months} onChange={value => setStatus('target_yellow_months', wholeNumber(value))} />
           <MethodNumber label="Monthly surplus is green from" prefix="$" unit="a month" value={status.surplus_green_cents / 100} onChange={value => setDollars('surplus_green_cents', value)} />
           <MethodNumber label="Yellow from" prefix="$" unit="a month" value={status.surplus_yellow_cents / 100} onChange={value => setDollars('surplus_yellow_cents', value)} />
         </div>
@@ -47,18 +48,20 @@ export function MethodSettingsEditor({ method, disabled, onChange }: Props) {
       <fieldset disabled={disabled}>
         <legend>Emergency fund</legend>
         <div className="experience-method-fields">
-          <MethodNumber label="Target" unit="months of planned costs" value={method.emergency_fund_months} onChange={value => onChange({ ...method, emergency_fund_months: wholeNumber(value) })} />
+          <MethodNumber label="Target" unit="months of planned costs" min={1} value={method.emergency_fund_months} onChange={value => onChange({ ...method, emergency_fund_months: wholeNumber(value) })} />
         </div>
         <small>A household that sets its own goal keeps it.</small>
       </fieldset>
       <fieldset disabled={disabled}>
         <legend>Never suggested as cuts</legend>
+        <p className="experience-method-fixed"><strong>Always protected:</strong> {coreProtected.map(key => protectedLabels[key]).join(', ')}.</p>
+        <span className="experience-method-subhead">Also protect</span>
         <div className="experience-method-checks">
-          {(Object.keys(protectedLabels) as MethodProtectedCategory[]).map(key => (
+          {optionalProtected.map(key => (
             <label key={key}><input type="checkbox" checked={method.protected.includes(key)} onChange={() => toggleProtected(key)} />{protectedLabels[key]}</label>
           ))}
         </div>
-        <small>These always still count in spending. Care and bill stores stay protected whatever you choose.</small>
+        <small>These always still count in spending. Care and bill stores stay protected too.</small>
       </fieldset>
       <fieldset disabled={disabled}>
         <legend>Priority order</legend>
@@ -83,13 +86,13 @@ export function MethodSettingsEditor({ method, disabled, onChange }: Props) {
   )
 }
 
-function MethodNumber({ label, unit, prefix, value, onChange }: { label: string; unit: string; prefix?: string; value: number; onChange: (value: string) => void }) {
+function MethodNumber({ label, unit, prefix, value, min = 0, onChange }: { label: string; unit: string; prefix?: string; value: number; min?: number; onChange: (value: string) => void }) {
   return (
     <label className="experience-method-field">
       <span>{label}</span>
       <span className="experience-method-input">
         {prefix && <span aria-hidden="true">{prefix}</span>}
-        <input className="ui-field" type="number" inputMode="numeric" min="0" step="1" value={Number.isFinite(value) ? value : ''} onChange={event => onChange(event.target.value)} />
+        <input className="ui-field" type="number" inputMode="numeric" min={min} step="1" value={Number.isFinite(value) ? value : ''} onChange={event => onChange(event.target.value)} />
         <span>{unit}</span>
       </span>
     </label>

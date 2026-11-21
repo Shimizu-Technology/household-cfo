@@ -54,6 +54,14 @@ module Demo
         return "Your monthly safe-to-spend guardrail is $0. #{basis} Although the baseline surplus is positive, Red readiness holds safe-to-spend at $0 until protected runway reaches Yellow; the #{rate}% rule is not active yet. It is not a purchase amount or account balance. Next CFO move: direct the available surplus toward essential bills, expected expenses, and protected runway."
       end
 
+      kept = facts[:surplus_kept_for_tone]
+      rate_amount = (surplus * HouseholdFinance::ReadinessCalculator::SAFE_TO_SPEND_RATE).round(2)
+      if kept && safe < rate_amount
+        tone = facts.fetch(:readiness_tone)
+        line = facts.dig(:status_rule, tone == "green" ? "target_green_months" : "target_yellow_months")
+        return "Your #{money(safe)} monthly safe-to-spend guardrail is what your #{money(surplus)} positive baseline surplus leaves after keeping your #{tone.capitalize}: #{basis} #{tone.capitalize} needs about #{money(kept)} a month toward the #{money(facts.fetch(:green_runway_gap))} emergency fund gap to reach it within #{line} months, so #{money(surplus)} − #{money(kept)} = #{money(safe)}, less than #{rate}% (#{money(rate_amount)}). It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
+      end
+
       "Your #{money(safe)} monthly safe-to-spend guardrail is #{rate}% of your #{money(surplus)} positive baseline surplus: #{basis} #{money(surplus)} × #{rate}% = #{money(safe)}. It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. The guardrail is available only in Yellow or Green with a positive surplus; Red returns $0. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
     end
 

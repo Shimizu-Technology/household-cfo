@@ -51,24 +51,30 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_equal 41_000 * 2 + 30_000 * 2 + 9_000 * 2 + 69_000 + 50_000 + (12_000 + 8_000 + 6_000) * 2, result[:observed_spending_cents]
   end
 
-  test "the program's protected categories decide category protection; store names and insurance stay protected" do
+  test "the core categories are always protected; a program can add more; store names and insurance stay protected" do
     analyzer = SpendingPatterns::Analyzer
     assert analyzer.protected_category?("Family outings")
-    refute analyzer.protected_category?("Family outings", %w[housing utilities])
-    assert analyzer.protected_category?("Rent", %w[housing])
-    refute analyzer.protected_category?("Car payment", %w[housing])
-    assert analyzer.protected_category?("Car payment", %w[debt_minimums])
+    assert analyzer.protected_category?("Family outings", %w[housing utilities]), "family support is core; a list cannot drop it"
+    assert analyzer.protected_category?("Car payment", [])
     assert analyzer.protected_category?("Car insurance", [])
+    refute analyzer.protected_category?("Groceries")
+    assert analyzer.protected_category?("Groceries", %w[groceries])
+    assert analyzer.protected_category?("Church tithes", %w[giving])
+    assert analyzer.protected_category?("Fiesta and community", %w[community])
+    refute analyzer.protected_category?("Eating out", %w[groceries giving community])
     family = @household.budget_categories.create!(name: "Family outings", stack_key: "discretionary", sort_order: 2)
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 3)
     [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
       purchase(date, "Island Fun Center", 12_000, category: family)
       purchase(date, "Talofofo Prenatal Clinic", 20_500, category: family)
+      purchase(date, "Payless Market", 15_000, category: groceries)
     end
     default = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2)).call
-    assert_empty default[:candidate_changes]
-    assert_equal CohortExperience::MethodSettings::PROTECTED_OPTIONS, default[:protected_categories]
-    open = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), protected: %w[housing]).call
-    assert_equal [ "Island Fun Center" ], open[:candidate_changes].pluck(:merchant)
+    assert_equal [ "Payless Market" ], default[:candidate_changes].pluck(:merchant)
+    assert_equal CohortExperience::MethodSettings::CORE_PROTECTED, default[:protected_categories]
+    added = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), protected: %w[groceries]).call
+    assert_empty added[:candidate_changes]
+    assert_equal CohortExperience::MethodSettings::CORE_PROTECTED + %w[groceries], added[:protected_categories]
   end
 
   test "a clinic, pharmacy, daycare, insurer or money for family filed as flexible spending is never a cut" do

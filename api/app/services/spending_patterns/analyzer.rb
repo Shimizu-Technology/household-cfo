@@ -19,9 +19,14 @@ module SpendingPatterns
       "childcare_school" => /\b(?:child(?:ren)?|childcare|daycare|preschool|nann(?:y|ies)|after\s*-?\s*school|babysit(?:ter|ting)?|kids?|baby|babies|diapers?|school|tuition|daughters?|sons?)\b/i,
       "family_support" => /\b(?:family|mom|mother|dad|father|parents?|grandparents?|grand(?:ma|pa)|lola|lolo|nana|auntie|aunt|uncle|relatives?|#{FAMILY_SUPPORT}|remittances?)\b/i,
       # Bills, not a store habit. Kept apart from the care words because "cut your debt" is good advice.
-      "debt_minimums" => /\b(?:loans?|debts?|(?:car|card|credit\s+card)\s+payments?)\b/i
+      "debt_minimums" => /\b(?:loans?|debts?|(?:car|card|credit\s+card)\s+payments?)\b/i,
+      # Only when the program adds them.
+      "groceries" => /\b(?:groceries|grocery|supermarkets?|food\s+at\s+home)\b/i,
+      "giving" => /\b(?:giving|tith(?:e|es|ing)|donations?|offerings?|charit(?:y|able)|church)\b/i,
+      "community" => /\b(?:community|fiestas?|novenas?|funerals?|rosary|rosaries)\b/i
     }.freeze
-    PROTECTED_CATEGORY = Regexp.union(PROTECTED_CATEGORY_WORDS.except("debt_minimums").values)
+    CORE_PROTECTED = CohortExperience::MethodSettings::CORE_PROTECTED
+    PROTECTED_CATEGORY = Regexp.union(PROTECTED_CATEGORY_WORDS.slice(*CORE_PROTECTED).except("debt_minimums").values)
     # Insurance is a contract bill whatever the program chooses, like the store names below.
     ALWAYS_PROTECTED_CATEGORY = /\b(?:insurance|premiums?)\b/i
     BILL_CATEGORY = Regexp.union(ALWAYS_PROTECTED_CATEGORY, PROTECTED_CATEGORY_WORDS.fetch("debt_minimums"))
@@ -66,10 +71,10 @@ module SpendingPatterns
     KNOWN_SERVICE = /\b(?:netflix|hulu|disney|youtube|spotify|apple\.com|icloud|apple\s+(?:music|tv|one)|google\s+(?:one|workspace|storage)|amazon\s+prime|prime\s+video|audible|peacock|paramount|hbo|starlink|chatgpt|zoom|adobe|microsoft\s+365|dropbox|xbox|playstation|nintendo|crunchyroll)/i
     BANK_RECURRING = /\Arecurring\s+payment\b/i
 
-    # protected: the program's protected categories; the default protects all of them.
-    def self.protected_category?(name, protected = PROTECTED_CATEGORY_WORDS.keys)
+    # protected: the program's protected categories. The core ones are always protected.
+    def self.protected_category?(name, protected = CORE_PROTECTED)
       text = name.to_s
-      text.match?(ALWAYS_PROTECTED_CATEGORY) || PROTECTED_CATEGORY_WORDS.slice(*protected).values.any? { |words| text.match?(words) }
+      text.match?(ALWAYS_PROTECTED_CATEGORY) || PROTECTED_CATEGORY_WORDS.slice(*(CORE_PROTECTED | Array(protected))).values.any? { |words| text.match?(words) }
     end
     def self.protected_merchant?(name) = name.to_s.match?(PROTECTED_MERCHANT)
 
@@ -80,7 +85,7 @@ module SpendingPatterns
     end
 
     def protected_categories
-      @protected ||= CohortExperience::MethodSettings.for_household(@household).fetch("protected")
+      @protected_categories ||= CORE_PROTECTED | Array(@protected || CohortExperience::MethodSettings.for_household(@household).fetch("protected"))
     end
 
     def call

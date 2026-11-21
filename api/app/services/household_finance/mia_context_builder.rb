@@ -132,7 +132,8 @@ module HouseholdFinance
         protected_rule: "Never suggest cutting these; they always still count in spending.",
         priority_order: @method_settings.fetch("priorities").map(&label),
         windfall_order: @method_settings.fetch("windfall").map(&label),
-        new_monthly_income_split: @method_settings.fetch("income_split").to_h { |key, percent| [ label.call(key), "#{percent}%" ] }
+        new_monthly_income_split: @method_settings.fetch("income_split").to_h { |key, percent| [ label.call(key), "#{percent}%" ] },
+        new_monthly_income_split_rule: "Dollar amounts for a raise or new job come from Rails in a ready answer. Never work them out; without them, ask how much more lands each month."
       }
     end
 

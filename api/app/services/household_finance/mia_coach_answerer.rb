@@ -50,6 +50,16 @@ module HouseholdFinance
       "consumer_debt" => "pay down consumer debt (cards and loans, not the mortgage)",
       "surplus" => "keep the rest as surplus"
     }.freeze
+    WINDFALL_SPLIT_WORDS = { "emergency_fund" => "to the emergency fund", "consumer_debt" => "to consumer debt", "surplus" => "kept as surplus" }.freeze
+    WINDFALL_UNKNOWN_WORDS = {
+      "emergency_fund" => "emergency fund step: add your savings balances and planned monthly costs in My Money so I can size the gap",
+      "consumer_debt" => "debt step: list your cards and loans (not the mortgage) in My Money so I can size it"
+    }.freeze
+    # A raise or new job and a question about where the new monthly money goes. Not "raise the category".
+    # Read against normalized_message, where "$5,000" reads "$5 000".
+    NEW_INCOME_PATTERN = /\b(?:a|my|our|the|this|that|her|his)\s+(?:new\s+)?(?:\$\s*\d[\d,\s]*?(?:\.\d{1,2})?\s+(?:(?:a|per|each)\s+month\s+|monthly\s+|(?:a|per)\s+year\s+|yearly\s+|annual\s+)?)?(?:pay\s+)?(?:raise|pay\s+increase|promotion)\b|\bnew\s+(?:job|monthly\s+income)\b/i.freeze
+    NEW_INCOME_SPLIT_QUESTION_PATTERN = /\b(?:split|divide|allocate|do\s+with|use|put|spend|save)\b|\b(?:how|where)\s+should\b/i.freeze
+    INCOME_SPLIT_WORDS = { "emergency_fund" => "to the emergency fund", "debt" => "to extra debt payments", "surplus" => "kept as surplus" }.freeze
     EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b|\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i.freeze
     DEBT_DECISION_PATTERN = /\b(?:skip|miss)\b.*\b(?:credit card|debt|payment|minimum)\b|\b(?:payday loan|balance transfer|consolidat|highest interest|smallest balance|close old credit cards?|credit score|minimum went up)\b/i.freeze
     SINKING_FUND_PATTERN = /\b(?:sinking fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|unexpected sinking|expected sinking|home repair)\b/i.freeze
@@ -215,7 +225,7 @@ module HouseholdFinance
       return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
       return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
 
-      recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      income_split_answer || recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_month_answer
@@ -248,7 +258,8 @@ module HouseholdFinance
       when :hardship then food_insecurity_answer || ParticipantCare.answer(message) || essential_hardship_answer
       when :essential_skip then essential_skip_answer
       when :month
-        month_overview_answer unless self.class.explicit_write_request?(message)
+        # "Where should my raise go?" is about new monthly income, not this month's plan.
+        month_overview_answer unless self.class.explicit_write_request?(message) || income_split_question?
       when :reflective then avoidance_answer || reflective_answer
       end
     end
@@ -540,6 +551,32 @@ module HouseholdFinance
       "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and monthly debt payments outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
     end
 
+    # The program's split for new monthly income; for a named amount Rails gives every dollar figure.
+    def income_split_answer
+      return nil unless income_split_question?
+
+      split = method_settings.fetch("income_split")
+      rule = "Your program splits new monthly income #{split.reject { |_key, percent| percent.zero? }.map { |key, percent| "#{percent}% #{INCOME_SPLIT_WORDS.fetch(key)}" }.to_sentence}."
+      basis = "Use the take-home increase, after taxes, and keep every bill and minimum payment covered first."
+      amount_cents = amount_from_message_cents
+      if amount_cents.nil? || !amount_cents.positive? || normalized_message.match?(/\b(?:an?|per)\s+hour\b|\bhourly\b/i)
+        return "Congratulations on the new income. #{rule} #{basis} Next CFO move: tell me how much more lands in your account each month, and I'll put dollars on each part."
+      end
+
+      yearly = normalized_message.match?(/\b(?:(?:a|per|each)\s+year|yearly|annual(?:ly)?)\b/i)
+      monthly_cents = yearly ? (amount_cents / 12.0).round : amount_cents
+      named = yearly ? "a #{money(amount_cents)} yearly raise, about #{money(monthly_cents)} a month," : "#{money(monthly_cents)} more a month"
+      shares = IncomeSplit.new(amount_cents: monthly_cents, split: split).call
+      parts = shares.map { |key, cents| "#{money(cents)} #{INCOME_SPLIT_WORDS.fetch(key)}" }
+      first = shares.first
+      "Congratulations on the new income. #{rule} For #{named} that is #{parts.to_sentence}. #{basis} Next CFO move: when the first bigger paycheck lands, set up the #{money(first.last)} transfer #{INCOME_SPLIT_WORDS.fetch(first.first)} so it happens on its own."
+    end
+
+    def income_split_question?
+      normalized_message.match?(NEW_INCOME_PATTERN) && normalized_message.match?(NEW_INCOME_SPLIT_QUESTION_PATTERN) &&
+        !normalized_message.match?(CATEGORY_PLAN_QUESTION_PATTERN) && !conditional_monthly_income_question?
+    end
+
     def extra_money_answer
       return nil unless normalized_message.match?(EXTRA_MONEY_PATTERN)
 
@@ -572,6 +609,14 @@ module HouseholdFinance
       end
       if snapshot.fetch(:readiness_tone) == "red"
         return "Your monthly safe-to-spend guardrail is $0. #{basis} Although the baseline surplus is positive, Red readiness holds safe-to-spend at $0 until protected runway reaches Yellow; the #{rate}% rule is not active yet. It is not a purchase amount or account balance. Next CFO move: direct the available surplus toward essential bills, expected expenses, and protected runway."
+      end
+
+      kept = snapshot[:surplus_kept_for_tone_cents]
+      rate_cents = (surplus * ReadinessCalculator::SAFE_TO_SPEND_RATE).round
+      if kept && safe < rate_cents
+        tone = snapshot.fetch(:readiness_tone)
+        line = status_rule.fetch(tone == "green" ? "target_green_months" : "target_yellow_months")
+        return "Your #{money(safe)} monthly safe-to-spend guardrail is what your #{money(surplus)} positive baseline surplus leaves after keeping your #{tone.capitalize}: #{basis} #{tone.capitalize} needs about #{money(kept)} a month toward the #{money(snapshot.fetch(:emergency_fund_gap_cents))} emergency fund gap to reach it within #{months_text(line)}, so #{money(surplus)} − #{money(kept)} = #{money(safe)}, less than #{rate}% (#{money(rate_cents)}). It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
       end
 
       "Your #{money(safe)} monthly safe-to-spend guardrail is #{rate}% of your #{money(surplus)} positive baseline surplus: #{basis} #{money(surplus)} × #{rate}% = #{money(safe)}. It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. The guardrail is available only in Yellow or Green with a positive surplus; Red returns $0. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
@@ -1478,7 +1523,7 @@ module HouseholdFinance
     end
 
     def method_settings
-      @method_settings ||= CohortExperience::MethodSettings.for_household(household)
+      @method_settings ||= CohortExperience::MethodSettings.for_household(household, user: user)
     end
 
     def status_rule
@@ -1528,14 +1573,21 @@ module HouseholdFinance
       line = "Your program's order for one-time money: #{steps}."
       return line unless amount_cents&.positive?
 
-      split = WindfallSplit.new(amount_cents: amount_cents, order: order, emergency_fund_gap_cents: emergency_fund_gap_cents,
+      split = WindfallSplit.new(amount_cents: amount_cents, order: order, emergency_fund_gap_cents: windfall_emergency_fund_gap_cents,
         consumer_debt_cents: WindfallSplit.consumer_debt_cents(household)).call
       parts = split.map do |step|
-        words = { "emergency_fund" => "to the emergency fund", "consumer_debt" => "to consumer debt", "surplus" => "kept as surplus" }.fetch(step[:key])
-        unknown = step[:room_known] ? "" : " (its balance isn't fully entered, so check what you owe first)"
-        "#{money(step[:cents])} #{words}#{unknown}"
+        next "#{money(step[:cents])} #{WINDFALL_SPLIT_WORDS.fetch(step[:key])}" if step[:room_known]
+
+        "#{money(step[:cents])} waits on the #{WINDFALL_UNKNOWN_WORDS.fetch(step[:key])}"
       end
       "#{line} For #{money(amount_cents)}, that is #{parts.to_sentence}."
+    end
+
+    # The gap only when it is known: saved balances entered and planned costs set.
+    def windfall_emergency_fund_gap_cents
+      return nil unless snapshot[:liquid_assets_known] && snapshot.fetch(:total_outflow_cents).positive?
+
+      emergency_fund_gap_cents
     end
 
     def business_income_cents

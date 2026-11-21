@@ -740,7 +740,7 @@ module HouseholdFinance
       when "green"
         {
           title: "Keep the household plan steady.",
-          body: snapshot.fetch(:emergency_fund_gap_cents).zero? ? "Your emergency fund target is reached. Protect expected expenses, review actuals, and avoid turning a Green month into permission for a permanent spending increase." : "Your emergency fund target is within reach this year at your current surplus. Keep expected expenses funded and keep the monthly transfer going."
+          body: snapshot.fetch(:emergency_fund_gap_cents).zero? ? "Your emergency fund target is reached. Protect expected expenses, review actuals, and avoid turning a Green month into permission for a permanent spending increase." : "Your emergency fund target is within #{months_text(snapshot.dig(:status_rule, 'target_green_months'))} at your current surplus. Keep expected expenses funded and keep the monthly transfer going."
         }
       when "yellow"
         {

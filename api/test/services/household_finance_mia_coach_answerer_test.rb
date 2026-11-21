@@ -436,7 +436,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "$7,845"
     assert_includes answer, "$655"
     assert_includes answer, "40%"
-    assert_includes answer, "$262"
+    # Yellow holds only while $610.56 a month goes to the $21,980 gap ($21,980 ÷ 36, rounded up).
+    assert_includes answer, "$655 − $610.56 = $44.44, less than 40% ($262)"
     assert_includes answer, "not a purchase amount"
   end
 
@@ -448,7 +449,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "How much is safe to spend?"
     ).call
 
-    assert_includes answer, "$262 monthly safe-to-spend guardrail"
+    assert_includes answer, "$44.44 monthly safe-to-spend guardrail"
     assert_includes answer, "$655 positive baseline surplus"
     assert_includes answer, "not a purchase amount"
   end
@@ -459,7 +460,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     safe_to_spend = HouseholdFinance::MiaCoachAnswerer.new(household, "What's my safe-to-spend?").call
     readiness = HouseholdFinance::MiaCoachAnswerer.new(household, "What's my readiness?").call
 
-    assert_includes safe_to_spend, "$262 monthly safe-to-spend guardrail"
+    assert_includes safe_to_spend, "$44.44 monthly safe-to-spend guardrail"
     assert_includes readiness, "approved readiness is Yellow"
   end
 
@@ -509,7 +510,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     ).call
 
     assert_includes answer, "$1,650"
-    assert_includes answer, "$638"
+    assert_includes answer, "$855.56"
     assert_includes answer, "$995"
     assert_includes answer, "not a second safe-to-spend allowance"
     assert_includes answer, "Nothing is approved"

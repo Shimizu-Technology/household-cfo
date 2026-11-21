@@ -264,6 +264,8 @@
 .experience-method-field > span:first-child { color: var(--muted); font-size: var(--text-sm); }
 .experience-method-input { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .experience-method-input input { width: 6.5rem; flex: 0 0 auto; font-variant-numeric: tabular-nums lining-nums; }
+.experience-method-fixed { margin: 0; }
+.experience-method-subhead { color: var(--muted); font-size: var(--text-sm); }
 .experience-method-checks { display: grid; gap: 0 16px; }
 .experience-method-checks label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .experience-method-order .experience-module-row { grid-template-columns: minmax(0, 1fr) auto; min-height: 52px; }

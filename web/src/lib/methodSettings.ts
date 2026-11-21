@@ -1,4 +1,4 @@
-import type { CohortExperienceDraft, MethodPriority, MethodProtectedCategory, MethodSettings, MethodWindfallStep } from '../api'
+import type { CohortExperienceDraft, MethodCoreProtectedCategory, MethodOptionalProtectedCategory, MethodPriority, MethodProtectedCategory, MethodSettings, MethodWindfallStep } from '../api'
 
 /** Mrs. Mel's method. Mirrors CohortExperience::MethodSettings::DEFAULTS in the API. */
 export const defaultMethod: MethodSettings = {
@@ -10,6 +10,10 @@ export const defaultMethod: MethodSettings = {
   income_split: { emergency_fund: 50, debt: 25, surplus: 25 },
 }
 
+/** Never suggested as cuts in any program; a coach can add to these, not remove them. */
+export const coreProtected: MethodCoreProtectedCategory[] = ['housing', 'utilities', 'medical', 'childcare_school', 'debt_minimums', 'family_support']
+export const optionalProtected: MethodOptionalProtectedCategory[] = ['groceries', 'giving', 'community']
+
 export const protectedLabels: Record<MethodProtectedCategory, string> = {
   housing: 'Housing',
   utilities: 'Utilities',
@@ -17,6 +21,9 @@ export const protectedLabels: Record<MethodProtectedCategory, string> = {
   childcare_school: 'Childcare and school',
   debt_minimums: 'Debt minimums',
   family_support: 'Family support',
+  groceries: 'Groceries',
+  giving: 'Giving (tithes and donations)',
+  community: 'Family & community',
 }
 
 export const priorityLabels: Record<MethodPriority, string> = {
@@ -52,6 +59,7 @@ export function methodProblems(method: MethodSettings): string[] {
     problems.push('Use whole dollars up to $100,000 for the surplus colours, with green at or above yellow.')
   }
   if (!whole(method.emergency_fund_months, 1, 24)) problems.push('Set the emergency fund target to 1–24 months.')
+  if (coreProtected.some(key => !method.protected.includes(key))) problems.push('Housing, utilities, medical, childcare and school, debt minimums and family support are always protected.')
   if (![split.emergency_fund, split.debt, split.surplus].every(value => whole(value, 0, 100)) || split.emergency_fund + split.debt + split.surplus !== 100) {
     problems.push('The new income split must be whole percentages that add up to 100%.')
   }
@@ -77,7 +85,7 @@ export function methodChanges(previous: MethodSettings, next: MethodSettings): s
   const added = next.protected.filter(key => !previous.protected.includes(key)).map(key => protectedLabels[key])
   const removed = previous.protected.filter(key => !next.protected.includes(key)).map(key => protectedLabels[key])
   if (added.length) changes.push(`Method: ${added.join(', ')} ${added.length === 1 ? 'is' : 'are'} never suggested as cuts.`)
-  if (removed.length) changes.push(`Method: ${removed.join(', ')} can be suggested as cuts.`)
+  if (removed.length) changes.push(`Method: ${removed.join(', ')} can be suggested as cuts again.`)
   if (previous.priorities.join() !== next.priorities.join()) changes.push(`Method: priority order is ${next.priorities.map((key, index) => `${index + 1} ${priorityLabels[key]}`).join(' · ')}.`)
   if (previous.windfall.join() !== next.windfall.join()) changes.push(`Method: one-time money goes to ${next.windfall.map(key => windfallLabels[key].toLowerCase()).join(', then ')}.`)
   const split = next.income_split

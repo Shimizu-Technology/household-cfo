@@ -140,14 +140,21 @@ describe('CohortExperienceStudio experience choice', () => {
     const method = await screen.findByRole('article', { name: 'Method' })
     expect((within(method).getByLabelText(/A goal is green if it can be reached within/) as HTMLInputElement).value).toBe('12')
     expect((within(method).getByLabelText(/^Target/) as HTMLInputElement).value).toBe('3')
-    expect(within(method).getByRole('checkbox', { name: 'Family support' })).toHaveProperty('checked', true)
+    // The core protections are fixed text, not switches; only additions are checkboxes.
+    expect(within(method).getByText(/Always protected:/).parentElement?.textContent).toBe('Always protected: Housing, Utilities, Medical, Childcare and school, Debt minimums, Family support.')
+    expect(within(method).queryByRole('checkbox', { name: 'Family support' })).toBeNull()
+    expect(within(method).getAllByRole('checkbox').map(box => (box as HTMLInputElement).labels?.[0]?.textContent)).toEqual(['Groceries', 'Giving (tithes and donations)', 'Family & community'])
+    expect(within(method).getByRole('checkbox', { name: 'Groceries' })).toHaveProperty('checked', false)
+    expect(within(method).getByLabelText(/A goal is green if it can be reached within/).getAttribute('min')).toBe('1')
+    expect(within(method).getByLabelText(/^Target/).getAttribute('min')).toBe('1')
     expect(within(within(method).getByRole('list', { name: 'Priority order' })).getAllByRole('listitem').map(item => item.textContent)).toEqual(['1. Emergency fund↑↓', '2. Debt acceleration↑↓', '3. Wealth building↑↓', '4. Experiences and life↑↓'])
     expect(within(method).getByRole('button', { name: 'Use the usual method' })).toHaveProperty('disabled', true)
 
     const target = within(method).getByLabelText(/^Target/)
     await user.clear(target)
     await user.type(target, '6')
-    await user.click(within(method).getByRole('checkbox', { name: 'Family support' }))
+    await user.click(within(method).getByRole('checkbox', { name: 'Family & community' }))
+    await user.click(within(method).getByRole('checkbox', { name: 'Groceries' }))
     await user.click(within(method).getByRole('button', { name: 'Move Debt acceleration up' }))
     await user.click(within(method).getByRole('button', { name: 'Move Pay down consumer debt (cards and loans, not the mortgage) up' }))
     const debtSplit = within(method).getByLabelText(/^Extra debt payments/)
@@ -162,7 +169,7 @@ describe('CohortExperienceStudio experience choice', () => {
 
     const expected = { schema_version: 5, experience_mode: 'household_cfo', module_order: [], optional_modules: {
       review: true, budget: true, profile: true, statements: true, wealth: true, cfo_filter: false, optionality: false,
-    }, method: { ...defaultMethod, emergency_fund_months: 6, protected: defaultMethod.protected.filter(key => key !== 'family_support'),
+    }, method: { ...defaultMethod, emergency_fund_months: 6, protected: [...defaultMethod.protected, 'groceries', 'community'],
       priorities: ['debt', 'emergency_fund', 'wealth', 'experiences'], windfall: ['consumer_debt', 'emergency_fund', 'surplus'],
       income_split: { emergency_fund: 50, debt: 30, surplus: 20 } } }
     apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected as CohortExperienceConfiguration['draft']))

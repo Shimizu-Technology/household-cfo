@@ -34,7 +34,16 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     refute_empty schema.errors(schema::DEFAULT_CONFIG.merge("method" => DEFAULTS.merge("extra" => 1)))
     refute_empty schema.errors(schema::DEFAULT_CONFIG.except("method"))
     refute_empty schema.errors(schema::DEFAULT_CONFIG.merge("schema_version" => 4))
-    assert_empty schema.errors(method_config("protected" => []))
+    # The core protections stay; a program can only add to them.
+    assert_includes schema.errors(method_config("protected" => [])), CohortExperience::MethodSettings::PROTECTED_CORE_MESSAGE
+    assert_includes schema.errors(method_config("protected" => DEFAULTS.fetch("protected") - %w[medical])), CohortExperience::MethodSettings::PROTECTED_CORE_MESSAGE
+    assert_empty schema.errors(method_config("protected" => DEFAULTS.fetch("protected") + %w[groceries giving community]))
+    # A list of the wrong types is reported, never raised while sorting.
+    [ [ "debt", 1, nil, {} ], [ nil ], [ 1, 2, 3, 4 ] ].each do |value|
+      assert_includes schema.errors(method_config("priorities" => value)), "method.priorities must order every priority once"
+      assert_includes schema.errors(method_config("windfall" => value)), "method.windfall must order every windfall step once"
+    end
+    assert_includes schema.errors(method_config("protected" => [ "housing", 1, nil ])), "method.protected must list unique supported categories"
   end
 
   test "older schemas read as Mrs. Mel's defaults and upgrade to them" do
@@ -86,25 +95,33 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     assert_equal "household", context(participant, household).dig("metrics", "emergency_fund_target_set_by")
   end
 
-  test "protected categories: family support is never a cut by default, and can be after Go live, while care stores stay protected" do
+  test "protected categories: the core list always holds, and a program can add groceries" do
     participant, household = launch
     spend(household)
-    assert_equal [ "Reef Coffee Co" ], SpendingPatterns::Analyzer.new(household, today: Date.new(2026, 11, 2)).call[:candidate_changes].pluck(:merchant)
+    assert_equal [ "Payless Market", "Reef Coffee Co" ], cut_candidates(household)
     cut = cut_answer(household)
     refute_includes cut, "Island Fun Center"
     assert_includes cut, "I left out stores and categories that look like rent, bills, medical care, childcare or money for family."
-    assert_includes context(participant, household).dig("coaching_method", "protected_categories"), "Family support"
+    assert_equal CohortExperience::MethodSettings::CORE_PROTECTED.map { |key| CohortExperience::MethodSettings.label(key) },
+      context(participant, household).dig("coaching_method", "protected_categories")
 
-    participant, household = launch("protected" => DEFAULTS.fetch("protected") - %w[family_support medical])
+    participant, household = launch("protected" => DEFAULTS.fetch("protected") + %w[groceries])
     spend(household)
-    merchants = SpendingPatterns::Analyzer.new(household, today: Date.new(2026, 11, 2)).call[:candidate_changes].pluck(:merchant)
-    assert_equal [ "Island Fun Center", "Reef Coffee Co" ], merchants
-    # The clinic's store name keeps it protected even with medical categories unprotected.
-    refute_includes merchants, "Harbor Family Clinic"
+    assert_equal [ "Reef Coffee Co" ], cut_candidates(household)
     cut = cut_answer(household)
-    assert_includes cut, "Island Fun Center"
-    assert_includes cut, "the categories your program protects: housing, utilities, childcare and school, and debt minimums"
-    refute_includes context(participant, household).dig("coaching_method", "protected_categories"), "Family support"
+    refute_includes cut, "Payless Market"
+    refute_includes cut, "Island Fun Center"
+    assert_includes cut, "money for family, and the groceries your program also protects."
+    assert_includes context(participant, household).dig("coaching_method", "protected_categories"), "Groceries"
+  end
+
+  test "a published method missing a core protection still protects it" do
+    _participant, household = launch
+    spend(household)
+    analyzer = SpendingPatterns::Analyzer.new(household, today: Date.new(2026, 11, 2), protected: %w[groceries])
+    merchants = analyzer.call[:candidate_changes].pluck(:merchant)
+    assert_equal [ "Reef Coffee Co" ], merchants
+    assert_equal CohortExperience::MethodSettings::CORE_PROTECTED + %w[groceries], analyzer.protected_categories
   end
 
   test "priorities and windfalls: Mrs. Mel's order by default, the program's order after Go live" do
@@ -130,17 +147,73 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     assert_equal [ "Debt acceleration", "Emergency fund", "Wealth building", "Experiences and life" ], context(participant, household).dig("coaching_method", "priority_order")
   end
 
+  test "a raise: Rails splits the named amount by the program's percentages, Mia never does the arithmetic" do
+    _participant, household = launch
+    answer = mia(household, "I got a $400 raise, how should I split it?")
+    assert_includes answer, "Your program splits new monthly income 50% to the emergency fund, 25% to extra debt payments, and 25% kept as surplus."
+    assert_includes answer, "For $400 more a month that is $200 to the emergency fund, $100 to extra debt payments, and $100 kept as surplus."
+    assert_includes answer, "set up the $200 transfer to the emergency fund"
+    yearly = mia(household, "My husband got a $5,000 a year raise. Where should it go?")
+    assert_includes yearly, "For a $5,000 yearly raise, about $416.67 a month, that is $208.35 to the emergency fund, $104.16 to extra debt payments, and $104.16 kept as surplus."
+    assert_includes mia(household, "I got a raise! How should I split it?"), "tell me how much more lands in your account each month"
+    refute_includes mia(household, "Should I raise the groceries category to $500?").to_s, "new monthly income"
+
+    _participant, household = launch("income_split" => { "emergency_fund" => 0, "debt" => 70, "surplus" => 30 })
+    answer = mia(household, "I got a $400 raise, how should I split it?")
+    assert_includes answer, "Your program splits new monthly income 70% to extra debt payments and 30% kept as surplus."
+    assert_includes answer, "For $400 more a month that is $280 to extra debt payments and $120 kept as surplus."
+  end
+
+  test "one-time money waits on the debt step when debts are one summary total or not listed" do
+    _participant, household = launch
+    household.debts.destroy_all
+    household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 150_000, debt_summary_minimum_payment_cents: 10_000,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true)
+    windfall = mia(household, "I got a $6,000 bonus. What should I do with the bonus?")
+    assert_includes windfall, "For $6,000, that is $5,300 to the emergency fund and $700 waits on the debt step: list your cards and loans (not the mortgage) in My Money so I can size it."
+
+    # A confirmed $0 total (and no minimum, so the target is $6,000 and the gap $5,000) spills to surplus.
+    household.household_profile.update!(debt_summary_balance_cents: 0, debt_summary_minimum_payment_cents: 0)
+    assert_includes mia(household, "I got a $6,000 bonus. What should I do with the bonus?"), "For $6,000, that is $5,000 to the emergency fund and $1,000 kept as surplus."
+  end
+
   test "Home's month card shows both colours from the published rule" do
     participant, household = launch
     answer = dashboard(participant, household).fetch(:month_answer)
     assert_equal [ "green", "yellow" ], [ answer.fetch(:readiness_tone), answer.fetch(:surplus_tone) ]
     assert_match(/\AGreen: at this pace your emergency fund target is about 6 months away, within 12 months;/, answer.fetch(:readiness_guidance))
 
+    assert_includes dashboard(participant, household).dig(:coach_read, :body), "within 12 months at your current surplus"
+    participant, household = launch("status" => DEFAULTS.fetch("status").merge("target_green_months" => 7, "target_yellow_months" => 20))
+    assert_includes dashboard(participant, household).dig(:coach_read, :body), "within 7 months at your current surplus"
+    refute_includes dashboard(participant, household).dig(:coach_read, :body), "this year"
+
     participant, household = launch("status" => DEFAULTS.fetch("status").merge("target_green_months" => 3, "target_yellow_months" => 5))
     answer = dashboard(participant, household).fetch(:month_answer)
     assert_equal "red", answer.fetch(:readiness_tone)
     assert_match(/\ARed: at this pace your emergency fund target is about 6 months away, more than 5 months/, answer.fetch(:readiness_guidance))
     assert_match(/Red: at this pace/, HouseholdFinance::MiaMonthAnswer.for_question(household, "How am I doing this month?").response)
+  end
+
+  test "a household's program comes from its owner or partner, never a coach viewing it, once per request" do
+    participant, own_household = launch("emergency_fund_months" => 6)
+    owner = persona_user(role: "participant")
+    household = Household.create!(created_by_user: owner, name: "Viewed household", primary_goal: "Build the emergency fund")
+    household.household_memberships.create!(user: owner, role: "owner")
+    household.household_memberships.create!(user: participant, role: "coach_viewer")
+    settings = CohortExperience::MethodSettings
+    settings::Current.reset
+    assert_equal 3, settings.for_household(household).fetch("emergency_fund_months")
+
+    household.household_memberships.find_by!(user: participant).update!(role: "partner")
+    settings::Current.reset
+    assert_equal 3, settings.for_household(household).fetch("emergency_fund_months"), "the owner's program comes first"
+    assert_equal 6, settings.for_household(household, user: participant).fetch("emergency_fund_months"), "the asking partner's program"
+
+    # The year's income answer reads twelve months; the program is resolved once.
+    settings::Current.reset
+    HouseholdFinance::MiaIncomeAnswer.new(own_household, message: "How much came in this year?").response
+    assert_equal 1, settings::Current.cache.size
   end
 
   private
@@ -150,7 +223,7 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
   end
 
   # A participant in a group whose method went live with the given changes.
-  # Their household: $3,000 in, $2,100 planned out ($100 card minimum), $1,000 saved, $1,500 card debt.
+  # Their household: $3,000 in, $2,100 planned out ($100 card minimum), $1,000 saved, a $1,500 card listed.
   def launch(changes = {})
     owner = persona_user
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
@@ -197,8 +270,7 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 300_000, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 200_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 100_000)
-    household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 150_000, debt_summary_minimum_payment_cents: 10_000,
-      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true)
+    household.debts.create!(label: "Island Visa", debt_type: "credit_card", balance_cents: 150_000, minimum_payment_cents: 10_000)
     household
   end
 
@@ -228,14 +300,21 @@ class CohortExperienceMethodSettingsTest < ActiveSupport::TestCase
     end
   end
 
-  # Two months at a family fun center filed under "Family outings", a coffee shop and a clinic, all as flexible spending.
+  def cut_candidates(household)
+    SpendingPatterns::Analyzer.new(household, today: Date.new(2026, 11, 2)).call[:candidate_changes].pluck(:merchant)
+  end
+
+  # Two months at a family fun center filed under "Family outings", a clinic, a market under "Groceries"
+  # and a coffee shop, all as flexible spending.
   def spend(household)
     family = household.budget_categories.create!(name: "Family outings", stack_key: "discretionary", sort_order: 1)
     medical = household.budget_categories.create!(name: "Medical visits", stack_key: "discretionary", sort_order: 2)
     dining = household.budget_categories.create!(name: "Eating out", stack_key: "discretionary", sort_order: 3)
+    groceries = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 4)
     [ Date.new(2026, 9, 14), Date.new(2026, 10, 14) ].each do |date|
       purchase(household, date, "Island Fun Center", 12_000, family)
       purchase(household, date, "Harbor Family Clinic", 20_000, medical)
+      purchase(household, date, "Payless Market", 15_000, groceries)
       purchase(household, date, "Reef Coffee Co", 9_000, dining)
     end
   end

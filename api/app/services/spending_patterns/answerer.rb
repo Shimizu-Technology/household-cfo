@@ -96,13 +96,13 @@ module SpendingPatterns
 
     def self.money(cents) = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
 
-    # What the program protects; Mrs. Mel's default list keeps the original sentence.
+    # What the program protects: Mrs. Mel's sentence, plus anything the program added.
     def protected_note
-      keys = Array(@patterns[:protected_categories])
-      return PROTECTED_NOTE if keys.sort == CohortExperience::MethodSettings::PROTECTED_OPTIONS.sort
+      added = Array(@patterns[:protected_categories]) - CohortExperience::MethodSettings::CORE_PROTECTED
+      return PROTECTED_NOTE if added.empty?
 
-      words = keys.map { |key| CohortExperience::MethodSettings.label(key).downcase }
-      "I left out stores that look like bills or care, money sent to people#{words.any? ? ", and the categories your program protects: #{words.to_sentence}" : ''}."
+      words = added.map { |key| CohortExperience::MethodSettings.label(key).sub(/ \(.*\)\z/, "").downcase }
+      "#{PROTECTED_NOTE.delete_suffix('.')}, and the #{words.to_sentence} your program also protects."
     end
 
     def initialize(household:, message:, persona:, history:, approved_content:, available_product_modules: nil)
