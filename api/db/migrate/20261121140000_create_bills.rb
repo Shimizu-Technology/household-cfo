@@ -10,7 +10,9 @@ class CreateBills < ActiveRecord::Migration[8.0]
       t.integer :repeat_months
       t.boolean :must_pay, null: false, default: true
       t.boolean :estimate, null: false, default: false
+      t.date :paid_on
       t.timestamps
+      t.check_constraint "paid_on IS NULL OR repeat_months IS NULL", name: "bills_paid_only_one_time"
     end
   end
 end

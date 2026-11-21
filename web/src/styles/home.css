@@ -44,18 +44,9 @@ body #root .home-plan-link .ui-btn { padding-inline: 0; border-radius: 0; }
 .home-screen .home-mia.ui-card { padding-block: var(--space-2); }
 .home-screen .text-button { text-decoration: none; }
 .year-outlook { display: block; min-width: 0; margin: 0; }
-.year-outlook-months { list-style: none; padding: 0; margin: var(--space-3) 0 0; }
-.year-outlook-months li { border-top: 1px solid var(--rule); padding-block: var(--space-3); overflow-wrap: anywhere; }
-.year-outlook-months li > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 20px; font-variant-numeric: tabular-nums; }
-.year-outlook-months li > div strong { font-weight: var(--weight-semibold); }
-.year-outlook-months li > div span { font-weight: var(--weight-semibold); color: var(--brand-strong); }
-.year-outlook-months li.is-short > div span { color: var(--ink); }
-.year-outlook-months li.is-short .ui-track__fill { background: var(--accent-warm); }
-.year-outlook-months li p { margin: 6px 0 0; color: var(--muted); font-size: var(--text-xs); }
-.home-outlook-track .ui-track__fill { transform-origin: left; }
-.home-outlook-track { display: block; height: 5px; margin-block: var(--space-2); }
-.home-year-columns { margin-block: var(--space-5) var(--space-4); }
-.home-tight-month { padding-block: var(--space-3); border-top: 1px solid var(--rule); color: var(--ink); font-size: var(--text-sm); }
+.year-outlook-headline { color: var(--ink); font-weight: var(--weight-semibold); }
+.year-outlook-note { color: var(--muted); font-size: var(--text-xs); }
+.year-outlook > .ui-btn--full { margin-top: var(--space-3); }
 .home-welcome-panel { display: block; }
 .home-welcome-panel > p { max-width: 55ch; }
 .home-welcome-panel h2 { margin-bottom: var(--space-2); }
