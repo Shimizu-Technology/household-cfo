@@ -313,7 +313,7 @@ jobs:
       # report from each. web/scripts/browser-shard.mjs deals each script's tests round-robin across its
       # partitions, so every test runs in exactly one partition and the partitions take about as long.
       # The org runs at most 20 jobs at once, so a run uses a few large partitions rather than many small ones:
-      # four Chromium and one WebKit, each about 20 minutes of tests at three workers.
+      # four Chromium and one WebKit, each about 22 minutes of tests at three workers.
       - name: List the browser test partitions
         id: partitions
         env:
@@ -401,17 +401,20 @@ jobs:
 
       # CI's Chromium is the runner's branded Chrome, which Playwright installs system-wide, so only WebKit's
       # download can be cached. Its system libraries still come from apt in the next step.
-      - name: Read the Playwright version
+      # Playwright downloads a different WebKit build for each Ubuntu release, so the key names the runner image too.
+      - name: Read the Playwright version and runner image
         if: ${{ matrix.browser == 'webkit' }}
         id: playwright
-        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright WebKit
         if: ${{ matrix.browser == 'webkit' }}
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-webkit-${{ steps.playwright.outputs.version }}
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ runner.arch }}-webkit-${{ steps.playwright.outputs.version }}
 
       - name: Install browser dependencies
         # --with-deps installs system libraries through apt. When the runner can't reach the Ubuntu

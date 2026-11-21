@@ -45,6 +45,7 @@ const all = listTests()
 if (all.length === 0) throw new Error(`npm run ${script} lists no tests`)
 if (new Set(all.map(test => test.key)).size !== all.length) throw new Error('playwright --list returned a test twice')
 const mine = all.filter((_, position) => position % total === index - 1)
+if (mine.length === 0) throw new Error(`partition ${index}/${total} has no tests: there are more partitions than tests`)
 writeFileSync(listFile, mine.map(test => test.line).join('\n') + '\n')
 
 // Playwright splits each line on › and trims the parts, and a line also matches tests nested under it, so
@@ -52,6 +53,9 @@ writeFileSync(listFile, mine.map(test => test.line).join('\n') + '\n')
 const selected = listTests(['--test-list', listFile]).map(test => test.key).sort()
 const expected = mine.map(test => test.key).sort()
 if (selected.length !== expected.length || selected.some((key, position) => key !== expected[position])) {
-  throw new Error(`the list file selects ${selected.length} tests, but partition ${index}/${total} has ${expected.length}`)
+  const chosen = new Set(selected)
+  const missing = mine.filter(test => !chosen.has(test.key)).map(test => test.line)
+  throw new Error(`the list file selects ${selected.length} tests, but partition ${index}/${total} has ${expected.length}. ` +
+    `Partition tests it misses: ${missing.slice(0, 5).join(' | ') || 'none (it selects extra tests)'}`)
 }
 console.log(`Partition ${index}/${total}: ${mine.length} of ${all.length} tests from npm run ${script}.`)
