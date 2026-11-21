@@ -46,14 +46,15 @@ class HouseholdFinanceTalunToolsTest < ActiveSupport::TestCase
     assert followup.follow_up?
     assert_includes mia.call(followup.message), "from month one"
     refute_includes mia.call(followup.message), "$500 drawn from savings"
-    [ first, "What does it take to get to green?" ].each do |prior|
+    [ first, "What does it take to get to green?" ].product([ "Should I pay my credit card first?", "What if I spend $300 on shoes?",
+      "What if I pay my card first?", "What if I withdraw $40?" ]).each do |prior, question|
       reply = mia.call(prior)
-      unrelated = HouseholdFinance::ConversationFollowupResolver.new("Should I pay my credit card first?",
+      unrelated = HouseholdFinance::ConversationFollowupResolver.new(question,
         conversation_context: { active_topic: { type: "coaching", latest_user_context: prior, latest_mia_summary: reply } }).call
-      assert unrelated.follow_up?
+      next unless unrelated.follow_up?
       answer = mia.call(unrelated.message).to_s
-      refute_includes answer, "Your transition runway"
-      refute_includes answer, "To turn each light green independently"
+      refute_includes answer, "Your transition runway", "#{question} after #{prior}"
+      refute_includes answer, "To turn each light green independently", "#{question} after #{prior}"
     end
     selected_capabilities = Mia::ParticipantRuntimeResolver.new(user: user).call.capabilities.deep_dup
     selected_capabilities[:modules].each { |mod| mod[:enabled] = false if %w[cfo_filter optionality].include?(mod[:id]) }

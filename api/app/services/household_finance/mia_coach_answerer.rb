@@ -1043,8 +1043,10 @@ module HouseholdFinance
       message.split("Current follow-up:", 2).last.to_s.downcase
     end
 
+    # A follow-up keeps the earlier tool topic only when it is itself about that topic: a savings draw,
+    # the runway, or an income lift. A bare "what if" is how most purchase questions start.
     def tool_context_relevant?
-      !message.include?("Current follow-up:") || current_tool_message.match?(/draw|runway|lift|what if|\$[\d,.]+\s+more/i)
+      !message.include?("Current follow-up:") || current_tool_message.match?(/\bdraw(?:s|ing)?\b|\brunway\b|\blift\b|\$[\d,.]+\s+more\b/i)
     end
 
     def tool_routing_message
