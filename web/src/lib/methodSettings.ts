@@ -1,4 +1,4 @@
-import type { CohortExperienceDraft, HomeView, MethodCoreProtectedCategory, MethodDebtOrder, MethodGroupNames, MethodOptionalProtectedCategory, MethodPriority, MethodProtectedCategory, MethodSettings, MethodWindfallStep } from '../api'
+import type { CohortExperienceDraft, HomeView, MethodChallenge, MethodChallengeCounts, MethodCoreProtectedCategory, MethodDebtOrder, MethodGroupNames, MethodOptionalProtectedCategory, MethodPriority, MethodProtectedCategory, MethodSettings, MethodWindfallStep } from '../api'
 import { expenseGroupLabels } from './expenseGroups'
 
 /** Mrs. Mel's method. Mirrors CohortExperience::MethodSettings::DEFAULTS in the API. */
@@ -12,7 +12,25 @@ export const defaultMethod: MethodSettings = {
   group_names: 'plain',
   home_view: 'month',
   debt_order: 'both',
+  challenge: { length_days: 90, checkpoints: 'thirds', suggested_goal_cents: 50_000, counts: 'savings' },
 }
+
+/** Check-in days for a challenge: thirds of the length (rounded) or the coach's own days. Mirrors MethodSettings.checkpoint_days. */
+export function challengeCheckpointDays(challenge: MethodChallenge): number[] {
+  if (challenge.checkpoints !== 'thirds') return challenge.checkpoints
+  const length = challenge.length_days
+  return [Math.round(length / 3), Math.round((length * 2) / 3), length]
+}
+
+/** "Day 30, 60 and 90" */
+export function checkpointDaysText(days: number[]): string {
+  return days.length === 1 ? `Day ${days[0]}` : `Day ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`
+}
+
+export const challengeCountsChoices: Array<[MethodChallengeCounts, string, string]> = [
+  ['savings', 'New money set aside', 'Extra debt payments are tracked alongside but don’t count.'],
+  ['savings_and_debt', 'New money and extra debt payments', 'Extra payments on a card or loan beyond the minimum also count.'],
+]
 
 /** Never suggested as cuts in any program; a coach can add to these, not remove them. */
 export const coreProtected: MethodCoreProtectedCategory[] = ['housing', 'utilities', 'medical', 'childcare_school', 'debt_minimums', 'family_support']
@@ -63,7 +81,7 @@ const choiceLabel = <T extends string>(choices: Array<[T, string, string]>, valu
 
 /** The method a draft gives participants; before schema 5 it is the default. A block without the display choices reads as their defaults. */
 export function methodOf(draft: Pick<CohortExperienceDraft, 'schema_version' | 'method'> | null | undefined): MethodSettings {
-  return draft?.schema_version === 5 && draft.method ? { ...defaultMethod, ...draft.method } : defaultMethod
+  return draft?.schema_version === 5 && draft.method ? { ...defaultMethod, ...draft.method, challenge: draft.method.challenge ?? defaultMethod.challenge } : defaultMethod
 }
 
 const whole = (value: number, min: number, max: number) => Number.isInteger(value) && value >= min && value <= max
@@ -83,6 +101,15 @@ export function methodProblems(method: MethodSettings): string[] {
   if (![split.emergency_fund, split.debt, split.surplus].every(value => whole(value, 0, 100)) || split.emergency_fund + split.debt + split.surplus !== 100) {
     problems.push('The new income split must be whole percentages that add up to 100%.')
   }
+  const challenge = method.challenge
+  if (!whole(challenge.length_days, 30, 180)) problems.push('Set the challenge to 30–180 days.')
+  else if (challenge.checkpoints !== 'thirds') {
+    const days = challenge.checkpoints
+    if (days.length < 1 || days.length > 6 || !days.every((day, index) => Number.isInteger(day) && day >= 1 && (index === 0 || day > days[index - 1])) || days[days.length - 1] !== challenge.length_days) {
+      problems.push(`Use 1 to 6 check-in days in order, ending on day ${challenge.length_days}.`)
+    }
+  }
+  if (!whole(challenge.suggested_goal_cents, 10_000, 500_000) || challenge.suggested_goal_cents % 100 !== 0) problems.push('Suggest a goal in whole dollars from $100 to $5,000.')
   return problems
 }
 
@@ -113,5 +140,15 @@ export function methodChanges(previous: MethodSettings, next: MethodSettings): s
   if (previous.group_names !== next.group_names) changes.push(`Method: spending groups are called ${Object.values(expenseGroupLabels[next.group_names]).join(', ')} (${choiceLabel(groupNameChoices, next.group_names).toLowerCase()}).`)
   if (previous.home_view !== next.home_view) changes.push(`Method: Home shows the ${next.home_view === 'year' ? 'year' : 'month'} first. Each person can still switch.`)
   if (previous.debt_order !== next.debt_order) changes.push(`Method: debt payoff ${next.debt_order === 'both' ? 'shows snowball and avalanche side by side' : `starts with ${next.debt_order}`}.`)
+  const was = previous.challenge
+  const now = next.challenge
+  const wasDays = challengeCheckpointDays(was).join()
+  const nowDays = challengeCheckpointDays(now)
+  if (was.length_days !== now.length_days || wasDays !== nowDays.join()) {
+    const days = (challenge: MethodChallenge) => challengeCheckpointDays(challenge).join(', ')
+    changes.push(`Method: challenge is ${now.length_days} days with check-ins on day ${days(now)} (was ${was.length_days} days, day ${days(was)}). People already in keep their dates.`)
+  }
+  if (was.suggested_goal_cents !== now.suggested_goal_cents) changes.push(`Method: suggested challenge goal is ${dollars(now.suggested_goal_cents)} (was ${dollars(was.suggested_goal_cents)}). People can still choose their own.`)
+  if (was.counts !== now.counts) changes.push(`Method: ${now.counts === 'savings_and_debt' ? 'extra debt payments now count toward the challenge goal' : 'only new money set aside counts toward the challenge goal; extra debt payments are tracked alongside'}. People already in keep their rule.`)
   return changes
 }

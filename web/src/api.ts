@@ -2067,11 +2067,22 @@ export type MethodWindfallStep = 'emergency_fund' | 'consumer_debt' | 'surplus'
 export type MethodGroupNames = 'plain' | 'method'
 export type MethodDebtOrder = 'both' | 'snowball' | 'avalanche'
 
-/** Display choices added later in schema 5; a stored block without them reads as their defaults. */
+/** What counts toward a challenge goal: new money set aside, or that plus extra debt payments. */
+export type MethodChallengeCounts = 'savings' | 'savings_and_debt'
+/** The savings challenge: its length, check-in days (thirds of the length or explicit days ending on the last day), suggested goal and what counts. */
+export type MethodChallenge = {
+  length_days: number
+  checkpoints: 'thirds' | number[]
+  suggested_goal_cents: number
+  counts: MethodChallengeCounts
+}
+
+/** Display choices and challenge rules added later in schema 5; a stored block without them reads as their defaults. */
 export type MethodDisplayChoices = {
   group_names: MethodGroupNames
   home_view: HomeView
   debt_order: MethodDebtOrder
+  challenge: MethodChallenge
 }
 
 /** Mrs. Mel's coaching method for a group (schema 5). Older schemas read as the defaults. */

@@ -262,10 +262,11 @@ module SavingsChallenge
       if coach.deterministic?
         @answer = reference
       else
-        narrator = Narrator.new(user_message: @message,
+        narrator = Narrator.new(rules: rules, user_message: @message,
           answer_packet: { kind: coach.purchase_prefix ? "purchase_scenario" : "savings_challenge", purchase_prefix: coach.purchase_prefix, basis: "participant-approved savings ledger and explicitly scoped baseline",
             write_state: "no_write", fallback_response: reference,
-            guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ],
+            guardrails: [ "challenge_total_not_monthly", rules.counts_debt? ? "approved_new_money_and_extra_debt_payments_only" : "approved_new_money_reserved_only",
+              "partial_coverage_is_not_full_household", "feelings_optional_private" ],
             available_product_modules: @available_product_modules, verified_facts: coach.answer_facts }.compact,
           history: @history, persona: @persona, approved_content: @approved_content)
         @answer = narrator.call
@@ -384,6 +385,11 @@ module SavingsChallenge
       true
     end
 
+    # The challenge rules she started with (the group's when she has not joined).
+    def rules
+      @rules ||= @enrollment ? @enrollment.rules : Rules.default
+    end
+
     def money(cents)
       fraction = cents.abs.modulo(100)
       ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: fraction.zero? ? 0 : 2)
@@ -403,12 +409,12 @@ module SavingsChallenge
           end
         end
         if selected && !@message.match?(/\b(?:neither|not|don.t|no)\b/i)
-          proposal = GoalAmount.pattern_goal(selected["monthly_impact_cents"])
+          proposal = GoalAmount.pattern_goal(selected["monthly_impact_cents"], rules: rules)
           @goal_cents = proposal[:goal_cents]
           @answer = if proposal[:scaled]
-            "Spending half as much at #{selected['merchant']} could free about #{money(selected['monthly_impact_cents'].to_i)} a month, based on the months recorded. That is about #{money(proposal[:raw_cents])} over your 90 days, so how about a #{money(@goal_cents)} goal to keep surprises off the card? Choose Yes on the card if that feels comfortable, or change the amount; nothing changes until you do. Only new money you actually set aside counts toward the goal."
+            "Spending half as much at #{selected['merchant']} could free about #{money(selected['monthly_impact_cents'].to_i)} a month, based on the months recorded. That is about #{money(proposal[:raw_cents])} over your #{rules.length_days} days, so how about a #{money(@goal_cents)} goal to keep surprises off the card? Choose Yes on the card if that feels comfortable, or change the amount; nothing changes until you do. #{rules.counts_text}"
           else
-            "How about a #{money(@goal_cents)} cushion over your 90 days to keep surprises off the card? Choose Yes on the card if that feels comfortable; nothing changes until you do. Only new money you actually set aside counts toward the goal."
+            "How about a #{money(@goal_cents)} cushion over your #{rules.length_days} days to keep surprises off the card? Choose Yes on the card if that feels comfortable; nothing changes until you do. #{rules.counts_text}"
           end
           @topic = { type: "challenge_goal" }
           return true
@@ -461,7 +467,7 @@ module SavingsChallenge
       impact = choices.first
       estimate = impact ? " Spending half as much at #{impact[:merchant]} could free about #{money(impact[:monthly_impact_cents])} a month, based on the months recorded." : ""
       reference = SpendingPatterns::Answerer.question_reference(message: @message, observed: observed, waterfall: waterfall, estimate: estimate, question: choices_question(choices))
-      narrator = PatternsNarrator.new(user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
+      narrator = PatternsNarrator.new(rules: rules, user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
         answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: reference, available_product_modules: @available_product_modules,
           verified_facts: { merchants: SpendingPatterns::Answerer.flexible_stops(@patterns), cluster: cluster, choices: choices,
             months_with_purchases: present, missing_months: missing } })
@@ -483,7 +489,7 @@ module SavingsChallenge
       message = message.sub(/\A\s*actually[, ]*/i, "").sub(/\blet['’]?s just\b/i, "lets")
       suggestion = message.match?(GOAL) && message.match?(GOAL_ADVICE)
       return false if message.match?(/\b(?:household|paid|spent|saved|withdrew|card balance)\b/i) || (message.match?(/\bset aside\b/i) && !self.class.weekly_offer?(message))
-      return false if message.match?(/\bdebt\b/i) && !message.match?(/\b(?:challenge|savings|90.day)\s+(?:goal|target)\b/i)
+      return false if message.match?(/\bdebt\b/i) && !message.match?(/\b(?:challenge|savings|\d{2,3}.day)\s+(?:goal|target)\b/i)
       standalone = self.class.amount_reply?(message, session: @session)
       weekly_amounts = message.scan(/(?<![\w.,])\$?\s*(#{AMOUNT_SOURCE})\s*(?:dollars?\s*)?(?:#{GoalAmount::WEEKLY})/i).flatten
       return false unless message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || standalone || suggestion || goal_amount || self.class.weekly_offer?(message)
@@ -505,33 +511,34 @@ module SavingsChallenge
       elsif chosen
         HouseholdFinance::Money.chat_cents(chosen) rescue nil
       elsif suggestion && amounts.empty?
-        50_000
+        rules.suggested_goal_cents
       end
       unless @goal_cents&.between?(1, 2_147_483_647)
         @goal_cents = nil
         @topic = { type: "challenge_goal" }
-        @answer = "What comfortable amount would you like as your goal for the whole 90 days? Nothing has changed."
+        @answer = "What comfortable amount would you like as your goal for the whole #{rules.length_days} days? Nothing has changed."
         return true
       end
       weekly = weekly_amounts.any? { |amount| HouseholdFinance::Money.chat_cents(amount) == @goal_cents }
       if weekly && (amounts.one? || goal_amount.present?)
         @weekly_cents = @goal_cents
-        @goal_cents = (@weekly_cents * 90 + 3) / 7
+        @goal_cents = rules.weekly_total(@weekly_cents)
         unless @goal_cents.between?(1, 2_147_483_647)
           @goal_cents = nil
-          @answer = "That weekly amount is too large for a 90-day goal. What smaller amount would feel comfortable? Nothing has changed."
+          @answer = "That weekly amount is too large for a #{rules.label} goal. What smaller amount would feel comfortable? Nothing has changed."
           @topic = { type: "challenge_goal" }
           return true
         end
       end
       @topic = { type: "challenge_goal" }
-      pace = @weekly_cents ? " At #{money(@weekly_cents)} a week, #{money(@weekly_cents)} × 90 ÷ 7 = #{money(@goal_cents)}, rounded to the nearest cent." : ""
-      @answer = "I've set up a #{money(@goal_cents)} target for you to confirm below, for the whole 90 days.#{pace} A cushion can keep surprises off the card; keep essentials and required payments covered first. Review the card below and choose Yes if that feels comfortable, or change it. Your target only changes when you confirm; this doesn’t add saved money."
+      pace = @weekly_cents ? " At #{money(@weekly_cents)} a week, #{money(@weekly_cents)} × #{rules.length_days} ÷ 7 = #{money(@goal_cents)}, rounded to the nearest cent." : ""
+      @answer = "I've set up a #{money(@goal_cents)} target for you to confirm below, for the whole #{rules.length_days} days.#{pace} A cushion can keep surprises off the card; keep essentials and required payments covered first. Review the card below and choose Yes if that feels comfortable, or change it. Your target only changes when you confirm; this doesn’t add saved money.#{" #{rules.counts_text}" if rules.counts_debt?}"
       true
     end
 
     def progress_turn
-      return false unless @message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(@message, "progress")
+      return false unless @message.match?(PROGRESS) || rules.checkpoint?(@message[/\bday\s*(\d{1,3})\b/i, 1].to_i) ||
+        HouseholdFinance::MessageReplyIntent.matches?(@message, "progress")
       projection = Projection.new(@enrollment).call
       calendar = ParticipantSerializer.calendar(@enrollment)
       withdrawn_more = projection[:reporting_known] && projection[:reported_cents].negative?
@@ -547,7 +554,7 @@ module SavingsChallenge
       else
         " and you can choose a comfortable goal whenever you're ready"
       end
-      due = [ 30, 60, 90 ].select { |day| @enrollment.starts_on + day - 1 <= @enrollment.local_today }
+      due = rules.checkpoint_days.select { |day| @enrollment.starts_on + day - 1 <= @enrollment.local_today }
       reviewed = SavingsCheckpoint.where(savings_enrollment: @enrollment).where.not(current_version_id: nil).pluck(:milestone_day)
       ready = (due - reviewed).first
       dates = calendar[:checkpoints].map { |day, date| "Day #{day}: #{Date.iso8601(date).strftime('%b %-d')}" }.join("; ")

@@ -9,7 +9,10 @@ module HouseholdFinance
     CALCULATION_VERSION = 1
     ELIGIBLE_FUNDING_SOURCES = %w[earned_income gift bonus new_money_reserved].freeze
     EXCLUDED_FUNDING_SOURCES = %w[preexisting borrowed cash_advance existing_internal_money].freeze
-    FUNDING_SOURCES = (ELIGIBLE_FUNDING_SOURCES + EXCLUDED_FUNDING_SOURCES + [ "withdrawal" ]).freeze
+    # An extra payment on a card or loan, beyond the minimum. Tracked alongside the
+    # savings; it counts toward the goal only when the challenge's rules say so.
+    DEBT_PAYMENT_SOURCE = "extra_debt_payment"
+    FUNDING_SOURCES = (ELIGIBLE_FUNDING_SOURCES + EXCLUDED_FUNDING_SOURCES + [ DEBT_PAYMENT_SOURCE, "withdrawal" ]).freeze
     ENTRY_KEYS = %i[logical_entry_id version_id approval_state current_head effective_on signed_cents currency funding_source evidence_supported_cents].freeze
 
     class InvalidInput < ArgumentError
@@ -21,7 +24,12 @@ module HouseholdFinance
       end
     end
 
-    def initialize(entries:, cutoff_on:, target_cents: nil, reporting_known: false, zero_attested: false)
+    def self.counted_sources(count_debt_payments: false)
+      count_debt_payments ? ELIGIBLE_FUNDING_SOURCES + [ DEBT_PAYMENT_SOURCE ] : ELIGIBLE_FUNDING_SOURCES
+    end
+
+    def initialize(entries:, cutoff_on:, target_cents: nil, reporting_known: false, zero_attested: false, count_debt_payments: false)
+      @count_debt_payments = count_debt_payments
       @entries = entries
       @cutoff_on = cutoff_on
       @target_cents = target_cents
@@ -68,6 +76,7 @@ module HouseholdFinance
       invalid!("reporting_known_must_be_boolean") unless boolean?(@reporting_known)
       invalid!("zero_attested_must_be_boolean") unless boolean?(@zero_attested)
       invalid!("unknown_cannot_attest_zero") if @zero_attested && !@reporting_known
+      invalid!("count_debt_payments_must_be_boolean") unless boolean?(@count_debt_payments)
     end
 
     def normalized_entries
@@ -139,7 +148,7 @@ module HouseholdFinance
     end
 
     def eligible?(entry)
-      ELIGIBLE_FUNDING_SOURCES.include?(entry[:funding_source]) || entry[:funding_source] == "withdrawal"
+      self.class.counted_sources(count_debt_payments: @count_debt_payments).include?(entry[:funding_source]) || entry[:funding_source] == "withdrawal"
     end
 
     def progress_known?

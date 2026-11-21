@@ -276,12 +276,17 @@ module Api
       end
 
       def challenge_data
-        return { cohort_id: @savings_cohort.id, enrollment: nil, accepted_plan: nil, projection: nil, suggested_target_cents: 50_000, offer: enrollment_offer } unless @savings_enrollment
+        unless @savings_enrollment
+          offer = enrollment_offer
+          return { cohort_id: @savings_cohort.id, enrollment: nil, accepted_plan: nil, projection: nil, suggested_target_cents: offer.fetch(:suggested_goal_cents), offer: offer }
+        end
         enrollment = @savings_enrollment.reload
         {
           cohort_id: @savings_cohort.id, enrollment: SavingsChallenge::ParticipantSerializer.record(enrollment),
           accepted_plan: enrollment.current_accepted_plan_version && SavingsChallenge::ParticipantSerializer.record(enrollment.current_accepted_plan_version),
           projection: SavingsChallenge::Projection.new(enrollment).call,
+          suggested_target_cents: enrollment.suggested_goal_cents,
+          **SavingsChallenge::Projection.extra_debt_payments(enrollment).then { |rows| { extra_debt_payment_cents: rows.sum(&:signed_cents), extra_debt_payment_count: rows.length } },
           calendar: SavingsChallenge::ParticipantSerializer.calendar(enrollment),
           timeline: SavingsChallenge::Daily::Timeline.new(enrollment).call,
           pending_entry_count: SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: enrollment.id }, status: "pending").count,

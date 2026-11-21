@@ -25,7 +25,9 @@ module ChallengePrivacy
       rows.select! { |row| matches?(row, filter) && row[:participant][:name].downcase.include?(query) }
       page = rows.slice(offset, 20) || []
       audit_platform_admin_read!(page) if access == :platform_admin
-      { program_type: @cohort.savings_challenge_enabled? ? "savings" : "household", counts: counts,
+      # The group's live rules, for people who join now; each row keeps its own.
+      challenge = @cohort.savings_challenge_enabled? ? SavingsChallenge::Rules.for_cohort(@cohort).then { |rules| { length_days: rules.length_days, checkpoint_days: rules.checkpoint_days } } : nil
+      { program_type: @cohort.savings_challenge_enabled? ? "savings" : "household", counts: counts, challenge: challenge,
         can_invite: @user.admin? || @cohort.coach_workspace.membership_for(@user)&.role == "owner",
         records: page, total: rows.length, next_offset: offset + 20 < rows.length ? offset + 20 : nil }
     end
@@ -45,7 +47,7 @@ module ChallengePrivacy
       user = membership.user
       base = { participant: { id: user.id, name: user.full_name.presence || user.email }, enrollment_id: nil,
         membership_status: user.revoked? ? "revoked" : @joined_ids.include?(user.id) ? "joined" : "invited",
-        participation_status: "not_enrolled", setup_status: "not_started", check_in: nil, help_requests: [], more_help_requests: false, setup_help: [], shared_items: [] }
+        participation_status: "not_enrolled", setup_status: "not_started", check_in: nil, help_requests: [], more_help_requests: false, setup_help: [], shared_items: [], challenge: nil }
       # Never create or resolve a staff financial workspace just to read a roster.
       household = user.household_memberships.min_by { |item| [ item.created_at, item.id ] }&.household
       base[:setup_status] = "complete" if household && HouseholdFinance::SetupStatus.new(household).complete?

@@ -3,7 +3,7 @@ require "csv"
 module ChallengePrivacy
   class SponsorExports
     POLICY_VERSION = "fixed_coarse_min5_v1".freeze
-    BANDS = %w[at_target below_target unknown final_pending custom_target no_target late_window withdrawn].freeze
+    BANDS = %w[at_target below_target unknown final_pending custom_target no_target late_window withdrawn other_schedule].freeze
     # Production adapters must read immutable approved S07 checkpoints, verify
     # pinned versions/cutoff, and classify without returning raw financial data.
     class CheckpointAdapter
@@ -17,7 +17,8 @@ module ChallengePrivacy
 
     def initialize(cohort, user:, adapter: CheckpointAdapter.new) = (@cohort, @user, @adapter = cohort, user, adapter)
     def approve(checkpoint_day:, resolved_cutoff_on:, policy_version: POLICY_VERSION)
-      raise ArgumentError, "Use only fixed Day 30, 60 or 90 exports" unless [ 30, 60, 90 ].include?(checkpoint_day) && policy_version == POLICY_VERSION
+      rules = SavingsChallenge::Rules.for_cohort(@cohort)
+      raise ArgumentError, "Use only the group's #{rules.checkpoint_text} exports" unless rules.checkpoint?(checkpoint_day) && policy_version == POLICY_VERSION
       cutoff = Date.iso8601(resolved_cutoff_on.to_s)
       raise ArgumentError, "Day #{checkpoint_day} ends on #{cutoff.iso8601}. You can seal this report from that date on." if cutoff > Date.current
       ApplicationRecord.transaction do
@@ -139,7 +140,7 @@ module ChallengePrivacy
       approved = value[:checkpoint_id].is_a?(Integer) && value[:checkpoint_id].positive? &&
         value[:checkpoint_version].is_a?(Integer) && value[:checkpoint_version].positive?
       unapproved = value[:checkpoint_id] == "unapproved:#{enrollment.id}:#{day}" && value[:checkpoint_version].nil? &&
-        value[:band].in?(%w[unknown late_window withdrawn])
+        value[:band].in?(%w[unknown late_window withdrawn other_schedule])
       approved || unapproved
     end
     def changed_observations(prior, current)
@@ -158,7 +159,7 @@ module ChallengePrivacy
       { schema_version: 1, policy_version: POLICY_VERSION, checkpoint_day: day, cutoff_on: cutoff.iso8601,
         active_consent_count_range: denominator_safe ? range(total) : "suppressed",
         bands: suppress ? [] : counts.filter_map { |band, count| { band: band, count_range: range(count) } if count.positive? },
-        suppressed: suppress, qualification: "Participant checkpoint bands; active sponsor consent only, with separate household allocations rather than summed household money. Missing, pending final confirmation, custom or absent targets, late windows and withdrawals are distinct states. Custom or absent target bands do not establish known savings; late windows and withdrawals do not establish a checkpoint result. Counts are ranges; suppressed cells and complements are unavailable. This uncontrolled pilot does not establish causal effectiveness or guarantee anonymity.",
+        suppressed: suppress, qualification: "Participant checkpoint bands; active sponsor consent only, with separate household allocations rather than summed household money. Missing, pending final confirmation, custom or absent targets, late windows, other check-in schedules and withdrawals are distinct states. Custom or absent target bands do not establish known savings; late windows, other schedules and withdrawals do not establish a checkpoint result. Counts are ranges; suppressed cells and complements are unavailable. This uncontrolled pilot does not establish causal effectiveness or guarantee anonymity.",
         exact_money_totals_included: false, roster_included: false, dynamic_filters_supported: false }
     end
   end

@@ -42,7 +42,7 @@ module Api
         # A platform administrator reads reports; only the program's owner or reviewer seals them.
         render json: { **staff_scope, cohort_id: cohort.id, today_on: Date.current.iso8601,
           can_seal: ChallengePrivacy::Access.staff_allowed?(cohort, current_user, export: true),
-          scheduled_checkpoints: [ 30, 60, 90 ].map { |day| { day: day, cutoff_on: cohort.starts_on && (cohort.starts_on + day - 1).iso8601, sealable: cohort.starts_on.present? && cohort.starts_on + day - 1 <= Date.current } },
+          scheduled_checkpoints: scheduled_checkpoints,
           records: rows.first(50).map { |record| record.attributes.slice("id", "checkpoint_day", "resolved_cutoff_on", "policy_version", "created_at") }, next_cursor: rows.length > 50 ? rows[49].id : nil }
       end
 
@@ -52,8 +52,9 @@ module Api
         ChallengePrivacy::Access.staff!(cohort, current_user, export: true)
         input = request.request_parameters.to_h
         raise ArgumentError, "Review a fixed checkpoint without filters" unless input.keys.sort == %w[accepted checkpoint_day] && input["accepted"] == true
-        day = SavingsChallenge::Inputs.integer!(input["checkpoint_day"], minimum: 30, maximum: 90)
-        raise ArgumentError, "Choose Day 30, 60 or 90" unless day.in?([ 30, 60, 90 ])
+        rules = SavingsChallenge::Rules.for_cohort(cohort)
+        day = SavingsChallenge::Inputs.integer!(input["checkpoint_day"], minimum: 1, maximum: CohortExperience::MethodSettings::CHALLENGE_LENGTHS.end)
+        raise ArgumentError, "Choose #{rules.checkpoint_choice_text}" unless rules.checkpoint?(day)
         raise ChallengePrivacy::Access::Denied, "Configure the cohort start before reporting" unless cohort.starts_on
         report = exporter.approve(checkpoint_day: day, resolved_cutoff_on: (cohort.starts_on + day - 1).iso8601)
         record = ChallengeSponsorExport.find_by!(cohort: cohort, checkpoint_day: day, policy_version: ChallengePrivacy::SponsorExports::POLICY_VERSION)
@@ -71,6 +72,15 @@ module Api
       end
 
       private
+
+      # The group's check-in days from its live release, plus any day already sealed
+      # under an earlier schedule so its report stays listed.
+      def scheduled_checkpoints
+        sealed = ChallengeSponsorExport.where(cohort: cohort).pluck(:checkpoint_day)
+        (SavingsChallenge::Rules.for_cohort(cohort).checkpoint_days | sealed).sort.map do |day|
+          { day: day, cutoff_on: cohort.starts_on && (cohort.starts_on + day - 1).iso8601, sealable: cohort.starts_on.present? && cohort.starts_on + day - 1 <= Date.current }
+        end
+      end
       def disable_caching! = response.set_header("Cache-Control", "private, no-store")
       def reject_filters!
         allowed = if action_name == "participants" && params[:view] == "daily"

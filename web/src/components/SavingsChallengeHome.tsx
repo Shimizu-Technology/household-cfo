@@ -1,7 +1,8 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactElement, type ReactNode } from 'react'
 import { OpeningProgress } from './WorkspaceOpening'
 import { ApiRequestError, type SavingsPageOptions, approveSavingsEntry, approveSavingsPlan, attestSavingsZero, enrollSavingsChallenge, fetchSavingsChallenge, fetchSavingsPage, stageSavingsEntry, stageSavingsPlan, type SavingsCollection } from '../api'
-import { savingsDefaultDate, savingsDollars, savingsTargetDollars, savingsFundingLabel, savingsFundingOptions, savingsInputCents, savingsInputDollars, type SavingsChallenge, type SavingsEntry, type SavingsEntryVersion, type SavingsEntryDraft, type SavingsFundingSource, type SavingsMutation, type SavingsPage, type SavingsPlanDraft, type SavingsIntake, type SavingsCalendar } from '../lib/savingsChallenge'
+import { checkpointDaysText } from '../lib/methodSettings'
+import { calendarCheckpoints, challengeCountsText, challengeRules, savingsFundingChoices, savingsFundingOptions, savingsDefaultDate, savingsDollars, savingsTargetDollars, savingsFundingLabel, savingsInputCents, savingsInputDollars, type SavingsChallenge, type SavingsEntry, type SavingsEntryVersion, type SavingsEntryDraft, type SavingsFundingSource, type SavingsMutation, type SavingsPage, type SavingsPlanDraft, type SavingsIntake, type SavingsCalendar } from '../lib/savingsChallenge'
 import { useBrand } from '../contexts/brandContextValue'
 import { ComfortablePlanChoices, ComfortablePlanSummary, type ComfortablePlanState } from './ComfortablePlanChoices'
 import { SavingsPlanApprovalReview } from './SavingsPlanApprovalReview'
@@ -159,6 +160,8 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
         initializedPlan.current = true
         if (!next.accepted_plan) setPlanOpen(true)
         if (next.accepted_plan) { setPostponed(next.accepted_plan.target_cents === null); if (next.accepted_plan.target_cents !== null) setTarget(savingsInputDollars(next.accepted_plan.target_cents)) }
+        // Without a target yet, the field starts at the goal her program suggests ($500 by default).
+        else if (next.suggested_target_cents) setTarget(savingsInputDollars(next.suggested_target_cents))
       }
       setChallenge(next); setReadFailed(false); setError(null); setRevision((value) => value + 1)
       setEffectiveOn((current) => current || (initialSavingsIntake?.date_required ? '' : savingsDefaultDate(next.calendar)))
@@ -264,9 +267,9 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
     event.preventDefault()
     if (entryFormLocked || !challenge?.enrollment) return
     validate(() => {
-      if (intakeActive && !editingEntry && !withdrawal && savingsFundingOptions.find(option=>option.value===funding)?.eligible && !newMoneyReviewed) throw new Error('Tick the box to confirm this was new money you set aside.')
+      if (intakeActive && !editingEntry && !withdrawal && fundingChoices.find(option=>option.value===funding)?.eligible && !newMoneyReviewed) throw new Error('Tick the box to confirm this was new money you set aside.')
       const cents = savingsInputCents(amount, editingEntry !== null)
-      if (!effectiveOn || effectiveOn < challenge.enrollment!.starts_on || effectiveOn > challenge.enrollment!.ends_on) throw new Error('Choose a date within your 90 days.')
+      if (!effectiveOn || effectiveOn < challenge.enrollment!.starts_on || effectiveOn > challenge.enrollment!.ends_on) throw new Error(`Choose a date within your ${rules.length_days} days.`)
       if (!challenge.calendar || effectiveOn > challenge.calendar.local_today) throw new Error('Add money you’ve already set aside. A future date can’t be saved yet.')
       if (editingEntry && !entryReason.trim()) throw new Error('Add a short reason for the fix.')
       const input = { signed_cents: withdrawal ? -cents : cents, effective_on: effectiveOn, funding_source: withdrawal ? 'withdrawal' as const : funding, expected_version_id: editingEntry?.current_approved_version_id ?? null, ...(editingEntry ? { entry_id: editingEntry.id, expected_entry_lock_version: editingEntry.lock_version } : {}), ...(intakeActive && initialSavingsIntake?.chat_card_id ? { chat_card_id: initialSavingsIntake.chat_card_id } : {}), reason: entryReason }
@@ -281,6 +284,12 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
   }
   const projection = challenge?.projection
   const calendar = challenge?.calendar
+  // The rules she joined with, or the ones the offer would give her.
+  const rules = challengeRules(challenge?.enrollment ? (calendar ?? challenge.enrollment) : challenge?.offer)
+  const fundingChoices = savingsFundingChoices(rules.goal_counts)
+  const extraDebt = challenge?.extra_debt_payment_cents ?? 0
+  // Extra debt payments that don't count are shown on their own line, not as "not new money".
+  const trackedDebtRecords = rules.goal_counts === 'savings' ? challenge?.extra_debt_payment_count ?? 0 : 0
   const elapsed = calendar && calendar.phase !== 'upcoming'
   const offer = challenge?.offer
   const plan = challenge?.accepted_plan ?? null
@@ -292,8 +301,8 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
   const reported = projection?.reported_cents ?? null
   const excluded = projection?.excluded_entry_count ?? 0
   const matched = projection?.evidence_supported_cents ?? 0
-  const suggested = challenge?.suggested_target_cents ? wholeDollars(challenge.suggested_target_cents) : '$500'
-  const fundingEligible = savingsFundingOptions.find((option) => option.value === funding)?.eligible
+  const suggested = wholeDollars(challenge?.suggested_target_cents ?? rules.suggested_goal_cents)
+  const fundingEligible = fundingChoices.find((option) => option.value === funding)?.eligible
   const exportScope = challenge?.enrollment && participantScope && scopeCohort ? participantScope : null
   const privacyRow = isValidElement(privacyAccess) && privacyAccess.type === ParticipantPrivacyAccess ? cloneElement(privacyAccess as ReactElement<{ variant?: 'row'; description?: string }>, { variant: 'row', description: 'Who can see what, and your reminders' }) : privacyAccess
   function openAside() { setEntryOpen(true); requestAnimationFrame(() => { entryHeadingRef.current?.scrollIntoView?.({ block: 'start' }); entryHeadingRef.current?.focus() }) }
@@ -322,13 +331,14 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
     {!challenge && !loading && <p>Your challenge is unavailable right now. Nothing has changed.</p>}
 
     {challenge && !challenge.enrollment && <article className="panel savings-enrollment ui-card" aria-label="Join the challenge">
-      <h3>Join the 90-day savings challenge</h3>
-      <p>A {suggested} cushion can keep surprises off the card while you pay down debt. Choose a comfortable goal for your 90 days.</p>
+      <h3>Join the {rules.length_days}-day savings challenge</h3>
+      <p>A {suggested} cushion can keep surprises off the card while you pay down debt. Choose a comfortable goal for your {rules.length_days} days.</p>
       {offer ? <>
-        <p className="savings-join-dates"><strong>Your 90 days: {offer.personal_starts_on && offer.personal_ends_on ? formatRange(offer.personal_starts_on, offer.personal_ends_on).split(' – ').map((part, index) => <span key={index}>{index > 0 && ' – '}<span className="savings-nowrap">{part}</span></span>) : 'dates not set yet'}</strong><span>{offer.cohort_label}</span></p>
+        <p className="savings-join-dates"><strong>Your {rules.length_days} days: {offer.personal_starts_on && offer.personal_ends_on ? formatRange(offer.personal_starts_on, offer.personal_ends_on).split(' – ').map((part, index) => <span key={index}>{index > 0 && ' – '}<span className="savings-nowrap">{part}</span></span>) : 'dates not set yet'}</strong><span>{offer.cohort_label}</span></p>
+        <p className="savings-terms">Check-ins on {checkpointDaysText(rules.checkpoint_days)}. {challengeCountsText(rules)}</p>
         <p className="savings-terms">You approve each amount; the app doesn’t move money. A bank link, statements and a full budget are optional. Your records stay private unless you share them.</p>
         <label className="savings-check ui-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I’ve read this and accept joining the challenge.</label>
-        {offer.late_start_acceptance_required && <label className="savings-check ui-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I accept that my 90 days start later than the group’s, as shown above.</label>}
+        {offer.late_start_acceptance_required && <label className="savings-check ui-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I accept that my {rules.length_days} days start later than the group’s, as shown above.</label>}
         <button type="button" className="savings-primary ui-btn ui-btn--primary" disabled={actionLocked('enrollment') || !offer.accepting_enrollments || !participation || Boolean(offer.late_start_acceptance_required && !lateAcceptance)} onClick={() => homeStage('enrollment',(key, signal) => enrollSavingsChallenge({ participation_accepted: true, policy_version: offer.policy_version, late_start_accepted: lateAcceptance, expected_acceptance_digest: offer.acceptance_digest }, key, signal))}>Accept and join</button>
         {!offer.accepting_enrollments && <p role="status">This group isn’t taking new members right now.</p>}
       </> : <p>We couldn’t load the joining details. Refresh to see them before joining.</p>}
@@ -353,7 +363,8 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
         {projection?.zero_attested && <p className="savings-caption">You confirmed nothing set aside through {formatDay(projection.cutoff_on)}.</p>}
         {/* Withdrawals use up matched money first, so the matched part can be smaller than any one record's match. */}
         {matched > 0 && <p className="savings-caption">{projection?.withdrawal_cents ? `After the money you took out, ${savingsDollars(matched)} of what’s left is matched to a statement.` : `${savingsDollars(matched)} of this is matched to a statement.`} That’s included above, not extra.</p>}
-        {excluded > 0 && <p className="savings-caption">{excluded === 1 ? '1 record isn’t counted because it wasn’t' : `${excluded} records aren’t counted because they weren’t`} new money (for example, money you already had or borrowed).</p>}
+        {extraDebt > 0 && <p className="savings-caption">{rules.goal_counts === 'savings_and_debt' ? `Includes ${savingsDollars(extraDebt)} in extra debt payments.` : `Extra debt payments: ${savingsDollars(extraDebt)}, tracked alongside. They don’t count toward this total.`}</p>}
+        {excluded - trackedDebtRecords > 0 && <p className="savings-caption">{excluded - trackedDebtRecords === 1 ? '1 record isn’t counted because it wasn’t' : `${excluded - trackedDebtRecords} records aren’t counted because they weren’t`} new money (for example, money you already had or borrowed).</p>}
         {reported !== null && reported < 0 && <p className="savings-caption">You’ve taken out more than you set aside, so the bar stays empty.</p>}
       </article>
         <div className="savings-actions">
@@ -366,7 +377,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
       {challenge.timeline?.checkpoints_due[0] && <div className="savings-ready ui-card"><SavingsRowButton label={`Day ${challenge.timeline.checkpoints_due[0]} ready to review`} description="" onClick={() => (onCheckpoint ?? onToday)?.()} /></div>}
 
       {calendar && <section className="savings-checkpoints" aria-label="Personal challenge calendar">
-        <ol>{(['30', '60', '90'] as const).map((day) => <li key={day} aria-current={next?.day === day ? 'step' : undefined} className={next?.day === day ? 'is-current ui-card' : 'ui-card'}><strong>Day {day}</strong><span>{formatDay(calendar.checkpoints[day]).split(', ').map((part, index) => <span key={index}>{index > 0 && ', '}<span className="savings-nowrap">{part}</span></span>)}</span></li>)}</ol>
+        <ol>{calendarCheckpoints(calendar).map(({ day, date }) => <li key={day} aria-current={next?.day === day ? 'step' : undefined} className={next?.day === day ? 'is-current ui-card' : 'ui-card'}><strong>Day {day}</strong><span>{formatDay(date).split(', ').map((part, index) => <span key={index}>{index > 0 && ', '}<span className="savings-nowrap">{part}</span></span>)}</span></li>)}</ol>
         {onCheckIn && onToday && <button type="button" className="savings-link ui-btn ui-btn--text" onClick={(event) => { event.currentTarget.focus(); onToday() }}>Open today’s record and check-ins</button>}
       </section>}
       </div>
@@ -378,13 +389,13 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
           <label>Amount in US dollars<input className="ui-field" inputMode="decimal" value={amount} onChange={(event) => { setNewMoneyReviewed(false); setAmount(event.target.value) } } required /></label>
           <label className="savings-check ui-check"><input type="checkbox" checked={withdrawal} onChange={(event) => { setNewMoneyReviewed(false); setWithdrawal(event.target.checked) }} />I took this money out of my challenge savings</label>
           <label>Date you set it aside or took it out<input className="ui-field" type="date" value={effectiveOn} min={challenge.enrollment.starts_on} max={calendar?.local_today && calendar.local_today < challenge.enrollment.ends_on ? calendar.local_today : challenge.enrollment.ends_on} onChange={(event) => { setNewMoneyReviewed(false); setEffectiveOn(event.target.value) } } required /></label>
-          {!withdrawal && <label>Where did this money come from?<select value={funding} onChange={(event) => { setNewMoneyReviewed(false); setFunding(event.target.value as SavingsFundingSource) }}>{savingsFundingOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>}
+          {!withdrawal && <label>Where did this money come from?<select value={funding} onChange={(event) => { setNewMoneyReviewed(false); setFunding(event.target.value as SavingsFundingSource) }}>{fundingChoices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>}
           {!withdrawal && !fundingEligible && <p className="savings-excluded">This won’t count toward your total, but it stays in your record.</p>}
           {editingEntry && <label>Reason for correction (required)<textarea className="ui-field" maxLength={500} value={entryReason} onChange={(event) => setEntryReason(event.target.value)} required /></label>}
           {intakeActive && <><p>{assistantName} filled this in from your chat. Check the amount, date and where the money came from. Nothing counts until you confirm.</p>{!editingEntry && !withdrawal && fundingEligible && <label className="savings-check ui-check"><input type="checkbox" checked={newMoneyReviewed} onChange={event=>setNewMoneyReviewed(event.target.checked)}/>This was new money I set aside after expenses, not borrowed or money I already had.</label>}</>}
           <div className="savings-form-actions"><button type="submit" className="savings-action ui-btn ui-btn--primary" disabled={intakeActive && !editingEntry && !withdrawal && Boolean(fundingEligible) && !newMoneyReviewed}>Review savings record</button>{editingEntry && <button className="ui-btn ui-btn--tonal" type="button" onClick={() => { setEditingEntry(null); setIntakeActive(false); setAmount(''); setEntryReason(''); onIntakeCleared?.() }}>Cancel correction</button>}</div>
         </fieldset></form>
-        {!elapsed && <p>You can add money once your 90 days start.</p>}
+        {!elapsed && <p>You can add money once your {rules.length_days} days start.</p>}
         {projection && !projection.reporting_known && elapsed && <details className="savings-zero" open={zeroOpen} onToggle={event => setZeroOpen(event.currentTarget.open)}><summary ref={zeroSummaryRef}>Nothing to add?</summary><section aria-label="Confirm nothing set aside"><p>If you’re not sure, leave it for now. If you know you haven’t set aside or taken out any new money through {formatDay(projection.cutoff_on)}, you can say so.</p><label className="savings-check ui-check"><input type="checkbox" checked={knownZero} disabled={actionLocked('zero_attest')} onChange={(event) => setKnownZero(event.target.checked)} />I know I haven’t set aside or taken out any new money through this date.</label><button type="button" className="savings-action ui-btn ui-btn--primary" disabled={actionLocked('zero_attest') || !knownZero} onClick={() => homeStage('zero_attest',(key, signal) => attestSavingsZero({ known_zero: true, cutoff_on: projection.cutoff_on, expected_enrollment_lock_version: challenge.enrollment!.lock_version }, key, signal), () => setKnownZero(false))}>Confirm nothing set aside</button></section></details>}
         {/* Waiting entries are fetched on their own (newest first), so they show even when they are older than the latest page. */}
         {(pendingEntries > 0 || (reviewAnchor?.collection === 'entry_drafts' && homeMutation.pending !== null)) && <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'entry_drafts' ? `waiting:${reviewAnchor.id}` : 'waiting'} focusRecordId={reviewAnchor?.collection === 'entry_drafts' ? reviewAnchor.id : undefined} options={WAITING} collection="entry_drafts" label="Waiting for you to confirm" hideWhenEmpty revision={revision} enabled={!busy && entryOpen} render={(draft) => <>
@@ -539,16 +550,17 @@ function matchWords(version: SavingsEntryVersion) {
   if (version.evidence_status === 'revoked') return 'Statement match removed'
   return ''
 }
-function nextCheckpoint(calendar: SavingsCalendar, due?: number[]): { day: '30' | '60' | '90'; date: string } | null {
-  const ready = due?.[0]
-  if (ready === 30 || ready === 60 || ready === 90) { const day = String(ready) as '30' | '60' | '90'; return { day, date: calendar.checkpoints[day] } }
-  for (const day of ['30', '60', '90'] as const) { const date = calendar.checkpoints[day]; if (date && date > calendar.local_today) return { day, date } }
-  return null
+function nextCheckpoint(calendar: SavingsCalendar, due?: number[]): { day: number; date: string } | null {
+  const checkpoints = calendarCheckpoints(calendar)
+  const ready = checkpoints.find(item => item.day === due?.[0])
+  if (ready) return ready
+  return checkpoints.find(item => item.date > calendar.local_today) ?? null
 }
 function dayLine(calendar: SavingsCalendar, next: ReturnType<typeof nextCheckpoint>): ReactNode {
-  if (calendar.phase === 'upcoming') return `Your 90 days start ${formatDay(calendar.starts_on)}`
-  if (calendar.phase === 'window_ended') return `Your 90 days ended ${formatDay(calendar.ends_on)}. You can still add money you set aside before then.`
-  const day = calendar.day ? `Day ${calendar.day} of 90` : 'Your 90 days are underway'
+  const length = challengeRules(calendar).length_days
+  if (calendar.phase === 'upcoming') return `Your ${length} days start ${formatDay(calendar.starts_on)}`
+  if (calendar.phase === 'window_ended') return `Your ${length} days ended ${formatDay(calendar.ends_on)}. You can still add money you set aside before then.`
+  const day = calendar.day ? `Day ${calendar.day} of ${length}` : `Your ${length} days are underway`
   if (!next) return day
   if (next.date < calendar.local_today) return `${day} · your Day ${next.day} check-in is ready`
   return next.date === calendar.local_today ? `${day} · your Day ${next.day} check-in is today` : <>{day} · next check-in Day {next.day} on <span className="savings-nowrap">{formatDay(next.date)}</span></>

@@ -16,16 +16,16 @@ const message = (caught: unknown, fallback: string) => caught instanceof Error ?
 // Saved reports come a page at a time; a group has few, so the screen follows the pages itself up to here.
 const PAGES_AT_ONCE = 5
 
-// Day 30, 60 and 90 for each savings group: one plain row each, one action each.
+// Each savings group's check-in days (Day 30, 60 and 90 by default): one plain row each, one action each.
 export function ReportsSection({ currentUser }: { currentUser: CurrentUser }) {
   const { groups, loading, error } = useAdminRoster(currentUser)
   const savingsGroups = groups.filter(group => group.savingsChallenge && group.status !== 'archived')
   return <section className="admin-section" aria-busy={loading}>
-    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Reports</h2><AdminScope currentUser={currentUser} /><p>How each group is doing at Day 30, 60 and 90.</p></div></header>
+    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Reports</h2><AdminScope currentUser={currentUser} /><p>How each group is doing on its check-in days.</p></div></header>
     <p className="admin-privacy-note">Reports show broad ranges only, never names or personal amounts. A group of fewer than five people is hidden so no one can be picked out, and only people who agreed to share are counted.</p>
     {error && <p className="admin-alert error" role="alert">{error}</p>}
     {loading ? <p role="status" className="admin-muted">Opening your reports…</p>
-      : savingsGroups.length === 0 ? <div className="admin-empty"><p>Reports appear here for groups that run the 90-day savings challenge.</p></div>
+      : savingsGroups.length === 0 ? <div className="admin-empty"><p>Reports appear here for groups that run the savings challenge.</p></div>
       : savingsGroups.map(group => <GroupReports key={group.id} group={group} />)}
   </section>
 }

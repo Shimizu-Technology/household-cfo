@@ -24,10 +24,11 @@ module HouseholdFinance
           @acceptance_time ||= Time.current
           membership = cohort.cohort_memberships.seats.find_by!(user_id: user.id, role: user.seat_role)
           offer = SavingsChallenge::EnrollmentOffer.call(cohort: cohort, user: user, membership: membership, at: @acceptance_time)
+          @rules = SavingsChallenge::Rules.for_offer(offer)
           {
             cohort: cohort.attributes.slice("id", "starts_on", "status", "savings_challenge_capacity", "savings_challenge_policy_version"),
             accepted_local_on: @acceptance_time.in_time_zone(SavingsEnrollment::TIME_ZONE).to_date.iso8601,
-            offer_digest: offer.fetch(:acceptance_digest),
+            offer_digest: offer.fetch(:acceptance_digest), rules: @rules.payload,
             enrolled: SavingsEnrollment.in_use.exists?(cohort_id: cohort.id, user_id: user.id)
           }
         end
@@ -48,11 +49,14 @@ module HouseholdFinance
           runtime = SavingsChallenge::AccessPolicy.runtime_for(user: user, membership: membership)
           raise SavingsChallenge::AccessPolicy::Unavailable, "Review the current challenge release before joining" unless runtime
           start = [ cohort.starts_on, local ].max
+          # She joins under the rules of the offer she reviewed (its digest matched above).
+          rules = SavingsChallenge::Rules.for_offer(prepared.before_snapshot.fetch("rules").symbolize_keys)
           SavingsEnrollment.create!(
+            **rules.enrollment_attributes,
             household: household, user: user, cohort: cohort, accepted_cohort_membership_id: membership.id, staff_preview: membership.preview?,
             accepted_cohort_release: runtime.release,
             membership_started_at: membership.created_at, accepted_at: @acceptance_time, accepted_local_on: local,
-            starts_on: start, ends_on: start + 89, time_zone: SavingsEnrollment::TIME_ZONE,
+            starts_on: start, ends_on: rules.last_day(start), time_zone: SavingsEnrollment::TIME_ZONE,
             policy_version: input[:policy_version], late_start_accepted: late
           )
         end
@@ -60,8 +64,9 @@ module HouseholdFinance
         def planned_record(before, input)
           local = Date.iso8601(before.fetch("accepted_local_on"))
           start = [ Date.parse(before.fetch("cohort").fetch("starts_on").to_s), local ].max
+          rules = SavingsChallenge::Rules.for_offer(before.fetch("rules").symbolize_keys)
           { household_id: household.id, user_id: user.id, cohort_id: input[:cohort_id],
-            starts_on: start, ends_on: start + 89, time_zone: SavingsEnrollment::TIME_ZONE,
+            starts_on: start, ends_on: rules.last_day(start), time_zone: SavingsEnrollment::TIME_ZONE, **rules.enrollment_attributes,
             policy_version: input[:policy_version], status: "active" }
         end
       end

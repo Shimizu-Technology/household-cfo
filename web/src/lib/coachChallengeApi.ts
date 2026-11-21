@@ -17,12 +17,16 @@ export type CoachDailyPerson = Omit<CoachParticipant, 'enrollment_id' | 'check_i
   needs_help: boolean
   setup_help: Array<{ id: number; reason: string; status: string }>
   shared_items: string[]
+  /** Her own challenge calendar (the rules she joined with). Absent before she joins. */
+  challenge?: { day: number | null; length_days: number; checkpoint_days: number[] } | null
 }
 export type DailyFilter = 'all' | 'needs_help' | 'checked_in' | 'not_checked_in' | 'invited' | 'joined' | 'setup_done'
 export type CoachDailyPage = {
   actor_scope: CoachChallengeScope
   cohort_id: number
   program_type: 'savings' | 'household'
+  /** The group's live challenge rules, for people who join now. */
+  challenge?: { length_days: number; checkpoint_days: number[] } | null
   can_invite: boolean
   counts: Record<DailyFilter, number>
   records: CoachDailyPerson[]

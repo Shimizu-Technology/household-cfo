@@ -52,7 +52,10 @@ module CohortExperience
 
     def mode_payload(value)
       mode = mode_for(value)
-      { mode: mode, label: MODE_LABELS.fetch(mode) }
+      label = MODE_LABELS.fetch(mode)
+      # The challenge's own length: "60-day Savings Challenge".
+      label = label.sub("90-day", "#{method_for(value).dig('challenge', 'length_days')}-day") if mode == "savings_challenge"
+      { mode: mode, label: label }
     end
 
     def normalize(value)

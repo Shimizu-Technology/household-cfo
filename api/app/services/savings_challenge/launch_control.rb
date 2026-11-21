@@ -145,7 +145,7 @@ module SavingsChallenge
       elsif !SavingsChallenge::AccessPolicy.release_supports_challenge?(release)
         blockers << "The launched release is not the Savings Challenge experience. Choose Savings Challenge in Participant tools, publish, seal, and launch again."
       end
-      blockers << "Set a start date in Group details & dates before opening. Each participant gets 90 days from their start." unless cohort.starts_on
+      blockers << "Set a start date in Group details & dates before opening. Each participant gets #{SavingsChallenge::Rules.for_cohort(cohort).length_days} days from their start." unless cohort.starts_on
       blockers << "Set the cohort status to Enrolling or Active first." unless cohort.status.in?(OPEN_STATUSES)
       blockers
     end

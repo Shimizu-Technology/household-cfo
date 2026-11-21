@@ -17,7 +17,7 @@ const stateCopy: Record<SavingsChallengeAccess['state'], string> = {
 }
 
 /**
- * Status and audited controls for the 90-day Savings Challenge on one cohort.
+ * Status and audited controls for the Savings Challenge on one cohort.
  * Everyone who can manage the cohort sees the status; only a platform administrator can change it.
  */
 export function SavingsChallengeAccessPanel({ cohort, busy, onChanged, onDirtyChange, onPendingChange }: {
@@ -93,7 +93,7 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged, onDirtyCh
     <section ref={sectionRef} className="challenge-access" aria-labelledby={`challenge-access-${cohort.id}`}>
       <div className="challenge-access-head">
         <div>
-          <p>90-day Savings Challenge</p>
+          <p>Savings Challenge</p>
           <h4 id={`challenge-access-${cohort.id}`}>Challenge status</h4>
         </div>
         <span className={`admin-badge ${tone}`} role="status">{challenge.label}</span>
@@ -117,8 +117,8 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged, onDirtyCh
             <>
               <p>The {challenge.participant_count} invited {challenge.participant_count === 1 ? 'participant' : 'participants'} in {cohort.name}, and anyone you invite later, will be able to:</p>
               <ul>
-                <li>See the 90-day Savings Challenge, read how it works, and choose to join.</li>
-                <li>Pick a comfortable target (suggested $500; smaller or later is fine).</li>
+                <li>See the savings challenge, read how it works, and choose to join.</li>
+                <li>Pick a comfortable target (the program suggests one; smaller or later is fine).</li>
                 <li>Record money they set aside, each one reviewed and approved by them first.</li>
               </ul>
               <p>The challenge has {challenge.capacity} places. You can pause it at any time.</p>

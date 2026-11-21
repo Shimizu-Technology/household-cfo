@@ -45,7 +45,9 @@ module ChallengePrivacy
             help = Array(tickets[e.id]).reject { |t| t.status == "resolved" }.map { |t| { id: t.id, status: t.status, issue_kind: t.issue_kind } }
             [ e.user_id, { enrollment_id: e.id, participation_status: e.status,
               setup_status: e.current_accepted_plan_version_id ? "plan_reviewed" : "plan_pending",
-              check_in: check_in, help_requests: help, more_help_requests: Array(tickets[e.id]).length > 50, shared_items: hints } ]
+              check_in: check_in, help_requests: help, more_help_requests: Array(tickets[e.id]).length > 50, shared_items: hints,
+              # Her own calendar: the length and check-in days she started with.
+              challenge: { day: e.challenge_day(on), length_days: e.challenge_length_days, checkpoint_days: e.checkpoint_days } } ]
           end
         end
       end

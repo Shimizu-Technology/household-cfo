@@ -3,9 +3,9 @@
 module CohortExperience
   # Mrs. Mel's method as program settings. A coach edits them in the program
   # tools draft and they reach participants only through Go live (schema 5).
-  # Anything older than schema 5 reads as these defaults. The display choices
-  # (OPTIONAL_KEYS) came later in schema 5: a block without them reads as their
-  # defaults and keeps its bytes and digest.
+  # Anything older than schema 5 reads as these defaults. The display choices and
+  # the savings challenge rules (OPTIONAL_KEYS) came later in schema 5: a block
+  # without them reads as their defaults and keeps its bytes and digest.
   module MethodSettings
     # Never suggested as cuts in any program. A coach can protect more, never fewer.
     CORE_PROTECTED = %w[housing utilities medical childcare_school debt_minimums family_support].freeze
@@ -22,8 +22,17 @@ module CohortExperience
       "home_view" => %w[month year].freeze,
       "debt_order" => %w[both snowball avalanche].freeze
     }.freeze
-    OPTIONAL_KEYS = CHOICES.keys.freeze
-    OPTIONAL_DEFAULTS = CHOICES.transform_values(&:first).freeze
+    # The savings challenge: its length, check-in days ("thirds" of the length or
+    # explicit days ending on the last day), the goal Mia suggests and whether extra
+    # debt payments count toward the goal. An enrollment keeps the rules it started with.
+    CHALLENGE_KEYS = %w[length_days checkpoints suggested_goal_cents counts].freeze
+    CHALLENGE_COUNTS = %w[savings savings_and_debt].freeze
+    CHALLENGE_LENGTHS = (30..180).freeze
+    CHALLENGE_GOAL_CENTS = (10_000..500_000).freeze
+    CHALLENGE_MAX_CHECKPOINTS = 6
+    CHALLENGE_DEFAULTS = { "length_days" => 90, "checkpoints" => "thirds", "suggested_goal_cents" => 50_000, "counts" => "savings" }.freeze
+    OPTIONAL_KEYS = (CHOICES.keys + [ "challenge" ]).freeze
+    OPTIONAL_DEFAULTS = CHOICES.transform_values(&:first).merge("challenge" => CHALLENGE_DEFAULTS).freeze
     # Only the people who own the household's picture choose its program.
     HOUSEHOLD_ROLES = %w[owner partner].freeze
 
@@ -90,7 +99,42 @@ module CohortExperience
       CHOICES.each do |key, options|
         result << "method.#{key} must be one of #{options.join(', ')}" if input.key?(key) && !options.include?(input[key])
       end
+      result.concat(challenge_errors(input["challenge"])) if input.key?("challenge")
       result
+    end
+
+    def challenge_errors(value)
+      return [ "method.challenge must contain #{CHALLENGE_KEYS.join(', ')}" ] unless value.is_a?(Hash) && value.keys.map(&:to_s).sort == CHALLENGE_KEYS.sort
+
+      challenge = value.stringify_keys
+      result = []
+      length = challenge["length_days"]
+      length_ok = length.is_a?(Integer) && CHALLENGE_LENGTHS.cover?(length)
+      result << "method.challenge.length_days must be a whole number of days from 30 to 180" unless length_ok
+      days = challenge["checkpoints"]
+      unless days == "thirds" || (length_ok && checkpoint_days?(days, length))
+        result << "method.challenge.checkpoints must be thirds or 1 to #{CHALLENGE_MAX_CHECKPOINTS} increasing days that end on the last day"
+      end
+      goal = challenge["suggested_goal_cents"]
+      unless goal.is_a?(Integer) && CHALLENGE_GOAL_CENTS.cover?(goal) && (goal % 100).zero?
+        result << "method.challenge.suggested_goal_cents must be whole dollars from $100 to $5,000"
+      end
+      result << "method.challenge.counts must be one of #{CHALLENGE_COUNTS.join(', ')}" unless CHALLENGE_COUNTS.include?(challenge["counts"])
+      result
+    end
+
+    def checkpoint_days?(days, length)
+      days.is_a?(Array) && days.length.between?(1, CHALLENGE_MAX_CHECKPOINTS) && days.all? { |day| day.is_a?(Integer) && day >= 1 } &&
+        days.each_cons(2).all? { |earlier, later| earlier < later } && days.last == length
+    end
+
+    # Check-in days for a challenge setting: thirds of the length, rounded, or the coach's days.
+    def checkpoint_days(challenge)
+      days = challenge.fetch("checkpoints")
+      return days.dup unless days == "thirds"
+
+      length = challenge.fetch("length_days")
+      [ (length / 3.0).round, (length * 2 / 3.0).round, length ]
     end
 
     # Element types first: sorting [ "debt", 1, nil ] would raise, not report.
@@ -115,16 +159,17 @@ module CohortExperience
         "income_split" => SPLIT_OPTIONS.index_with { |key| input.dig("income_split", key) }
       }
       OPTIONAL_KEYS.each { |key| normalized[key] = input[key] if input.key?(key) }
+      normalized["challenge"] = CHALLENGE_KEYS.index_with { |key| input["challenge"].to_h.stringify_keys[key] } if input.key?("challenge")
       normalized
     end
 
     # The full method a participant gets: absent display choices read as their defaults.
     def resolve(value)
-      OPTIONAL_DEFAULTS.merge(normalize(value))
+      OPTIONAL_DEFAULTS.deep_dup.merge(normalize(value))
     end
 
     def defaults
-      DEFAULTS.deep_dup.merge(OPTIONAL_DEFAULTS)
+      DEFAULTS.deep_dup.merge(OPTIONAL_DEFAULTS.deep_dup)
     end
 
     # The method a participant has, from their experience capabilities. Never raises.

@@ -21,8 +21,13 @@ class SavingsEnrollment < ApplicationRecord
   validates :time_zone, inclusion: { in: [ TIME_ZONE ] }
   validates :accepted_at, :accepted_local_on, :starts_on, :ends_on, :policy_version,
     :accepted_cohort_membership_id, :membership_started_at, presence: true
+  validates :challenge_length_days, inclusion: { in: CohortExperience::MethodSettings::CHALLENGE_LENGTHS }
+  validates :suggested_goal_cents, inclusion: { in: CohortExperience::MethodSettings::CHALLENGE_GOAL_CENTS }
+  validates :goal_counts, inclusion: { in: CohortExperience::MethodSettings::CHALLENGE_COUNTS }
   validate :calendar_valid
   validate :accepted_release_scope
+  # The rules she started with never change, whatever the program later says.
+  attr_readonly :challenge_length_days, :checkpoint_days, :suggested_goal_cents, :goal_counts
 
   # Enrollments of people who are in the program: accepted through a membership
   # whose role is `participant`. Defined positively so that anything unexpected (a
@@ -59,6 +64,16 @@ class SavingsEnrollment < ApplicationRecord
     Time.current.in_time_zone(time_zone).to_date
   end
 
+  # The challenge rules this enrollment started with (SavingsChallenge::Rules).
+  def rules
+    SavingsChallenge::Rules.for_enrollment(self)
+  end
+
+  # Her challenge day today: nil before it starts, never past the last day.
+  def challenge_day(on = local_today)
+    on < starts_on ? nil : [ (on - starts_on).to_i + 1, challenge_length_days ].min
+  end
+
   def advance_approval_sequence!
     update!(approval_sequence: approval_sequence + 1)
     approval_sequence
@@ -74,7 +89,10 @@ class SavingsEnrollment < ApplicationRecord
 
   def calendar_valid
     return unless starts_on && ends_on && accepted_local_on
-    errors.add(:ends_on, "must be the inclusive ninetieth day") unless ends_on == starts_on + 89
+    errors.add(:ends_on, "must be the challenge's last day") unless challenge_length_days && ends_on == starts_on + challenge_length_days - 1
+    unless CohortExperience::MethodSettings.checkpoint_days?(checkpoint_days, challenge_length_days)
+      errors.add(:checkpoint_days, "must be increasing days that end on the last day")
+    end
     errors.add(:starts_on, "cannot precede acceptance") if starts_on < accepted_local_on
   end
 end

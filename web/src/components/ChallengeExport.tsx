@@ -49,7 +49,7 @@ function Export({ scope, cohortId, variant = 'panel' }: ExportProps) {
       const url = URL.createObjectURL(new Blob([content], { type: format === 'printable' ? 'text/html;charset=utf-8' : 'application/json' }))
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = format === 'printable' ? 'my-90-day-challenge.html' : 'my-90-day-challenge.json'
+      anchor.download = format === 'printable' ? 'my-savings-challenge.html' : 'my-savings-challenge.json'
       anchor.click()
       URL.revokeObjectURL(url)
       setAccepted(false)

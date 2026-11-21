@@ -10,8 +10,8 @@ module HouseholdFinance
         def normalize(input)
           input = normal_ids(input, required: %i[milestone_day expected_version_id expected_head_lock_version],
             optional: %i[reason baseline_version_id plan_version_id plan_correction_accepted final_confirmation_accepted])
-          day = SavingsChallenge::Inputs.integer!(input[:milestone_day], minimum: 30, maximum: 90)
-          raise ArgumentError, "Choose Day 30, 60 or 90" unless day.in?([ 30, 60, 90 ])
+          # Her check-in days are checked against the rules she started with in mutate!.
+          day = SavingsChallenge::Inputs.integer!(input[:milestone_day], minimum: 1, maximum: CohortExperience::MethodSettings::CHALLENGE_LENGTHS.end)
           corrected_plan = SavingsChallenge::Daily::Inputs.boolean!(input.fetch(:plan_correction_accepted, false))
           plan_id = SavingsChallenge::Inputs.id!(input[:plan_version_id], nullable: true)
           raise ArgumentError, "Accept an explained checkpoint plan correction explicitly" unless corrected_plan == plan_id.present?
@@ -28,6 +28,8 @@ module HouseholdFinance
         end
 
         def mutate!(_subject, input, prepared:)
+          rules = @enrollment.rules
+          raise ArgumentError, "Choose #{rules.checkpoint_choice_text}" unless rules.checkpoint?(input[:milestone_day])
           checkpoint = SavingsCheckpoint.find_or_create_by!(savings_enrollment: @enrollment, milestone_day: input[:milestone_day])
           checkpoint.lock!
           check_head!(checkpoint, input)

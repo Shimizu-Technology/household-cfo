@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_21_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -288,7 +288,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
     t.index ["approved_by_user_id"], name: "index_challenge_sponsor_exports_on_approved_by_user_id"
     t.index ["cohort_id", "checkpoint_day", "policy_version"], name: "challenge_sponsor_fixed_identity", unique: true
     t.index ["cohort_id"], name: "index_challenge_sponsor_exports_on_cohort_id"
-    t.check_constraint "checkpoint_day = ANY (ARRAY[30, 60, 90])", name: "challenge_sponsor_day"
+    t.check_constraint "checkpoint_day >= 1 AND checkpoint_day <= 180", name: "challenge_sponsor_day"
   end
 
   create_table "challenge_support_accesses", force: :cascade do |t|
@@ -2863,7 +2863,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
     t.index ["id", "savings_enrollment_id"], name: "savings_checkpoints_scope", unique: true
     t.index ["savings_enrollment_id", "milestone_day"], name: "idx_savings_checkpoint_day", unique: true
     t.index ["savings_enrollment_id"], name: "index_savings_checkpoints_on_savings_enrollment_id"
-    t.check_constraint "milestone_day = ANY (ARRAY[30, 60, 90])", name: "savings_checkpoint_day_valid"
+    t.check_constraint "milestone_day >= 1 AND milestone_day <= 180", name: "savings_checkpoint_day_valid"
   end
 
   create_table "savings_daily_check_in_versions", force: :cascade do |t|
@@ -3127,13 +3127,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
     t.string "time_zone", default: "Pacific/Guam", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.integer "challenge_length_days", default: 90, null: false
+    t.integer "checkpoint_days", default: [30, 60, 90], null: false, array: true
+    t.integer "suggested_goal_cents", default: 50000, null: false
+    t.string "goal_counts", default: "savings", null: false
     t.index ["accepted_cohort_release_id"], name: "index_savings_enrollments_on_accepted_cohort_release_id"
     t.index ["cohort_id", "user_id"], name: "index_savings_enrollments_on_cohort_id_and_user_id", unique: true, where: "(NOT (staff_preview AND ((status)::text = 'withdrawn'::text)))"
     t.index ["cohort_id"], name: "index_savings_enrollments_on_cohort_id"
     t.index ["household_id"], name: "index_savings_enrollments_on_household_id"
     t.index ["user_id"], name: "index_savings_enrollments_on_user_id"
     t.check_constraint "(status::text = ANY (ARRAY['active'::character varying::text, 'withdrawn'::character varying::text, 'completed'::character varying::text])) AND approval_sequence >= 0", name: "savings_enrollment_state_valid"
-    t.check_constraint "ends_on = (starts_on + 89) AND time_zone::text = 'Pacific/Guam'::text AND starts_on >= accepted_local_on", name: "savings_enrollment_calendar_valid"
+    t.check_constraint "challenge_length_days >= 30 AND challenge_length_days <= 180 AND cardinality(checkpoint_days) >= 1 AND cardinality(checkpoint_days) <= 6 AND checkpoint_days[1] >= 1 AND checkpoint_days[cardinality(checkpoint_days)] = challenge_length_days AND suggested_goal_cents >= 10000 AND suggested_goal_cents <= 500000 AND (goal_counts::text = ANY (ARRAY['savings'::character varying, 'savings_and_debt'::character varying]::text[]))", name: "savings_enrollment_rules_valid"
+    t.check_constraint "ends_on = (starts_on + challenge_length_days - 1) AND time_zone::text = 'Pacific/Guam'::text AND starts_on >= accepted_local_on", name: "savings_enrollment_calendar_valid"
   end
 
   create_table "savings_entries", force: :cascade do |t|
@@ -3187,7 +3192,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
     t.index ["savings_enrollment_id"], name: "index_savings_entry_versions_on_savings_enrollment_id"
     t.index ["savings_entry_id", "version_number"], name: "idx_savings_entry_version_number", unique: true
     t.index ["savings_entry_id"], name: "index_savings_entry_versions_on_savings_entry_id"
-    t.check_constraint "currency::text = 'USD'::text AND evidence_supported_cents = 0 AND version_number > 0 AND approval_sequence > 0 AND (funding_source::text = 'withdrawal'::text AND signed_cents <= 0 OR (funding_source::text = ANY (ARRAY['earned_income'::character varying::text, 'gift'::character varying::text, 'bonus'::character varying::text, 'new_money_reserved'::character varying::text, 'preexisting'::character varying::text, 'borrowed'::character varying::text, 'cash_advance'::character varying::text, 'existing_internal_money'::character varying::text])) AND signed_cents >= 0)", name: "savings_entry_version_values_valid"
+    t.check_constraint "currency::text = 'USD'::text AND evidence_supported_cents = 0 AND version_number > 0 AND approval_sequence > 0 AND (funding_source::text = 'withdrawal'::text AND signed_cents <= 0 OR (funding_source::text = ANY (ARRAY['earned_income'::character varying, 'gift'::character varying, 'bonus'::character varying, 'new_money_reserved'::character varying, 'preexisting'::character varying, 'borrowed'::character varying, 'cash_advance'::character varying, 'existing_internal_money'::character varying, 'extra_debt_payment'::character varying]::text[])) AND signed_cents >= 0)", name: "savings_entry_version_values_valid"
   end
 
   create_table "savings_evidence_allocations", force: :cascade do |t|
@@ -5117,7 +5122,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
         IF NEW.cutoff_on NOT BETWEEN enrollment.starts_on AND enrollment.ends_on OR EXISTS (
           SELECT 1 FROM savings_entries e JOIN savings_entry_versions v ON v.id = e.current_approved_version_id
           WHERE e.savings_enrollment_id = enrollment.id AND v.effective_on <= NEW.cutoff_on
-            AND v.funding_source IN ('earned_income','gift','bonus','new_money_reserved','withdrawal')
+            AND (v.funding_source IN ('earned_income','gift','bonus','new_money_reserved','withdrawal') OR (v.funding_source = 'extra_debt_payment' AND enrollment.goal_counts = 'savings_and_debt'))
         ) THEN RAISE EXCEPTION 'savings zero attestation conflicts with ledger' USING ERRCODE = 'integrity_constraint_violation'; END IF;
         IF NEW.previous_attestation_id IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM savings_zero_attestations z WHERE z.id = NEW.previous_attestation_id AND z.savings_enrollment_id = enrollment.id AND z.cutoff_on = NEW.cutoff_on
@@ -5134,8 +5139,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_21_090000) do
     BEGIN
       IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'savings identity cannot be deleted'; END IF;
       IF TG_TABLE_NAME = 'savings_enrollments' THEN
-        IF ROW(NEW.user_id,NEW.household_id,NEW.cohort_id,NEW.accepted_cohort_membership_id,NEW.membership_started_at,NEW.accepted_at,NEW.accepted_local_on,NEW.starts_on,NEW.ends_on,NEW.time_zone,NEW.policy_version,NEW.late_start_accepted,NEW.staff_preview)
-          IS DISTINCT FROM ROW(OLD.user_id,OLD.household_id,OLD.cohort_id,OLD.accepted_cohort_membership_id,OLD.membership_started_at,OLD.accepted_at,OLD.accepted_local_on,OLD.starts_on,OLD.ends_on,OLD.time_zone,OLD.policy_version,OLD.late_start_accepted,OLD.staff_preview) THEN RAISE EXCEPTION 'savings enrollment identity is frozen'; END IF;
+        IF ROW(NEW.user_id,NEW.household_id,NEW.cohort_id,NEW.accepted_cohort_membership_id,NEW.membership_started_at,NEW.accepted_at,NEW.accepted_local_on,NEW.starts_on,NEW.ends_on,NEW.time_zone,NEW.policy_version,NEW.late_start_accepted,NEW.staff_preview,NEW.challenge_length_days,NEW.checkpoint_days,NEW.suggested_goal_cents,NEW.goal_counts)
+          IS DISTINCT FROM ROW(OLD.user_id,OLD.household_id,OLD.cohort_id,OLD.accepted_cohort_membership_id,OLD.membership_started_at,OLD.accepted_at,OLD.accepted_local_on,OLD.starts_on,OLD.ends_on,OLD.time_zone,OLD.policy_version,OLD.late_start_accepted,OLD.staff_preview,OLD.challenge_length_days,OLD.checkpoint_days,OLD.suggested_goal_cents,OLD.goal_counts) THEN RAISE EXCEPTION 'savings enrollment identity is frozen'; END IF;
         IF NEW.current_accepted_plan_version_id IS DISTINCT FROM OLD.current_accepted_plan_version_id AND NOT EXISTS (
           SELECT 1 FROM savings_plan_versions v WHERE v.id = NEW.current_accepted_plan_version_id AND v.previous_version_id IS NOT DISTINCT FROM OLD.current_accepted_plan_version_id
         ) THEN RAISE EXCEPTION 'savings plan head must advance'; END IF;

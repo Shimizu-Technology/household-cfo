@@ -34,7 +34,7 @@ const descriptions: Record<string, string> = {
   people: 'Everyone you coach, and invitations',
   groups: 'Dates, tools and opening the challenge',
   coaching: 'Your coach’s voice and teaching',
-  reports: 'Day 30, 60 and 90 reports',
+  reports: 'Check-in day reports',
   support: 'Problems and setup help to look at',
   settings: 'Program look, team and access',
 }
