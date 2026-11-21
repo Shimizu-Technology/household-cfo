@@ -21,6 +21,8 @@ cases:
     prompt: How much came in last month?
     expected_amounts:
       - { ledger: month_income, month: "2026-06" }
+    expected_phrases: [not known yet, planned]
+    forbidden_phrases: ["$0", came in for]
     live_expected: [/income/]
 
   - id: cfo_income_this_month
@@ -28,6 +30,8 @@ cases:
     prompt: How much came in this month?
     expected_amounts:
       - { ledger: month_income, month: "2026-07" }
+    expected_phrases: [not known yet, planned]
+    forbidden_phrases: ["$0", came in for]
     live_expected: [/income/]
 
   # Where it went, against the plan
@@ -246,3 +250,66 @@ cases:
     known_gap:
       checks: [expected_phrases]
       reason: Treated as distress ("This sounds hard"); it never gives the runway (0.6 months on $2,500 of savings).
+
+  # No statements are seeded: unknown actual income must never become zero.
+  - id: cfo_income_unknown_month
+    route: controller
+    prompt: How much came in in March?
+    expected_phrases: [Income for March 2026 is not known yet, planned]
+    forbidden_phrases: ["$0", came in for]
+    strict_amounts: true
+    expected_amounts:
+      - { ledger: month_income, month: "2026-03" }
+
+  - id: cfo_income_against_plan
+    route: controller
+    prompt: How much came in this month vs plan?
+    expected_phrases: [Income for July 2026 is not known yet, planned]
+    forbidden_phrases: ["$0", came in for]
+    expected_amounts:
+      - { ledger: month_income, month: "2026-07" }
+    known_gap:
+      checks: [expected_phrases, expected_amounts]
+      modes: [deterministic]
+      reason: The income recognizer excludes "vs", so this comparison routes to general readiness coaching instead of distinguishing unknown approved income from July planned income.
+
+  - id: cfo_raise_split
+    route: controller
+    prompt: I got a $400 raise, how should I split it?
+    expected_phrases: [50% to the emergency fund, 25% to extra debt payments, 25% kept as surplus, "$200 to the emergency fund", "$100 to extra debt payments", "$100 kept as surplus", after taxes]
+    strict_amounts: true
+    expected_amounts: ["$400", "$200", "$100"]
+
+  - id: cfo_windfall_split
+    route: controller
+    prompt: We got a $5,300 bonus. What should we do with the bonus?
+    expected_phrases: ["$5,300 to the emergency fund"]
+    strict_amounts: true
+    expected_amounts:
+      - "$5,300"
+      - { ledger: month_plan_left, month: "2026-07" }
+    allowed_amounts: ["$508.33", "$9,740"]
+
+  - id: cfo_status_colours
+    route: controller
+    prompt: Are we green?
+    expected_phrases: [Green]
+    expected_amounts:
+      - { ledger: month_plan_left, month: "2026-07" }
+    known_gap:
+      checks: [expected_phrases, expected_amounts]
+      modes: [deterministic]
+      reason: The short "Are we green?" question does not match readiness routing and receives a generic deflection instead of status and surplus.
+
+  - id: cfo_colour_rules
+    route: controller
+    prompt: Help us make a plan from red to yellow to green
+    expected_phrases: [Green, 12 months, 36 months]
+    expected_amounts:
+      - { ledger: month_plan_left, month: "2026-07" }
+
+  - id: cfo_emergency_fund_target
+    route: controller
+    prompt: Why is my readiness green?
+    expected_phrases: [3-month emergency fund target, 12-month Green line]
+    expected_amounts: ["$12,240", "$9,740"]
