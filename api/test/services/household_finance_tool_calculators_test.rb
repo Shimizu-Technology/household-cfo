@@ -70,6 +70,7 @@ class HouseholdFinanceToolCalculatorsTest < ActiveSupport::TestCase
       assert_equal tone, result[:tone]
     end
     assert_equal 0, runway(savings: 0)[:months]
+    assert_equal 0, runway(savings: -10_000)[:months], "an overdrawn checking balance cannot give negative runway"
     assert runway(income: 400_000)[:sustainable]
     assert runway(draw: 0)[:sustainable]
   end

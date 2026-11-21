@@ -21,7 +21,7 @@ module HouseholdFinance
       sustainable = draw.zero? || @savings * MONTHLY_GROWTH >= draw
       months = if sustainable
         nil
-      elsif @savings.zero?
+      elsif !@savings.positive?
         0
       else
         # B(n) = S(1+r)^n - D((1+r)^n-1)/r. Count fully funded months.
