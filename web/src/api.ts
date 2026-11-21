@@ -2562,7 +2562,7 @@ export function subscribeFinancialPictureChanges(listener: (generation: number) 
 class FinancialPictureChangedError extends Error {}
 function financialDataPath(path: string) {
   if (/^\/api\/v1\/setup_help(\/|\?|$)/.test(path)) return !path.startsWith('/api/v1/setup_help/restart/')
-  return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
+  return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
 }
 function checkedFinancialReply(generation: number | null, expected: number | null) {
   if (generation === null || expected === null || generation === expected) return
@@ -4175,6 +4175,45 @@ export function reconcilePlaidAccount(id: number, decision: 'accept_observed' | 
 }
 export function unlinkPlaidAccount(id: number, idempotencyKey: string) {
   return accountMutation(`/api/v1/accounts/${id}/plaid_link`, 'DELETE', idempotencyKey)
+}
+
+export type StatementBalanceTarget = {
+  kind: 'account' | 'debt'
+  id: number
+  label: string
+  type: string
+  balance: number | null
+  balance_cents: number | null
+  balance_as_of_on: string | null
+}
+
+// A balance offered from her latest approved statement. Nothing changes until she approves it.
+export type StatementBalanceOffer = {
+  key: string
+  tracked_account_id: number
+  kind: 'account' | 'debt'
+  statement_label: string
+  as_of_on: string
+  balance: number
+  balance_cents: number
+  target: StatementBalanceTarget | null
+  choices: StatementBalanceTarget[]
+  can_add_new: boolean
+  new_label: string | null
+}
+
+export async function fetchStatementBalanceOffers(): Promise<StatementBalanceOffer[]> {
+  const payload = await fetchJson<{ offers: StatementBalanceOffer[] }>('/api/v1/statement_balances')
+  return payload.offers
+}
+
+export async function applyStatementBalance(offer: StatementBalanceOffer, target: number | 'new', idempotencyKey: string): Promise<StatementBalanceOffer[]> {
+  const payload = await fetchJson<{ offers: StatementBalanceOffer[] }>(`/api/v1/statement_balances/${offer.tracked_account_id}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ kind: offer.kind, target: String(target), offer_key: offer.key }),
+  })
+  return payload.offers
 }
 
 async function goalMutation(path: string, method: string, idempotencyKey: string, body?: Record<string, unknown>): Promise<GoalRecord> {

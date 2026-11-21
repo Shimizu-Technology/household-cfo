@@ -10,6 +10,8 @@ import { useBrand } from '../contexts/brandContextValue'
 const revealedTracks = new Set<string>()
 
 type HomeScreenProps = {
+  // Balances offered from approved statements, shown with what needs her.
+  balanceOffers?: ReactNode
   starterPrompts?: { label: string; message: string }[]
   onChoosePrompt?: (message: string) => void
   dashboard: DashboardData
@@ -36,7 +38,7 @@ type HomeScreenProps = {
   homeViewError?: string | null
 }
 
-export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAddPurchase, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true, homeView = 'month', onChangeHomeView, homeViewSaving = false, homeViewError = null }: HomeScreenProps) {
+export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAddPurchase, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true, homeView = 'month', onChangeHomeView, homeViewSaving = false, homeViewError = null, balanceOffers }: HomeScreenProps) {
   const { assistantName } = useBrand()
   const screenRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -109,6 +111,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
         {canAskMia && actionCenter.mia_action_review_count > 0 && <HomeAction secondary onClick={onReviewMiaActions}>{actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'} waiting for review</HomeAction>}
       </div>
     </section>}
+    {balanceOffers}
     <section className="home-cushion ui-card" aria-label="Your emergency cushion">
       <h3>{answer?.runway_months == null ? 'Your emergency cushion' : formatRunway(answer.runway_months)}</h3>
       <HomeStatus answer={answer} />
