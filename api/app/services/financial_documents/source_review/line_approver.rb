@@ -226,7 +226,7 @@ module FinancialDocuments
       # The pair shown on screen is checked again under the household lock. Never
       # rewrite an approved counterpart; only explicitly reviewed new lines are saved.
       def approve_pair!(line, entry, counts)
-        pairs = TransferPairs.new(household)
+        pairs = TransferPairs.new(household, unlinked_account_ids: @linked_now)
         existing = pairs.paired(line.event)
         if existing
           members = existing.source_economic_memberships.map(&:source_review_version)
