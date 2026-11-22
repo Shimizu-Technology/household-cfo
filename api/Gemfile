@@ -33,7 +33,7 @@ gem "jwt", "~> 3.2"
 gem "workos", "~> 10.4"
 
 # Read-only bank connections and transaction synchronization
-gem "plaid", "~> 47.0"
+gem "plaid", "~> 51.0"
 
 # Transactional email delivery for cohort invitations
 gem "resend", "~> 0.16.0"
