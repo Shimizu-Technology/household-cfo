@@ -471,3 +471,92 @@ it('says a closed month came in and shows a difference from plan only for a comp
   }
   expect(screen.getByText('$6,000 in so far of $6,200 planned')).toBeTruthy()
 })
+
+it('refreshes MonthlyClosePanel when committed actuals change without changing month or planned amounts', async () => {
+  const closePayload = (actualSpendingCents: number) => ({
+    monthly_close: {
+      year: 2026,
+      month: 10,
+      period_id: 10,
+      period_label: 'October 2026',
+      starts_on: '2026-10-01',
+      ends_on: '2026-10-31',
+      prior_year: 2026,
+      prior_month: 9,
+      prior_period_label: 'September 2026',
+      plan_available: true,
+      plan_starts_on: '2026-01-01',
+      before_plan_start: false,
+      status: 'complete',
+      status_label: 'Month closed',
+      household_id: 1,
+      financial_generation: 1,
+      income: {
+        planned_cents: 620_000,
+        actual_cents: 620_000,
+        difference_cents: 0,
+        prior_month_actual_cents: 620_000,
+        prior_month_complete: true,
+        change_from_prior_cents: 0,
+        complete: true,
+        partial: false,
+        month_open: false,
+        waiting_deposits: 0,
+        coverage_note: '',
+      },
+      totals: {
+        planned_spending_cents: 390_000,
+        actual_spending_cents: actualSpendingCents,
+        spending_difference_cents: actualSpendingCents - 390_000,
+        prior_actual_spending_cents: 300_000,
+        spending_change_from_prior_cents: actualSpendingCents - 300_000,
+        has_spending_activity: true,
+        prior_month_has_activity: true,
+        debt_minimums_cents: 12_000,
+        debt_minimums_known: true,
+      },
+      net: {
+        planned_net_before_debt_cents: 230_000,
+        actual_net_before_debt_cents: 620_000 - actualSpendingCents,
+        net_before_debt_difference_cents: 390_000 - actualSpendingCents,
+        planned_net_after_debt_cents: 218_000,
+        actual_net_after_debt_cents: null,
+        net_after_debt_difference_cents: null,
+        estimated_net_after_planned_debt_cents: 620_000 - actualSpendingCents - 12_000,
+      },
+      categories: [],
+      changes: {
+        prior_month_has_activity: true,
+        prior_period_label: 'September 2026',
+        increases: [],
+        decreases: [],
+        income_change: null,
+      },
+      highlights: [],
+    },
+  })
+
+  const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify(closePayload(22_992)), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(closePayload(41_500)), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+  const props = plannerProps()
+  const view = render(<AnnualBudgetPlanner {...props} showMonthlyClose financialGeneration={1} />)
+
+  await screen.findByText('$229.92')
+  expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+  // Same selected month and same planned allocations, only October actuals changed!
+  const updatedPlan: AnnualBudgetPlan = {
+    ...plan,
+    rows: plan.rows.map((row) => ({
+      ...row,
+      actual_total: 415,
+      months: row.months.map((m, i) => (i === 9 ? { ...m, actual: 415 } : m)),
+    })),
+  }
+  view.rerender(<AnnualBudgetPlanner {...props} plan={updatedPlan} showMonthlyClose financialGeneration={1} />)
+
+  await screen.findByText('$415')
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
+})

@@ -17,6 +17,18 @@ module Api
         render json: budget_presenter.budget
       end
 
+      def monthly_close
+        service = HouseholdFinance::MonthlyClose.new(
+          current_household,
+          year: params[:year],
+          month: params[:month],
+          method: CohortExperience::MethodSettings.from_capabilities(current_experience_capabilities)
+        )
+        render json: { monthly_close: service.call }
+      rescue HouseholdFinance::MonthlyClose::InvalidPeriod => error
+        render json: { errors: [ error.message ] }, status: :unprocessable_entity
+      end
+
       def wealth
         render json: presenter.wealth
       end

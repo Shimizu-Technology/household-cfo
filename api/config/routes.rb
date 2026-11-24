@@ -124,6 +124,7 @@ Rails.application.routes.draw do
       get "profile", to: "households#profile"
       get "dashboard", to: "households#dashboard"
       get "budget", to: "households#budget"
+      get "budget/monthly_close", to: "households#monthly_close"
       get "spending_report", to: "spending_reports#show"
       get "wealth", to: "households#wealth"
       get "optionality", to: "households#optionality"
