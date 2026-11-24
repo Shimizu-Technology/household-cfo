@@ -270,6 +270,9 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
     assert_includes answer, "Put $150 of the $160 toward the past-due amounts first; that covers the rest of the catch-up."
     assert_includes answer, "This month's plan runs $100 short, so keep the remaining $10 for essential bills and minimums; none of it goes to extra principal"
     refute_includes answer, "avalanche targets"
+    refute_includes answer, "Store card first"
+    refute_includes answer, "Car loan first"
+    assert_includes answer, "once the monthly shortfall is covered"
     refute_includes answer, "After that guardrail"
     assert_includes answer, "3. Hold extra principal until the past-due amounts are caught up."
     assert_includes answer, "The remaining $10 stays for essential bills and minimums while the monthly baseline is $100 short."
@@ -318,7 +321,10 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
     refute debt_step[:room_known], "the rest waits on her checking her debts, never treated as $0 owed"
     refute(scenario.fetch(:windfall).any? { |step| step[:key] == "surplus" })
     assert_nil HouseholdFinance::WindfallSplit.consumer_debt_cents(@household)
-    assert_includes HouseholdFinance::MiaCoachAnswerer.new(@household, "Where should a $500 windfall go?").send(:windfall_line, 50_000), "Your debt records do not add up yet"
+    windfall_reply = HouseholdFinance::MiaCoachAnswerer.new(@household, "Where should a $500 windfall go?").send(:windfall_line, 50_000)
+    assert_includes windfall_reply, "Your debt records do not add up yet"
+    assert_includes windfall_reply, "Check your debts before any extra principal goes to debt."
+    refute_includes windfall_reply, "before any of it goes to debt."
 
     filter = presenter.cfo_filter
     extra = filter.fetch(:decisions).find { |decision| decision[:item] == "Extra debt payment" }

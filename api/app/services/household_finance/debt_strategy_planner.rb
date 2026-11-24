@@ -69,12 +69,13 @@ module HouseholdFinance
       extra_amount = decision_amount_cents
       cash_flow_known = portfolio.minimum_payment_known? && debts.all? { |debt| debt_value_known?(debt, :minimum_payment) }
 
+      shortfall = cash_flow_known && adjusted_surplus.negative?
       lines = []
       lines << source_line(approved_debts, scenario_debts, scenario_only_debts, debts)
       lines << arrears_line
-      snowball_line = "Snowball: #{strategy_target(snowball, include_apr: false)}" if snowball
+      snowball_line = "Snowball: #{strategy_target(snowball, include_apr: false, shortfall: shortfall)}" if snowball
       lines << snowball_line if debt_order == "snowball"
-      lines << "Avalanche: #{strategy_target(avalanche, include_apr: true)}" if avalanche
+      lines << "Avalanche: #{strategy_target(avalanche, include_apr: true, shortfall: shortfall)}" if avalanche
       lines << "At least one balance is not entered. Confirm every balance before I rank avalanche or snowball or recommend extra principal; a missing balance is not $0." unless balances_known
       lines << "Avalanche needs each outstanding debt's APR before I can rank the debts honestly." if balances_known && outstanding_debts.any? && !avalanche
       if balances_known && outstanding_debts.empty?
@@ -151,14 +152,15 @@ module HouseholdFinance
       "Here is the comparison using #{source}.#{scenario_note} Debt details: #{details.join('; ')}."
     end
 
-    def strategy_target(debt, include_apr:)
+    def strategy_target(debt, include_apr:, shortfall: false)
       return "not available until at least one balance is entered." unless debt
 
       balance = debt_value_known?(debt, :balance) ? "#{money(debt_value(debt, :balance_cents))} balance" : "balance not entered"
       if debt.is_a?(::Debt) && arrears.catch_up_cents(debt).positive? && debt.balance_known?
         balance += " (#{money(post_catch_up_balance(debt))} after the catch-up)"
       end
-      details = [ "#{debt_label(debt)} first", balance ]
+      position = shortfall ? "#{debt_label(debt)} once the monthly shortfall is covered" : "#{debt_label(debt)} first"
+      details = [ position, balance ]
       apr = debt_value(debt, :interest_rate_percent)
       details << "#{number(apr)}% APR" if include_apr && apr.present?
       "#{details.join(', ')}."

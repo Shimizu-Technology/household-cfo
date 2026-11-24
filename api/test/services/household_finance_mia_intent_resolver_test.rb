@@ -999,6 +999,8 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
     assert debt_arrears_resolution("Update the Car loan: I'm $1,500 behind", past_due: "1500").actionable?
     assert debt_arrears_resolution("Update the Car loan: I was behind last year, but now it is $200 past due", past_due: "200").actionable?
+    assert debt_arrears_resolution("Before I caught up on Store card, it had $100 past due, but Car loan is $150 past due now", past_due: "150",
+      context_debts: [ { id: 79, label: "Store card", debt_type: "credit_card", balance: 640, minimum_payment: 35, interest_rate_percent: 29.99 } ]).actionable?
   end
 
   test "the clarification asks about the debt field her words did not support" do

@@ -2680,11 +2680,12 @@ module HouseholdFinance
     def current_arrears_stated?(text, cents, label)
       clauses = text.squish.split(ARREARS_CLAUSE_BREAK)
       caught_up_later = ->(index) { clauses.drop(index).any? { |clause| clause.match?(ARREARS_CAUGHT_UP) && !other_debt_named?(clause, label) } }
-      return false if text.match?(ARREARS_BEFORE_CATCH_UP)
+      before_catch_up = ->(index) { clauses.take(index + 1).any? { |clause| clause.match?(ARREARS_BEFORE_CATCH_UP) && !other_debt_named?(clause, label) } }
 
       clauses.each_with_index.any? do |clause, index|
         next false unless clause.match?(DEBT_MONEY_FIELD_PATTERNS.fetch(:past_due))
         next false if clause.match?(ARREARS_PAST_TENSE) || caught_up_later.call(index)
+        next false if before_catch_up.call(index) && !clause.match?(/\b(?:now|currently|still)\b/i)
         next false if other_debt_named?(clause, label)
 
         occurrences = money_occurrences(clause).reject { |occurrence| calendar_number?(clause, occurrence) }
