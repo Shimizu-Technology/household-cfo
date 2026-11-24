@@ -131,6 +131,21 @@ class YearForecastAnswerTest < ActiveSupport::TestCase
     assert_includes answer("Will we make it through the year with $2050 saved?", forecast: this_year), "December would end with about $1,700"
   end
 
+  test "what is due this month includes dated debt payments and what is owed now" do
+    @household.household_profile.update!(debt_tracking_mode: "individual")
+    @household.debts.create!(label: "Car loan", debt_type: "auto_loan", balance_cents: 980_000, minimum_payment_cents: 31_000, due_day: 30, past_due_cents: 150_000)
+    @household.debts.create!(label: "Store card", debt_type: "credit_card", balance_cents: 64_000, minimum_payment_cents: 3_500)
+    @household.bills.find_by!(name: "Talun power").update!(past_due_cents: 95_170)
+
+    answer = answer("What's due this month?")
+    assert_includes answer, "Talun power, $80, due November 28 (must pay); Car loan payment, $310, due November 30 (from My Money)."
+    assert_includes answer, "Past due and owed now: Car loan, $1,500; Talun power, $951.70. Each counts once this month"
+    assert_includes answer, "Debt payments with a saved due day are listed; any without one still count from My Money."
+    february = answer("What bills are due in February?")
+    assert_includes february, "Car loan payment, $310, due February 28, 2027 (from My Money)"
+    refute_includes february, "Past due and owed now"
+  end
+
   private
 
   def answer(message, today: @today, forecast: nil)

@@ -2,11 +2,20 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiRequestError, markBillPaid, newBillRequestKey, removeBill, saveBill, type AnnualBudgetPlan, type ForecastMonth, type ScheduledBill } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { billDate, forecastEstimates, forecastHeadline } from '../lib/yearForecast'
+import { ordinalDay } from '../lib/debtArrears'
 
 const SINKING = new Set(['sinking_expected', 'sinking_unexpected'])
 const NO_CATEGORY = 'none'
 const cash = (value: number | null) => value == null ? 'Not known yet' : formatReviewMoney(value)
 const repeats = (months: number | null) => months == null ? 'one time' : months === 1 ? 'every month' : months === 12 ? 'every year' : `every ${months} months`
+const EMPTY_DRAFT = { name: '', amount: '', category: '', due_on: '', repeat_months: '', must_pay: true, estimate: false, past_due: '' }
+
+/** What a month counts besides the plan: its bills, what is past due (owed now, once) and dated debt payments. */
+function monthItems(month: ForecastMonth) {
+  const bills = month.bills.map(bill => bill.past_due ? `${bill.name} (past due)` : bill.was_this_paid ? `${bill.name} (was this paid?)` : bill.name)
+  const debts = (month.debts ?? []).map(debt => debt.past_due ? `${debt.name} (past due)` : debt.due_on ? `${debt.name} on the ${ordinalDay(Number(debt.due_on.slice(8, 10)))}` : null)
+  return [...bills, ...debts].filter((item): item is string => item != null)
+}
 
 function incomeLabel(month: ForecastMonth) {
   const after = month.from_on ? billDate(month.from_on, false) : ''
@@ -33,7 +42,7 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const [draft, setDraft] = useState({ name: '', amount: '', category: '', due_on: '', repeat_months: '', must_pay: true, estimate: false })
+  const [draft, setDraft] = useState(EMPTY_DRAFT)
   const [dirty, setDirty] = useState(false)
   const [reminder, setReminder] = useState('')
   const [reloadError, setReloadError] = useState('')
@@ -69,8 +78,15 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
     requestKey.current = bill === 'new' ? newBillRequestKey() : null
     savedId.current = null
     setDraft(bill === 'new'
-      ? { name: '', amount: '', category: '', due_on: '', repeat_months: '', must_pay: true, estimate: false }
-      : { name: bill.name, amount: String(bill.amount_cents / 100), category: bill.budget_category_id == null ? NO_CATEGORY : String(bill.budget_category_id), due_on: bill.due_on, repeat_months: bill.repeat_months == null ? '' : String(bill.repeat_months), must_pay: bill.must_pay, estimate: bill.estimate })
+      ? EMPTY_DRAFT
+      : { name: bill.name, amount: String(bill.amount_cents / 100), category: bill.budget_category_id == null ? NO_CATEGORY : String(bill.budget_category_id), due_on: bill.due_on, repeat_months: bill.repeat_months == null ? '' : String(bill.repeat_months), must_pay: bill.must_pay, estimate: bill.estimate, past_due: bill.past_due_cents == null ? '' : String(bill.past_due_cents / 100) })
+  }
+  // Sent only when she typed one on a new bill or changed it on a saved one, so an edit never clears it by accident.
+  function pastDueChange(): { past_due?: string } {
+    const typed = draft.past_due.trim()
+    const saved = editing && editing !== 'new' && editing.past_due_cents != null ? editing.past_due_cents : null
+    if (editing === 'new' || editing == null) return typed === '' ? {} : { past_due: typed }
+    return (typed === '' ? null : Math.round(Number(typed) * 100)) === saved ? {} : { past_due: typed }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -79,7 +95,7 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
     setBusy(true); setError(''); setReminder('')
     try {
       const name = draft.name
-      await saveBill(savedId.current ?? (editing === 'new' || editing == null ? null : editing.id), { name, amount: draft.amount, due_on: draft.due_on, repeat_months: draft.repeat_months || null, budget_category_id: category === NO_CATEGORY ? null : Number(category), must_pay: draft.must_pay, estimate: draft.estimate }, requestKey.current ?? undefined)
+      await saveBill(savedId.current ?? (editing === 'new' || editing == null ? null : editing.id), { name, amount: draft.amount, due_on: draft.due_on, repeat_months: draft.repeat_months || null, budget_category_id: category === NO_CATEGORY ? null : Number(category), must_pay: draft.must_pay, estimate: draft.estimate, ...pastDueChange() }, requestKey.current ?? undefined)
       closeForm()
       returnFocus.current = true
       await refresh(`Saved ${name}.`)
@@ -124,6 +140,8 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
     {draft.category === NO_CATEGORY && <p className="bill-hint">This bill isn’t part of any category plan, so it adds to your planned costs when it’s due.</p>}
     {chosen && SINKING.has(chosen.stack_key) && <p className="bill-hint">{chosen.name} is money you set aside for planned costs. The bill counts when it’s due, and the part of the monthly plan it covers stays in your savings. Any part your saved bills don’t cover still counts every month.</p>}
     {chosen && !SINKING.has(chosen.stack_key) && <p className="bill-hint">Counts inside {chosen.name}: the larger of the plan or this bill, not both.</p>}
+    <label>Past due now (optional)<input name="past_due" type="number" inputMode="decimal" min="0" step="0.01" disabled={busy} value={draft.past_due} placeholder="Not entered" onChange={event => setDraft({ ...draft, past_due: event.currentTarget.value })} /></label>
+    <p className="bill-hint">What you still owe from earlier bills. It counts once, in the first month, on top of this bill. Enter 0 if you are caught up; leave it blank if you are not sure.</p>
     <label className="bill-check"><input type="checkbox" name="must_pay" disabled={busy} checked={draft.must_pay} onChange={event => setDraft({ ...draft, must_pay: event.currentTarget.checked })} />Must pay</label>
     <label className="bill-check"><input type="checkbox" name="estimate" disabled={busy} checked={draft.estimate} onChange={event => setDraft({ ...draft, estimate: event.currentTarget.checked })} />Amount is an estimate</label>
     {reminder && <p className="form-error" role="alert">{reminder}</p>}
@@ -155,14 +173,15 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
       <li>Each category counts the larger of its plan or its bills due that month, never both. This month, spending already recorded counts if it’s more.</li>
       <li>Money set aside for planned yearly costs or surprises stays in your savings, and saved bills count when they’re due. Any part of the monthly plan your saved bills don’t cover still counts every month.</li>
       <li>A balance dated the last day of a month already includes that month, so the forecast starts with the next one.</li>
-      <li>Debt payments count once a month from My Money. Their due dates aren’t saved yet, so from a balance in the middle of the month they still count and may already be paid.</li>
+      <li>Debt payments count once a month from My Money. A debt with a saved due day counts on that day (the 29th to 31st fall on a short month’s last day), so from a balance in the middle of the month one already due isn’t counted again. A payment with no due day still counts and may already be paid.</li>
+      <li>Anything past due on a debt or a bill is owed now: it counts once, in the first month, on top of that month’s payments. A debt’s past-due amount is part of its balance, so it never counts above it.</li>
       <li>A one-time bill you mark paid stops counting.</li>
       <li>It shows each month’s end, not day-to-day dips inside a month.</li>
     </ul></details>
     <table className="forecast-table"><caption className="sr-only">Cash forecast by month</caption>
       <thead><tr><th scope="col">Month</th><th scope="col">Starting cash</th><th scope="col">Money in</th><th scope="col">Planned out</th><th scope="col">Ending cash</th></tr></thead>
       <tbody>{forecast.months.map(month => <tr key={month.starts_on} className={month.ending_cents != null && month.ending_cents < 0 ? 'is-short' : undefined}>
-        <th scope="row">{month.label}{month.from_on && <small>From {billDate(month.from_on, false)}</small>}{month.bills.length > 0 && <small>{month.bills.map(bill => bill.was_this_paid ? `${bill.name} (was this paid?)` : bill.name).join(', ')}</small>}{month.higher_costs && <small>Higher costs than usual</small>}</th>
+        <th scope="row">{month.label}{month.from_on && <small>From {billDate(month.from_on, false)}</small>}{monthItems(month).length > 0 && <small>{monthItems(month).join(', ')}</small>}{month.higher_costs && <small>Higher costs than usual</small>}</th>
         <td data-label="Starting cash">{cash(month.opening_cents)}</td>
         <td data-label="Money in">{cash(month.income_cents)}<small>{incomeLabel(month)}</small></td>
         <td data-label="Planned out">{cash(month.outflow_cents)}</td>
@@ -179,6 +198,7 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
           <strong>{bill.name}: {cash(bill.amount_cents)}{bill.estimate ? ' (estimate)' : ''}</strong>
           <p>{bill.paid_on ? `Paid ${billDate(bill.paid_on)}` : `Due ${billDate(bill.due_on)}`} · {repeats(bill.repeat_months)}{bill.must_pay ? ' · must pay' : ''}</p>
           {!bill.paid_on && <p>{category ? `Counts in ${category.name}` : 'Outside your category plan: adds to planned costs'}</p>}
+          {!bill.paid_on && bill.past_due_cents != null && <p className={bill.past_due_cents > 0 ? 'bill-past-due' : undefined}>{bill.past_due_cents > 0 ? `${cash(bill.past_due_cents)} past due now · counts once, in the first month` : 'Caught up'}</p>}
           {bill.was_this_paid && <p className="bill-warning">Past its date. Was this paid? It still counts until you mark it paid.</p>}
           {bill.looks_like_debt && <p className="bill-warning">This looks like your {bill.looks_like_debt} payment, which already counts from My Money. If it’s the same payment, remove this bill.</p>}
           {canEdit && removing === bill.id ? <div className="bill-confirm" role="group" aria-label={`Remove ${bill.name}?`}>
@@ -193,7 +213,7 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
           {editing !== 'new' && editing?.id === bill.id && form}
         </li>
       })}</ul>
-      {forecast.debt_bills.map(debt => <p key={debt.name}>{debt.name}: {cash(debt.amount_cents)} a month · counts from My Money</p>)}
+      {forecast.debt_bills.map(debt => <p key={debt.name}>{debt.name}: {debt.amount_cents == null && debt.past_due_cents != null ? 'past due' : `${cash(debt.amount_cents)} a month`}{debt.due_day != null ? ` · due on the ${ordinalDay(debt.due_day)}` : ''}{debt.past_due_cents != null && debt.past_due_cents > 0 ? ` · ${cash(debt.past_due_cents)} past due, counts once now` : ''} · counts from My Money</p>)}
       {error && !editing && <p className="form-error" role="alert">{error}</p>}
       {canEdit && <button ref={addRef} type="button" className="secondary-button bill-add" disabled={busy} onClick={() => openForm('new')}>Add bill</button>}
       {editing === 'new' && form}

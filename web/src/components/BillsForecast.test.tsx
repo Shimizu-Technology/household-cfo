@@ -324,3 +324,30 @@ it('preserves all bill fields across a stale unmount and reload during conflict 
     expect.stringMatching(/^bill-/),
   ])
 })
+
+// Talun Telecom is $951.70 behind; the car loan is $1,500 behind and due on the 15th.
+it('saves a bill\'s past-due amount, shows it on the bill, and lists what is owed now in the first month', async () => {
+  const changed = vi.fn().mockResolvedValue(undefined)
+  vi.mocked(saveBill).mockResolvedValue({})
+  const telecom = bill({ id: 4, name: 'Talun Telecom', amount_cents: 12_000, budget_category_id: null, past_due_cents: 95_170 })
+  const first = month({
+    bills: [telecom, { ...telecom, amount_cents: 95_170, past_due: true }],
+    debts: [{ name: 'Car loan', amount_cents: 150_000, due_on: '2026-11-21', undated: false, past_due: true }, { name: 'Car loan', amount_cents: 31_000, due_on: '2026-11-15', undated: false, past_due: false }],
+  })
+  render(<BillsForecast plan={plan({ months: [first], bills: [telecom, bill({ id: 5, name: 'Talun water', past_due_cents: 0 })], debt_bills: [{ name: 'Car loan', amount_cents: 31_000, due_day: 15, past_due_cents: 150_000 }] })} onChanged={changed} />)
+
+  expect(screen.getByRole('rowheader', { name: /November/ }).textContent).toContain('Talun Telecom, Talun Telecom (past due), Car loan (past due), Car loan on the 15th')
+  open()
+  expect(screen.getByText('$951.70 past due now · counts once, in the first month')).toBeTruthy()
+  expect(screen.getByText('Caught up')).toBeTruthy()
+  expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === 'Car loan: $310 a month · due on the 15th · $1,500 past due, counts once now · counts from My Money')).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Talun Telecom' }))
+  const form = screen.getByRole('form', { name: 'Edit Talun Telecom' })
+  const pastDue = within(form).getByLabelText('Past due now (optional)') as HTMLInputElement
+  expect(pastDue.value).toBe('951.7')
+  fireEvent.change(pastDue, { target: { value: '' } })
+  fireEvent.submit(form)
+  await waitFor(() => expect(changed).toHaveBeenCalledOnce())
+  expect(saveBill).toHaveBeenCalledWith(4, expect.objectContaining({ past_due: '' }), undefined)
+})

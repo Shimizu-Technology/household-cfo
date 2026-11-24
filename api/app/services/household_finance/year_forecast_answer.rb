@@ -102,19 +102,52 @@ module HouseholdFinance
         Date.new(year, number, 1)
       end
       name = month.year == @today.year ? month.strftime("%B") : month.strftime("%B %Y")
-      due = occurrences(month, month.end_of_month)
+      due = (occurrences(month, month.end_of_month) + debt_occurrences(month)).sort_by do |item, date|
+        debt = item.is_a?(::Debt)
+        [ date, -(debt ? item.minimum_payment_cents : item.amount_cents), debt ? 1 : 0, item.id ]
+      end
       text = if due.any?
-        shown = due.first(LIST_LIMIT).map { |bill, date| line(bill, date) }
+        shown = due.first(LIST_LIMIT).map { |item, date| item.is_a?(::Debt) ? debt_line(item, date) : line(item, date) }
         more = due.length > LIST_LIMIT ? "; and #{due.length - LIST_LIMIT} more in Budget" : ""
         "Due in #{name}: #{shown.join('; ')}#{more}."
       else
         "You have no saved bills due in #{name}."
       end
-      awaiting = month == @today.beginning_of_month ? awaiting_note : ""
+      awaiting = month == @today.beginning_of_month ? "#{awaiting_note}#{owed_now_note}" : ""
       "#{text}#{awaiting} #{footer}"
     end
 
-    def footer = "Debt minimums aren’t in this list; they still count from My Money. Only the bills you saved are here, so anything else is unknown. Nothing changed."
+    def footer
+      return "Debt minimums aren’t in this list; they still count from My Money. Only the bills you saved are here, so anything else is unknown. Nothing changed." unless dated_debts.any?
+
+      "Debt payments with a saved due day are listed; any without one still count from My Money. Only the bills you saved are here, so anything else is unknown. Nothing changed."
+    end
+
+    # Minimums of debts tracked one by one with a saved due day (29 to 31 fall on a short month's last day).
+    def debt_occurrences(month)
+      dated_debts.map { |debt| [ debt, Date.new(month.year, month.month, [ debt.due_day, month.end_of_month.day ].min) ] }
+        .select { |_debt, date| date >= [ month, @today.beginning_of_month ].max }
+    end
+
+    def dated_debts
+      @dated_debts ||= if DebtPortfolio.new(@household).mode == "individual"
+        @household.debts.active.order(:id).select { |debt| debt.due_day && debt.minimum_payment_known? && debt.minimum_payment_cents.positive? }
+      else
+        []
+      end
+    end
+
+    def debt_line(debt, date) = "#{debt.label} payment, #{Money.plain(debt.minimum_payment_cents)}, due #{long(date)} (from My Money)"
+
+    # Past-due amounts on debts and bills: owed now, once, on top of this month's payments.
+    def owed_now_note
+      arrears = DebtArrears.new(@household)
+      items = arrears.debts.map { |debt| "#{debt.label}, #{Money.plain(arrears.catch_up_cents(debt))}" } +
+        bills.select { |bill| bill.past_due_owed?(@today) }.map { |bill| "#{bill.name}, #{Money.plain(bill.past_due_cents)}" }
+      return "" if items.empty?
+
+      " Past due and owed now: #{items.join('; ')}. Each counts once this month, on top of the payments above."
+    end
 
     def line(bill, date)
       details = [ (bill.estimate? ? "estimated" : nil), (bill.must_pay? ? "must pay" : nil) ].compact

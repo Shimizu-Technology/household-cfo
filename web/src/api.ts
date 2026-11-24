@@ -5719,11 +5719,17 @@ export function updateChallengeChatCard(id: number, input: { action: 'save_state
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }
 
-export type ScheduledBill = { id: number; name: string; amount_cents: number; due_on: string; repeat_months: number | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean; paid_on: string | null; was_this_paid: boolean; looks_like_debt: string | null }
+/** past_due_cents: how far behind she is on this bill, owed now (null is not entered). past_due: this occurrence is
+ * that amount, counted once in the forecast's first month. */
+export type ScheduledBill = { id: number; name: string; amount_cents: number; due_on: string; repeat_months: number | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean; paid_on: string | null; was_this_paid: boolean; looks_like_debt: string | null; past_due_cents?: number | null; past_due?: boolean }
+/** A debt payment the forecast counts that month: a minimum (on its saved due day, or undated) or a past-due amount. */
+export type ForecastDebtPayment = { name: string; amount_cents: number; due_on: string | null; undated: boolean; past_due: boolean }
+export type ForecastDebtBill = { name: string; amount_cents: number | null; due_day?: number | null; past_due_cents?: number | null }
 export type ForecastIncomeBasis = 'planned' | 'approved_so_far' | 'approved' | 'after_balance' | 'estimated_after_balance'
-export type ForecastMonth = { label: string; starts_on: string; from_on: string | null; opening_cents: number | null; income_cents: number | null; income_basis: ForecastIncomeBasis; approved_so_far_cents: number | null; outflow_cents: number | null; spending_plan_known: boolean; ending_cents: number | null; bills: ScheduledBill[]; reasons: string[]; includes_estimates: boolean; estimate_reasons?: string[]; higher_costs: boolean }
-export type YearForecast = { starting_cash_cents: number | null; starting_on: string | null; starting_note: string; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: 'short' | 'no_short_month' | 'unknown'; estimate_reasons?: string[]; missing: string[]; bills: ScheduledBill[]; debt_bills: { name: string; amount_cents: number | null }[] }
-export type BillInput = { name: string; amount: string; due_on: string; repeat_months: string | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean }
+export type ForecastMonth = { label: string; starts_on: string; from_on: string | null; opening_cents: number | null; income_cents: number | null; income_basis: ForecastIncomeBasis; approved_so_far_cents: number | null; outflow_cents: number | null; spending_plan_known: boolean; ending_cents: number | null; bills: ScheduledBill[]; debts?: ForecastDebtPayment[]; reasons: string[]; includes_estimates: boolean; estimate_reasons?: string[]; higher_costs: boolean }
+export type YearForecast = { starting_cash_cents: number | null; starting_on: string | null; starting_note: string; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: 'short' | 'no_short_month' | 'unknown'; estimate_reasons?: string[]; missing: string[]; bills: ScheduledBill[]; debt_bills: ForecastDebtBill[] }
+/** past_due: blank clears it back to not entered; 0 means caught up. */
+export type BillInput = { name: string; amount: string; due_on: string; repeat_months: string | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean; past_due?: string }
 // One key per new bill: a retried Save sends the same key, so the server returns the bill it already saved.
 export function newBillRequestKey() { return `bill-${clientRequestId()}` }
 export async function saveBill(id: number | null, bill: BillInput, idempotencyKey?: string) {

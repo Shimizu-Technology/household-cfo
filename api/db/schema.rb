@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_24_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_24_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -109,10 +109,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_24_090000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "idempotency_key", limit: 255
+    t.integer "past_due_cents"
     t.index ["budget_category_id"], name: "index_bills_on_budget_category_id"
     t.index ["household_id", "financial_generation", "idempotency_key"], name: "index_bills_on_household_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["household_id"], name: "index_bills_on_household_id"
     t.check_constraint "paid_on IS NULL OR repeat_months IS NULL", name: "bills_paid_only_one_time"
+    t.check_constraint "past_due_cents IS NULL OR past_due_cents >= 0", name: "bills_past_due_cents_non_negative"
   end
 
   create_table "budget_allocations", force: :cascade do |t|
