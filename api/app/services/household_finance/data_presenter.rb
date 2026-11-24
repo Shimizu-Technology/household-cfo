@@ -300,7 +300,7 @@ module HouseholdFinance
       # Consumer debts only (never the mortgage). past_due_cents stays nil when not entered.
       CfoFilterCalculator.new(income_cents: facts[:income_cents], costs_cents: facts[:costs_cents],
         savings_cents: facts[:savings_cents], debt_cents: WindfallSplit.consumer_debt_cents(household), method: method_settings, target_runway_months: target_runway_months,
-        catch_up_cents: WindfallSplit.consumer_catch_up_cents(household),
+        catch_up_cents: WindfallSplit.consumer_catch_up_cents(household), debt_conflicts: debt_arrears.conflicts,
         debts: debt_portfolio.mode == "individual" ? debt_portfolio.active_debts.reject { |debt| debt.debt_type == "mortgage" }.map { |debt| { balance_cents: debt.balance_known? ? debt.balance_cents : nil, rate_percent: debt.interest_rate_percent, minimum_cents: debt.minimum_payment_known? ? debt.minimum_payment_cents : nil, past_due_cents: debt.past_due_cents } } : nil)
         .call(spend_cents: spend_cents, windfall_cents: windfall_cents, lift_cents: lift_cents)
         .merge(facts: facts, cut_choices: SpendingPatterns::Analyzer.new(household, protected: method_settings.fetch("protected")).call[:candidate_changes])
@@ -541,6 +541,10 @@ module HouseholdFinance
 
     def debt_portfolio
       @debt_portfolio ||= DebtPortfolio.new(household)
+    end
+
+    def debt_arrears
+      @debt_arrears ||= DebtArrears.new(household)
     end
 
     def goals
@@ -1112,7 +1116,8 @@ module HouseholdFinance
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       runway_met = snapshot.fetch(:runway_months) >= target_runway_months
       apr_unknown = debt_entered && debts.any? { |debt| debt.active? && debt.balance_known? && debt.balance_cents.to_i.positive? && debt.interest_rate_percent.nil? }
-      extra_debt_ready = debt_entered && !apr_unknown && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
+      debt_conflicts = debt_arrears.conflicts
+      extra_debt_ready = debt_conflicts.empty? && debt_entered && !apr_unknown && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
       wants_open = snapshot.fetch(:readiness_tone) == "green" && safe.positive?
       [
         {
@@ -1131,7 +1136,9 @@ module HouseholdFinance
           item: "Extra debt payment",
           amount: extra_debt_ready ? safe : 0,
           recommendation: extra_debt_ready ? "Approve" : "Wait",
-          reason: if !debt_balance_known
+          reason: if debt_conflicts.any?
+            "Your debt records do not add up yet: #{debt_conflicts.to_sentence}. Check your debts before Mia prioritizes payoff."
+                  elsif !debt_balance_known
             "Enter every debt balance before Mia prioritizes an extra payment. Partial totals are not used for payoff decisions."
                   elsif apr_unknown
             "Add the interest rate (APR) on each debt before Mia suggests an extra payment. Until then, pay the minimums and nothing is recommended."
@@ -1186,7 +1193,7 @@ module HouseholdFinance
 
       [
         { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * target_runway_months) },
-        { label: "Debt payoff", current: dollars(snapshot.fetch(:total_debt_cents)), target: 0 },
+        debt_arrears.conflict? ? { label: "Check your debts", current: 0, target: 0 } : { label: "Debt payoff", current: dollars(snapshot.fetch(:total_debt_cents)), target: 0 },
         { label: "Monthly business revenue", current: dollars(monthly_business_income_cents), target: dollars([ snapshot.fetch(:total_outflow_cents) - transition_retained_income_cents, 0 ].max) }
       ]
     end

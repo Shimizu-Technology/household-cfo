@@ -146,6 +146,23 @@ class YearForecastAnswerTest < ActiveSupport::TestCase
     refute_includes february, "Past due and owed now"
   end
 
+  test "what is due uses the forecast's debt schedule, so a catch-up that pays off the balance leaves no minimum" do
+    @household.household_profile.update!(debt_tracking_mode: "individual")
+    @household.debts.create!(label: "Talun Visa", debt_type: "credit_card", balance_cents: 10_000, minimum_payment_cents: 2_500, due_day: 28, past_due_cents: 10_000)
+
+    november = answer("What's due this month?")
+    assert_includes november, "Past due and owed now: Talun Visa, $100."
+    refute_includes november, "Talun Visa payment"
+    december = answer("What's due next month?")
+    refute_includes december, "Talun Visa payment", "the $100 catch-up already pays the $100 balance"
+
+    forecast_debts = HouseholdFinance::YearForecastDebtSchedule.new(@household, HouseholdFinance::DebtPortfolio.new(@household), @today)
+    first = forecast_debts.items(Date.new(2026, 11, 1), Date.new(2026, 11, 30), Date.new(2026, 11, 1), first_month: true)
+    second = forecast_debts.items(Date.new(2026, 12, 1), Date.new(2026, 12, 31), Date.new(2026, 12, 1), first_month: false)
+    assert_equal [ [ "Talun Visa", 10_000, true ] ], first.map { |item| item.values_at(:name, :amount_cents, :past_due) }
+    assert_empty second
+  end
+
   private
 
   def answer(message, today: @today, forecast: nil)

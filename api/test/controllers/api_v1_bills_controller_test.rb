@@ -185,4 +185,21 @@ class ApiV1BillsControllerTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal 20_000, @household.bills.sole.past_due_cents
   end
+
+  test "a replayed save key that clears the past-due amount is refused, not kept at the saved amount" do
+    params = { bill: { name: "Talun Power", amount: "80", due_on: "2026-12-20", repeat_months: 1, past_due: "200" } }
+    post "/api/v1/bills", params: params, headers: @headers.merge("Idempotency-Key" => "talun-power-clear"), as: :json
+    assert_response :created
+    [ params[:bill].except(:past_due), params[:bill].merge(past_due: nil), params[:bill].merge(past_due: "") ].each do |retry_bill|
+      post "/api/v1/bills", params: { bill: retry_bill }, headers: @headers.merge("Idempotency-Key" => "talun-power-clear"), as: :json
+      assert_response :conflict, retry_bill.inspect
+    end
+    assert_equal 20_000, @household.bills.sole.past_due_cents
+
+    fresh = { bill: params[:bill].except(:past_due) }
+    post "/api/v1/bills", params: fresh, headers: @headers.merge("Idempotency-Key" => "talun-power-none"), as: :json
+    assert_response :created
+    post "/api/v1/bills", params: fresh, headers: @headers.merge("Idempotency-Key" => "talun-power-none"), as: :json
+    assert_equal true, response.parsed_body["replayed"], "the same values with no past-due amount still replay"
+  end
 end

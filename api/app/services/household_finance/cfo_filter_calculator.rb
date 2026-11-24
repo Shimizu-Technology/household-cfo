@@ -8,7 +8,11 @@ module HouseholdFinance
   # debt-payment cash catches them up before any extra avalanche principal. Recurring
   # costs, the base surplus and the emergency-fund target stay on the recurring baseline.
   class CfoFilterCalculator
-    def initialize(income_cents:, costs_cents:, savings_cents:, debt_cents:, method:, target_runway_months: nil, debts: nil, wealth_tone: nil, catch_up_cents: 0)
+    # debt_conflicts: DebtArrears#conflicts. While any exist, the total debt is unknown,
+    # so no payoff estimate or debt-free reading is given; known arrears still come first.
+    def initialize(income_cents:, costs_cents:, savings_cents:, debt_cents:, method:, target_runway_months: nil, debts: nil, wealth_tone: nil, catch_up_cents: 0, debt_conflicts: [])
+      @debt_conflicts = Array(debt_conflicts)
+      debt_cents = nil if @debt_conflicts.any?
       @income, @costs, @savings, @debt, @method = income_cents, costs_cents, savings_cents, debt_cents, method
       @debts, @wealth_tone = debts, wealth_tone
       @catch_up = catch_up_cents.to_i
@@ -28,6 +32,7 @@ module HouseholdFinance
       before_state = state(surplus)
       {
         base_surplus_cents: surplus, annual_surplus_cents: annual, catch_up_cents: @catch_up, after_spend_surplus_cents: after,
+        debt_records_conflict: @debt_conflicts,
         exceeds_annual_surplus: spend_cents.positive? && after && after.negative?,
         # The monthly projection pays the catch-up inside the debt budget, so it is not
         # taken from the monthly surplus a second time here.

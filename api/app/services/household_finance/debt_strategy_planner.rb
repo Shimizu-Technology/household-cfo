@@ -173,6 +173,9 @@ module HouseholdFinance
       if cash_flow_known && after_catch_up <= 0
         windfall = windfall_split(windfall_cents, adjusted_surplus)
         windfall_note = " The #{money(windfall_cents)} one-time amount goes to the catch-up first, as above." if windfall[:to_catch_up].positive?
+        if windfall[:left].positive? && adjusted_surplus.negative?
+          windfall_note = "#{windfall_note} The remaining #{money(windfall[:left])} stays for essential bills and minimums while the monthly baseline is #{money(-adjusted_surplus)} short."
+        end
         return "1. #{catch_up_step} 2. Protect essential bills and keep every other minimum current. 3. Hold extra principal until the past-due amounts are caught up#{adjusted_surplus.positive? ? "; this month's #{money(adjusted_surplus)} surplus does not cover all of it" : ''}.#{windfall_note} If a lender's catch-up cannot fit, call them before the next due date and ask about a payment arrangement. No payment is made automatically."
       end
 
@@ -374,6 +377,12 @@ module HouseholdFinance
         return "#{windfall_decision_note(amount)}#{catch_up}That still leaves #{money(split[:still_past_due])} past due, so none of it goes to extra principal." if split[:still_past_due].positive?
 
         return "#{windfall_decision_note(amount)}#{catch_up}That uses all of it, so none goes to extra principal."
+      end
+      # The numbered plan holds extra principal while the monthly baseline is negative, so
+      # the one-time amount does too: what is left covers the shortfall first.
+      if adjusted_surplus.negative?
+        remaining = split[:to_catch_up].positive? ? "the remaining #{money(split[:left])}" : "the #{money(split[:left])}"
+        return "#{windfall_decision_note(amount)}#{catch_up}This month's plan runs #{money(-adjusted_surplus)} short, so keep #{remaining} for essential bills and minimums; none of it goes to extra principal while the monthly baseline is negative."
       end
       return "#{windfall_decision_note(amount)}#{catch_up}No balance is left for extra principal after the catch-up; keep the remaining #{money(split[:left])} for runway and near-term bills." unless avalanche || snowball
 

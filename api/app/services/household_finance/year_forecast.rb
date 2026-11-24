@@ -82,7 +82,10 @@ module HouseholdFinance
           elsif midmonth
             before = spent - after
             before = [ before - paid_before.fetch(row[:id], 0), 0 ].max if SINKING.include?(row[:stack_key])
-            [ [ plan - before, 0 ].max + due_extra + arrears, linked + arrears, after ].max
+            # Spending before the balance counts toward the plan and the catch-up together: what went past the plan
+            # paid part of the catch-up, so only the rest of it is still owed.
+            arrears_left = [ arrears - [ before - plan, 0 ].max, 0 ].max
+            [ [ plan - before, 0 ].max + due_extra + arrears_left, linked + arrears_left, after ].max
           else
             [ plan + due_extra + arrears, linked + arrears, spent ].max
           end

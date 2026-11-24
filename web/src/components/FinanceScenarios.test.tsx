@@ -89,3 +89,15 @@ test('a known catch-up is named in the spend check and comes before consumer deb
   expect(screen.getByText('That already sets aside $1,500.00 to catch up what you are behind on, before any extra principal.')).toBeTruthy()
   expect(Array.from(screen.getByText('Emergency fund: $200.00').closest('ul')!.children).map(item => item.textContent)).toEqual(['Emergency fund: $200.00', 'Catch up past-due debt: $1,500.00', 'Consumer debt: $300.00 held here until the missing balance is known'])
 })
+
+test('debt records that do not add up show a check-your-debts message, never a payoff estimate', () => {
+  render(<CfoScenarios initial={{ ...filter, base_surplus_cents: 40000, catch_up_cents: 15000,
+    debt_records_conflict: ['your approved debt summary shows $0 owed in all, less than the $150 past due'],
+    before: { emergency_months: 3, emergency_tone: 'yellow', surplus_tone: 'green', debt_months: null, debt_tone: null },
+    after: { emergency_months: 3, emergency_tone: 'yellow', surplus_tone: 'green', debt_months: null, debt_tone: null },
+    windfall: [{ key: 'consumer_debt_catch_up', cents: 15000, room_known: true }, { key: 'consumer_debt', cents: 35000, room_known: false }] }} />)
+  expect(screen.getByText(/Your debt records do not add up yet: your approved debt summary shows \$0 owed in all, less than the \$150 past due\. Check your debts/)).toBeTruthy()
+  expect(screen.getByText(/Debt: Unknown: check your debts → Unknown: check your debts/)).toBeTruthy()
+  expect(screen.getByText(/Consumer debt: \$350\.00 held here until your debt records add up/)).toBeTruthy()
+  expect(screen.queryByText(/0 months/)).toBeNull()
+})

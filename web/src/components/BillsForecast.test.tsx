@@ -36,6 +36,8 @@ it('asks her to choose a category, says plainly when a bill is outside every pla
   fireEvent.submit(form)
   await waitFor(() => expect(changed).toHaveBeenCalledOnce())
   expect(saveBill).toHaveBeenCalledWith(null, expect.objectContaining({ name: 'School fee', amount: '200', due_on: '2027-01-05', budget_category_id: 3, repeat_months: null }), expect.stringMatching(/^bill-/))
+  // A blank past-due amount is always sent on a new bill, so a lost-response retry that cleared it is a conflict.
+  expect(saveBill).toHaveBeenCalledWith(null, expect.objectContaining({ past_due: '' }), expect.stringMatching(/^bill-/))
   expect(screen.getByText('Saved School fee.')).toBeTruthy()
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add bill' })))
   expect((screen.getByText('Bills and due dates').closest('details') as HTMLDetailsElement).open).toBe(true)

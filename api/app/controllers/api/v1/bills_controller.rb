@@ -57,6 +57,9 @@ module Api
           past_due = values.delete("past_due")
           values[:past_due_cents] = past_due.to_s.strip.blank? ? nil : HouseholdFinance::Money.cents!(past_due, message: "Past-due amount must be a number")
         end
+        # A new bill with no past-due amount has none: a lost-response retry that leaves it out must match a blank
+        # saved amount, so clearing it on the retry is a conflict rather than silently keeping the first amount.
+        values[:past_due_cents] = nil if bill.new_record? && !values.key?(:past_due_cents)
         # A repeating bill has no single payment to mark paid.
         values[:paid_on] = nil if values["repeat_months"].present?
         replayed = false

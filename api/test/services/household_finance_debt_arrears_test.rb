@@ -259,6 +259,22 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
     assert_includes answer, "The $50 one-time amount goes to the catch-up first, as above."
   end
 
+  test "a refund left after the catch-up covers a monthly shortfall, never extra principal" do
+    # Hand check: $5,200 income - $3,000 essentials - $345 minimums = $1,855 surplus.
+    # $1,955 of new essentials makes it -$100. The $160 refund covers the $150 catch-up,
+    # and the $10 left goes to the shortfall, matching the numbered plan.
+    @household.expense_items.create!(label: "Clinic stay", stack_key: "non_discretionary", amount_cents: 195_500, cadence: "monthly")
+    @car.update!(past_due_cents: 15_000)
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "I have a $160 refund. Should I use it on debt? Give me a debt plan.", debt_order: "avalanche").call
+
+    assert_includes answer, "Put $150 of the $160 toward the past-due amounts first; that covers the rest of the catch-up."
+    assert_includes answer, "This month's plan runs $100 short, so keep the remaining $10 for essential bills and minimums; none of it goes to extra principal"
+    refute_includes answer, "avalanche targets"
+    refute_includes answer, "After that guardrail"
+    assert_includes answer, "3. Hold extra principal until the past-due amounts are caught up."
+    assert_includes answer, "The remaining $10 stays for essential bills and minimums while the monthly baseline is $100 short."
+  end
+
   test "a past-due amount above a $0 balance is a records problem, never debt-free" do
     @car.destroy!
     @card.update!(balance_cents: 0, minimum_payment_cents: 0, past_due_cents: 4_000)
@@ -282,6 +298,34 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
     answer = planner.call
     assert_includes answer, "your approved debt summary shows $0 owed in all, less than the $1,500 past due"
     refute_includes answer, "no outstanding debt"
+  end
+
+  test "the CFO Filter and windfall split check your debts when a $0 summary sits under a past-due card" do
+    @car.destroy!
+    @card.update!(past_due_cents: 15_000)
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 0, debt_summary_balance_known: true,
+      debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: true)
+    presenter = HouseholdFinance::DataPresenter.new(@household)
+
+    scenario = presenter.cfo_filter_scenario(windfall_cents: 10_000_000)
+    assert_nil scenario.dig(:before, :debt_months), "no payoff estimate while the records disagree"
+    assert_nil scenario.dig(:before, :debt_tone)
+    assert_equal 15_000, scenario.fetch(:catch_up_cents), "the known past-due amount is still owed now"
+    assert_includes scenario.fetch(:debt_records_conflict).join, "less than the $150 past due"
+    assert_equal 15_000, scenario.fetch(:windfall).find { |step| step[:key] == "consumer_debt_catch_up" }&.fetch(:cents)
+    debt_step = scenario.fetch(:windfall).find { |step| step[:key] == "consumer_debt" }
+    assert debt_step, scenario.fetch(:windfall).inspect
+    refute debt_step[:room_known], "the rest waits on her checking her debts, never treated as $0 owed"
+    refute(scenario.fetch(:windfall).any? { |step| step[:key] == "surplus" })
+    assert_nil HouseholdFinance::WindfallSplit.consumer_debt_cents(@household)
+    assert_includes HouseholdFinance::MiaCoachAnswerer.new(@household, "Where should a $500 windfall go?").send(:windfall_line, 50_000), "Your debt records do not add up yet"
+
+    filter = presenter.cfo_filter
+    extra = filter.fetch(:decisions).find { |decision| decision[:item] == "Extra debt payment" }
+    assert_equal "Wait", extra[:recommendation]
+    assert_match(/\AYour debt records do not add up yet: .*Check your debts/, extra[:reason])
+    refute_match(/\ANo debt entered yet/, extra[:reason])
+    assert_equal [ "Check your debts" ], filter.fetch(:targets).pluck(:label).grep(/debt/i)
   end
 
   test "a statement balance below the past-due amount keeps both fields and flags the conflict" do

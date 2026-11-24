@@ -210,6 +210,20 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ 22, 0 ], [ debt.reload.due_day, debt.past_due_cents ]
   end
 
+  test "an expected value that is not an object is refused, not a server error" do
+    user = create_user(email: "debt-expected-shape@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 4_000, past_due_cents: 9_540)
+
+    [ "Visa", [ "Visa" ], 95 ].each_with_index do |expected, index|
+      patch "/api/v1/debts/#{debt.id}", params: { debt: { past_due: 0 }, expected: expected },
+        headers: auth_headers(user, idempotency_key: "expected-shape-#{index}"), as: :json
+      assert_response :unprocessable_entity, expected.inspect
+      assert_includes JSON.parse(response.body).fetch("errors").join, "expected"
+    end
+    assert_equal 9_540, debt.reload.past_due_cents
+  end
+
   private
 
   def create_user(email:)

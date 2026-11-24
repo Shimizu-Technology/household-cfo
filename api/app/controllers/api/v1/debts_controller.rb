@@ -84,7 +84,13 @@ module Api
       # The values her form showed for each field she changed. The update is refused when
       # one of them changed elsewhere since, so an older tab cannot erase a newer value.
       def expected_params
-        @expected_params ||= params.fetch(:expected, {}).permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent, :due_day, :past_due)
+        @expected_params ||= begin
+          expected = params.fetch(:expected, {})
+          raise ArgumentError, "expected must be an object of the values the form showed" unless expected.is_a?(ActionController::Parameters) || expected.is_a?(Hash)
+
+          expected = ActionController::Parameters.new(expected) if expected.is_a?(Hash)
+          expected.permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent, :due_day, :past_due)
+        end
       end
 
       def tracking_params

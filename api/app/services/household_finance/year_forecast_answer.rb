@@ -103,11 +103,11 @@ module HouseholdFinance
       end
       name = month.year == @today.year ? month.strftime("%B") : month.strftime("%B %Y")
       due = (occurrences(month, month.end_of_month) + debt_occurrences(month)).sort_by do |item, date|
-        debt = item.is_a?(::Debt)
-        [ date, -(debt ? item.minimum_payment_cents : item.amount_cents), debt ? 1 : 0, item.id ]
+        debt = item.is_a?(Hash)
+        [ date, -(debt ? item[:amount_cents] : item.amount_cents), debt ? 1 : 0, debt ? 0 : item.id ]
       end
       text = if due.any?
-        shown = due.first(LIST_LIMIT).map { |item, date| item.is_a?(::Debt) ? debt_line(item, date) : line(item, date) }
+        shown = due.first(LIST_LIMIT).map { |item, date| item.is_a?(Hash) ? debt_line(item, date) : line(item, date) }
         more = due.length > LIST_LIMIT ? "; and #{due.length - LIST_LIMIT} more in Budget" : ""
         "Due in #{name}: #{shown.join('; ')}#{more}."
       else
@@ -123,10 +123,27 @@ module HouseholdFinance
       "Debt payments with a saved due day are listed; any without one still count from My Money. Only the bills you saved are here, so anything else is unknown. Nothing changed."
     end
 
-    # Minimums of debts tracked one by one with a saved due day (29 to 31 fall on a short month's last day).
+    # Dated minimums from the year forecast's own debt schedule, so this list and the forecast always agree: a
+    # catch-up that pays off a balance leaves no minimum after it.
     def debt_occurrences(month)
-      dated_debts.map { |debt| [ debt, Date.new(month.year, month.month, [ debt.due_day, month.end_of_month.day ].min) ] }
-        .select { |_debt, date| date >= [ month, @today.beginning_of_month ].max }
+      debt_schedule_items(month).reject { |item| item[:past_due] || item[:undated] }.map { |item| [ item, Date.iso8601(item[:due_on]) ] }
+    end
+
+    # The forecast's scheduled debt payments for a month, walking from this month so earlier payments lower each
+    # balance first. A month before this one has none.
+    def debt_schedule_items(month)
+      @debt_schedule_items ||= {}
+      @debt_schedule_items[month] ||= begin
+        start = @today.beginning_of_month
+        schedule = YearForecastDebtSchedule.new(@household, DebtPortfolio.new(@household), @today)
+        items = []
+        cursor = start
+        while cursor <= month
+          items = schedule.items(cursor, cursor.end_of_month, cursor, first_month: cursor == start)
+          cursor = cursor.next_month
+        end
+        items
+      end
     end
 
     def dated_debts
@@ -137,12 +154,11 @@ module HouseholdFinance
       end
     end
 
-    def debt_line(debt, date) = "#{debt.label} payment, #{Money.plain(debt.minimum_payment_cents)}, due #{long(date)} (from My Money)"
+    def debt_line(item, date) = "#{item[:name]} payment, #{Money.plain(item[:amount_cents])}, due #{long(date)} (from My Money)"
 
     # Past-due amounts on debts and bills: owed now, once, on top of this month's payments.
     def owed_now_note
-      arrears = DebtArrears.new(@household)
-      items = arrears.debts.map { |debt| "#{debt.label}, #{Money.plain(arrears.catch_up_cents(debt))}" } +
+      items = debt_schedule_items(@today.beginning_of_month).select { |item| item[:past_due] }.map { |item| "#{item[:name]}, #{Money.plain(item[:amount_cents])}" } +
         bills.select { |bill| bill.past_due_owed?(@today) }.map { |bill| "#{bill.name}, #{Money.plain(bill.past_due_cents)}" }
       return "" if items.empty?
 

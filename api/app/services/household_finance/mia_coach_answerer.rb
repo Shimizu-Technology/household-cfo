@@ -1672,6 +1672,8 @@ module HouseholdFinance
         "#{index + 1}) #{words}"
       end.join(", ")
       line = "Your program's order for one-time money: #{steps}."
+      conflicts = DebtArrears.new(household).conflicts
+      line = "#{line} Your debt records do not add up yet: #{conflicts.to_sentence}. Check your debts before any of it goes to debt." if conflicts.any?
       return line unless amount_cents&.positive?
 
       split = WindfallSplit.new(amount_cents: amount_cents, order: order, emergency_fund_gap_cents: windfall_emergency_fund_gap_cents,

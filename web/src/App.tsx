@@ -5206,7 +5206,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   <h3>{decision.item}</h3>
                 </div>
                 {!debtMinimumsKnown || decision.amount_known === false ? <strong className="decision-amount-unknown">Not available</strong> : <strong>{formatReviewMoney(Math.round((decision.amount) * 100))}</strong>}
-                <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
+                <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && !(data.cfoFilter?.calculator?.debt_records_conflict?.length) && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
               </article>
             ))}
           </div>
@@ -7497,9 +7497,11 @@ export function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtC
     } catch (caught) {
       if (caught instanceof ApiRequestError && caught.code === 'changed_elsewhere') {
         operationKeys.current.complete(signature)
-        await onChanged().catch(() => undefined)
+        const reloaded = await onChanged().then(() => true, () => false)
         setEditingId(null)
-        setError('This debt changed in another tab or on another device. The latest details are showing now; open it and make your change again.')
+        setError(reloaded
+          ? 'This debt changed in another tab or on another device. The latest details are showing now; open it and make your change again.'
+          : 'This debt changed in another tab or on another device, and the latest details could not load. Refresh the page before trying again.')
       } else {
         setError(participantErrorMessage(caught, 'This debt could not be saved. Try again.'))
       }

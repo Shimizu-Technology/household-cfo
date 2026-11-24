@@ -19,10 +19,10 @@ class Bill < ApplicationRecord
 
   def one_time? = repeat_months.nil?
 
-  # An entered amount above $0 that is still owed. A one-time bill she marked paid owes nothing, and one past its
-  # date and not marked paid already counts in full as owed now, so its past-due amount is not added on top.
-  def past_due_owed?(today)
-    past_due_cents.to_i.positive? && paid_on.nil? && !awaiting_answer?(today)
+  # An entered amount above $0 that is still owed. A one-time bill she marked paid owes nothing. One past its date
+  # and not marked paid still owes its past-due amount on top of the bill itself, until she marks it paid.
+  def past_due_owed?(_today = nil)
+    past_due_cents.to_i.positive? && paid_on.nil?
   end
 
   # A one-time bill whose date has passed and that she has not marked paid: still counted as due until she answers.

@@ -81,11 +81,13 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
       ? EMPTY_DRAFT
       : { name: bill.name, amount: String(bill.amount_cents / 100), category: bill.budget_category_id == null ? NO_CATEGORY : String(bill.budget_category_id), due_on: bill.due_on, repeat_months: bill.repeat_months == null ? '' : String(bill.repeat_months), must_pay: bill.must_pay, estimate: bill.estimate, past_due: bill.past_due_cents == null ? '' : String(bill.past_due_cents / 100) })
   }
-  // Sent only when she typed one on a new bill or changed it on a saved one, so an edit never clears it by accident.
+  // Always sent when creating a bill (blank means none), so a lost-response retry that cleared it is a conflict, not the first
+  // amount kept silently. On a saved bill, sent only when she changed it, so an edit never clears it by accident.
   function pastDueChange(): { past_due?: string } {
     const typed = draft.past_due.trim()
     const saved = editing && editing !== 'new' && editing.past_due_cents != null ? editing.past_due_cents : null
-    if (editing === 'new' || editing == null) return typed === '' ? {} : { past_due: typed }
+    // After a conflict the next save edits the bill already saved, where a blank must not clear it.
+    if (editing === 'new' || editing == null) return savedId.current != null && typed === '' ? {} : { past_due: typed }
     return (typed === '' ? null : Math.round(Number(typed) * 100)) === saved ? {} : { past_due: typed }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {

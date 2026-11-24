@@ -922,6 +922,65 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal [ "", "unknown" ], cleared.write_plan.fetch(:actions).map { |entry| entry.dig(:action, :past_due) }, "only the item whose own words clear it may clear it"
   end
 
+  test "a replacement label never authorizes clearing a past-due amount or due day" do
+    context = intent_context.deep_dup
+    context[:active_debts] = [
+      { id: 81, label: "Visa", debt_type: "credit_card", balance: 1_200, minimum_payment: 40, interest_rate_percent: 24.9, due_day: 22, past_due: 95.4 },
+      { id: 82, label: "Amex", debt_type: "credit_card", balance: 800, minimum_payment: 35, interest_rate_percent: 19.9, due_day: 5, past_due: 0 }
+    ]
+    context[:archived_debts] = []
+
+    [ "Due Day Unknown", "Past Due Unknown" ].each do |label|
+      single = debt_arrears_resolution("Rename the Car loan to \"#{label}\"", new_name: label, past_due: "unknown", due_day: "unknown")
+      assert single.actionable?, label
+      assert_equal [ "", "" ], single.action.values_at(:past_due, :due_day), label
+
+      message = "Rename Visa to \"#{label}\" and rename Amex to Blue Card"
+      plan = resolve_compound(message: message, context: context, actions: [
+        { source_text: "Rename Visa to \"#{label}\"", depends_on: [], action: default_action.merge(type: "update_debt", debt_id: 81, debt_name: "Visa", new_name: label, past_due: "unknown", due_day: "unknown") },
+        { source_text: "rename Amex to Blue Card", depends_on: [], action: default_action.merge(type: "update_debt", debt_id: 82, debt_name: "Amex", new_name: "Blue Card") }
+      ])
+      assert plan.action_plan?, plan.to_h.inspect
+      assert_equal [ "", "" ], plan.write_plan.fetch(:actions).first.fetch(:action).values_at(:past_due, :due_day), label
+
+      refute HouseholdFinance::MiaIntentResolver.debt_clear_stated?("Rename Visa to \"#{label}\"", :past_due, new_name: label)
+      refute HouseholdFinance::MiaIntentResolver.debt_clear_stated?("Rename Visa to \"#{label}\"", :due_day, new_name: label)
+      refute HouseholdFinance::MiaIntentResolver.debt_clear_stated?("Rename Visa to #{label}", :due_day, new_name: label)
+    end
+
+    assert HouseholdFinance::MiaIntentResolver.debt_clear_stated?("Rename Visa to Travel Card and the due day is unknown", :due_day, new_name: "Travel Card")
+  end
+
+  test "a one-off or hyphenated date and arrears from before a catch-up are never read as debt fields" do
+    refute debt_arrears_resolution("Update the Car loan: it is due on the 15th next month", due_day: "15").actionable?
+    refute debt_arrears_resolution("Update the Car loan: it is past due on 11-15", past_due: "11").actionable?
+    refute debt_arrears_resolution("Update the Car loan: before I caught up, it had $100 past due", past_due: "100").actionable?
+  end
+
+  test "a compound write asks about the debt field her words did not support" do
+    context = intent_context.deep_dup
+    context[:active_debts] = [
+      { id: 81, label: "Visa", debt_type: "credit_card", balance: 1_200, minimum_payment: 40, interest_rate_percent: 24.9 },
+      { id: 82, label: "Amex", debt_type: "credit_card", balance: 800, minimum_payment: 35, interest_rate_percent: 19.9 }
+    ]
+    context[:archived_debts] = []
+    message = "Visa is due on the 15th next month and rename Amex to Blue Card"
+    result = resolve_compound(message: message, context: context, actions: [
+      { source_text: "Visa is due on the 15th next month", depends_on: [], action: default_action.merge(type: "update_debt", debt_id: 81, debt_name: "Visa", due_day: "15") },
+      { source_text: "rename Amex to Blue Card", depends_on: [], action: default_action.merge(type: "update_debt", debt_id: 82, debt_name: "Amex", new_name: "Blue Card") }
+    ])
+
+    refute result.action_plan?
+    assert result.clarification?
+    assert_match(/What day of the month is the Visa payment due/, result.clarification)
+
+    behind = resolve_compound(message: "Before I caught up, Visa had $100 past due and rename Amex to Blue Card", context: context, actions: [
+      { source_text: "Before I caught up, Visa had $100 past due", depends_on: [], action: default_action.merge(type: "update_debt", debt_id: 81, debt_name: "Visa", past_due: "100") },
+      { source_text: "rename Amex to Blue Card", depends_on: [], action: default_action.merge(type: "update_debt", debt_id: 82, debt_name: "Amex", new_name: "Blue Card") }
+    ])
+    assert_match(/How much are you behind on Visa right now/, behind.clarification)
+  end
+
   test "a due day is only a recurring day of the month she wrote, never a dollar amount or a one-off date" do
     refute debt_arrears_resolution("Update the Car loan: the minimum due is $25", due_day: "25").actionable?
     refute debt_arrears_resolution("Update the Car loan: the next payment is due on November 15", due_day: "15").actionable?

@@ -60,3 +60,17 @@ it('shows Caught up for an entered $0, the amount when behind, and nothing when 
   expect(within(row('Store card')).queryByText('Caught up')).toBeNull()
   expect(within(row('Store card')).queryByText(/past due/)).toBeNull()
 })
+
+it('a refused stale edit whose reload fails asks her to refresh, never claims the latest details are showing', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ errors: ['This debt changed in another tab or on another device.'], code: 'changed_elsewhere' }, 409))
+  const onChanged = vi.fn().mockRejectedValue(new Error('offline'))
+  render(<DebtManager debts={[visa]} portfolio={portfolio} onChanged={onChanged} />)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Edit Visa' }))
+  await userEvent.type(screen.getByPlaceholderText('Not sure'), '0')
+  await userEvent.click(screen.getByRole('button', { name: 'Save debt' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toBe('This debt changed in another tab or on another device, and the latest details could not load. Refresh the page before trying again.')
+  expect(alert.textContent).not.toContain('The latest details are showing')
+})

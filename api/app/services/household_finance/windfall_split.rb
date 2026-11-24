@@ -14,7 +14,12 @@ module HouseholdFinance
     # Every listed debt but the mortgage, or nil when that is not known.
     # The setup summary is one total for all debts and may include a mortgage, so it
     # only counts when it is a confirmed $0. An empty list is not "no debt".
+    #
+    # Records that disagree (a past-due amount above a balance or above a $0 summary)
+    # leave the consumer-debt step unknown until she checks her debts.
     def self.consumer_debt_cents(household)
+      return nil if DebtArrears.new(household).conflict?
+
       portfolio = DebtPortfolio.new(household)
       if portfolio.mode == "summary"
         return portfolio.balance_known? && portfolio.total_balance_cents.zero? ? 0 : nil

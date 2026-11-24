@@ -402,6 +402,35 @@ class YearForecastTest < ActiveSupport::TestCase
     assert_equal 10_000, forecast[:months][1][:outflow_cents]
   end
 
+  test "a midmonth balance counts a category catch-up already paid before it only once" do
+    @household.accounts.first.update!(balance_as_of_on: "2026-01-15")
+    @household.bills.first.update!(due_on: "2026-01-10", past_due_cents: 20_000)
+    @rows[0][:months][0][:actual] = 250
+    # $100 plan + $200 past due = $300 owed; $250 was spent before the 15th, so $50 is left.
+    january = forecast(today: Date.new(2026, 1, 20))[:months][0]
+    assert_equal 5_000, january[:outflow_cents]
+
+    @rows[0][:months][0][:actual] = 50
+    # $50 spent before the 15th leaves $50 of plan and the whole $200 catch-up.
+    assert_equal 25_000, forecast(today: Date.new(2026, 1, 20))[:months][0][:outflow_cents]
+  end
+
+  test "an unpaid one-time bill keeps its past-due amount after its date until she marks it paid" do
+    @household.bills.create!(name: "Talun clinic visit", amount_cents: 12_000, due_on: "2026-01-10", past_due_cents: 20_000)
+    on_the_day = forecast(today: Date.new(2026, 1, 10))[:months][0]
+    day_after = forecast(today: Date.new(2026, 1, 11))[:months][0]
+    # $100 utilities plan + $120 bill + $200 past due, the same before and after the date.
+    assert_equal 42_000, on_the_day[:outflow_cents]
+    assert_equal 42_000, day_after[:outflow_cents]
+    assert_equal [ [ 12_000, true ], [ 20_000, false ] ],
+      day_after[:bills].select { |bill| bill[:name] == "Talun clinic visit" }.map { |bill| [ bill[:amount_cents], bill[:was_this_paid] ] }
+    mia = HouseholdFinance::YearForecastAnswer.new(@household, "What's due this month?", today: Date.new(2026, 1, 11)).call
+    assert_includes mia, "Past due and owed now: Talun clinic visit, $200."
+
+    @household.bills.find_by!(name: "Talun clinic visit").update!(paid_on: "2026-01-11")
+    assert_equal 10_000, forecast(today: Date.new(2026, 1, 11))[:months][0][:outflow_cents]
+  end
+
   private
 
   def row(category, monthly)
