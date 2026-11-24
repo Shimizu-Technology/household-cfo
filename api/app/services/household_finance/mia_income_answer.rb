@@ -7,6 +7,7 @@ module HouseholdFinance
     # A question about a purchase, a change to the plan or a "what if" is not a
     # question about what arrived.
     EXCLUDED = /\b(?:if|would|could|should|afford|add|set|change|update|save|record|log|spent|spend|spending|vs|versus)\b|\b(?:went|go(?:es|ing)?)\s+out\b/i
+    PLAN_COMPARISON = /\b(?:vs\.?|versus|compared (?:to|with)|against)\s+(?:(?:my|our|the)\s+)?(?:income\s+)?plan\s*[?.!]*\z/i
     # A purchase, payment or new figure in the same message is for the card, not this answer.
     REPORTED_AMOUNT = /\$\s?\d|\b\d{1,3}(?:,\d{3})+(?:\.\d{2})?\b|\b\d+\.\d{2}\b/
     WEEK = /\b(?:this|last|past)\s+week\b|\btoday\b|\byesterday\b/i
@@ -22,7 +23,10 @@ module HouseholdFinance
       current = ParticipantMessageReader::Current
       return false if current.message.to_s.squish == text && current.reading&.facts&.any?
 
-      text.match?(QUESTION) && !text.match?(EXCLUDED)
+      income_question = text.sub(PLAN_COMPARISON, "").strip
+      return true if income_question != text && income_question.match?(/\A(?:actual\s+)?income\z/i)
+
+      income_question.match?(QUESTION) && !income_question.match?(EXCLUDED)
     end
 
     def self.topic?(message)

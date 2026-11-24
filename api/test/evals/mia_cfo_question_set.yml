@@ -268,10 +268,6 @@ cases:
     forbidden_phrases: ["$0", came in for]
     expected_amounts:
       - { ledger: month_income, month: "2026-07" }
-    known_gap:
-      checks: [expected_phrases, expected_amounts]
-      modes: [deterministic]
-      reason: The income recognizer excludes "vs", so this comparison routes to general readiness coaching instead of distinguishing unknown approved income from July planned income.
 
   - id: cfo_raise_split
     route: controller
@@ -296,10 +292,6 @@ cases:
     expected_phrases: [Green]
     expected_amounts:
       - { ledger: month_plan_left, month: "2026-07" }
-    known_gap:
-      checks: [expected_phrases, expected_amounts]
-      modes: [deterministic]
-      reason: The short "Are we green?" question does not match readiness routing and receives a generic deflection instead of status and surplus.
 
   - id: cfo_colour_rules
     route: controller

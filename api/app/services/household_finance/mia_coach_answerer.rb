@@ -302,6 +302,8 @@ module HouseholdFinance
       return unless MiaMonthAnswer.question?(message)
 
       @month_answer ||= MiaMonthAnswer.for_question(household, message, annual_plan: provided_annual_plan)
+      return @month_answer.status_response if MiaMonthAnswer::STATUS_QUESTION.match?(message)
+
       opening = message.match?(OVERWHELMED_PATTERN) ? "That sounds stressful; " : ""
       response = @month_answer.response
       "#{opening}#{opening.present? ? response.sub(/\AYour/, "your") : response}"

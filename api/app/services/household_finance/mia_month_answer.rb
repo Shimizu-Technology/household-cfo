@@ -11,8 +11,12 @@ module HouseholdFinance
     REALISTIC = /\b(?:is|are)\s+(?:our|my|the|this)\s+(?:monthly\s+)?(?:budget|plan)\s+(?:realistic|doable|workable|enough|working|sustainable|ok(?:ay)?)\b(?!\s+(?:to|for)\b)|\bdoes\s+(?:our|my|the|this)\s+(?:monthly\s+)?(?:budget|plan)\s+(?:work|add\s+up|make\s+sense)\b|\bcan\s+(?:we|i)\s+(?:really\s+)?(?:live\s+on|stick\s+to|keep\s+to|manage\s+on)\s+(?:our|my|this|the)\s+(?:budget|plan)\b/i
     QUESTION = /\bhow much (?:do (?:i|we) have|is) left(?: (?:this|last) month\b|(?=[.!?]*\s*\z))|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b|#{REALISTIC.source}/i
 
+    STATUS_QUESTION = /\A\s*(?:are we|am i) (?:green|yellow|red)\s*[?.!]*\s*\z/i
+
     def self.question?(message)
       return false if MessageReplyIntent.purchase_question?(message) || MiaIncomeAnswer.topic?(message) || SpendingPatterns::Answerer.subscriptions_question?(message)
+
+      return true if STATUS_QUESTION.match?(message.to_s)
 
       excluded = /\b(?:bank|account|grocer(?:y|ies)|food|week)\b/i
       if (question = message.to_s.match(QUESTION))
@@ -130,6 +134,19 @@ module HouseholdFinance
           left_basis: "the plan after planned spending; not a bank balance or permission to spend"
         }
       end
+    end
+
+    def status_response
+      facts = call
+      surplus = facts[:plan_left_cents]
+      surplus_line = if surplus.nil?
+        "The planned surplus is not known yet."
+      elsif surplus.negative?
+        "Your planned surplus is #{facts[:surplus_tone].capitalize}, with a #{money(-surplus)} shortfall."
+      else
+        "Your planned surplus is #{facts[:surplus_tone].capitalize} at #{money(surplus)}."
+      end
+      "For #{facts[:period_label]}: #{facts[:readiness_guidance]} #{surplus_line}"
     end
 
     def response(next_move: nil)
