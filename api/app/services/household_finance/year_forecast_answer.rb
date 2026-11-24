@@ -11,6 +11,9 @@ module HouseholdFinance
       /\b(?:be|run|running|go|come up)\s+short\b.{0,20}\bthis year\b/i,
       /\b(?:year[- ]ahead|cash forecast|(?:my|our|the) (?:year|money) forecast|forecast (?:for|through) (?:the year|december))\b/i
     )
+    # A purchase scenario ("Can I buy a $500 TV and still make it through the year?") needs purchase analysis:
+    # the plain forecast doesn't include the purchase.
+    PURCHASE_SCENARIO = /\b(?:buy|buying|purchas\w*|afford)\b|\bspend(?:ing)?\s+(?:\$|about\s+\$|around\s+\$)?\d/i
     NEXT_BILL_PATTERN = /\b(?:next|upcoming)\s+(?:big(?:gest)?\s+|large(?:st)?\s+|major\s+)?bill\b/i
     DUE_PATTERN = /\b(?:what|which)(?:['’]s|\s+is|\s+bills?\s+(?:are|is))?\s+(?:\w+\s+){0,2}?due\s+(this month|next month|in\s+(?:#{MonthTerms.pattern}))\b/i
     BIG_BILL_DAYS = 60
@@ -19,7 +22,7 @@ module HouseholdFinance
 
     def self.question?(message)
       text = message.to_s.squish
-      return false if text.match?(NOT_A_FORECAST_QUESTION) || MiaCoachAnswerer.spend_report_text?(text)
+      return false if text.match?(NOT_A_FORECAST_QUESTION) || text.match?(PURCHASE_SCENARIO) || MiaCoachAnswerer.spend_report_text?(text)
       return false unless text.include?("?") || text.match?(/\A(?:will|would|can|do|are|is|which|what|when|show|tell)\b/i)
 
       text.match?(YEAR_PATTERN) || text.match?(NEXT_BILL_PATTERN) || text.match?(DUE_PATTERN)
@@ -45,6 +48,10 @@ module HouseholdFinance
     end
 
     def year_answer
+      asked = MonthTerms.explicit_year(@message) || @message[/\b(?:through|until|till|to|by|in|of)\s+(20\d{2})\b(?!\s*(?:dollars|bucks))/i, 1]&.to_i
+      if asked && asked != @today.year
+        return "Your cash forecast runs only through December #{@today.year}, so I can’t say yet how #{asked} ends. Nothing changed."
+      end
       short = forecast[:first_short_month]
       start = forecast[:starting_note]
       if short

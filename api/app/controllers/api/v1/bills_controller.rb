@@ -4,8 +4,9 @@ module Api
       before_action :authenticate_user!
       before_action :require_writable_household!
 
+      # A retried Save sends the same Idempotency-Key and gets back the bill it already saved.
       def create
-        save_bill(current_household.bills.new, :created)
+        save_bill(current_household.bills.new(idempotency_key: request_idempotency_key), :created)
       end
 
       def update
@@ -32,6 +33,8 @@ module Api
           audit!(bill, paid ? "paid" : "unpaid", before: bill.amount_cents, after: bill.amount_cents)
         end
         render json: { saved: true }
+      rescue ActiveRecord::RecordInvalid => error
+        render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
       end
 
       private
@@ -50,15 +53,26 @@ module Api
         values[:amount_cents] = HouseholdFinance::Money.cents!(amount) unless amount.nil?
         # A repeating bill has no single payment to mark paid.
         values[:paid_on] = nil if values["repeat_months"].present?
+        replayed = false
         current_household.with_lock do
-          before = bill.new_record? ? nil : bill.amount_cents_was
+          HouseholdFinance::FinancialGenerationGuard.request!(current_household)
           created = bill.new_record?
+          saved = scope.find_by(idempotency_key: bill.idempotency_key) if created
+          if saved
+            bill, replayed = saved, true
+            next
+          end
+          # The amount before this edit is the one committed now, not the one read before the lock.
+          bill.reload unless created
+          before = created ? nil : bill.amount_cents
           bill.update!(values)
           audit!(bill, created ? "created" : "updated", before: before, after: bill.amount_cents)
         end
-        render json: { saved: true }, status: status
+        render json: { saved: true, bill_id: bill.id, replayed: replayed }, status: status
       rescue ActiveRecord::RecordInvalid => error
         render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
+      rescue HouseholdFinance::Operations::Base::StaleOperation
+        raise
       rescue ArgumentError => error
         render json: { errors: [ error.message ] }, status: :unprocessable_entity
       end

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { markBillPaid, removeBill, saveBill, type AnnualBudgetPlan, type ForecastMonth, type ScheduledBill } from '../api'
+import { markBillPaid, newBillRequestKey, removeBill, saveBill, type AnnualBudgetPlan, type ForecastMonth, type ScheduledBill } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { billDate, forecastEstimates, forecastHeadline } from '../lib/yearForecast'
 
@@ -19,8 +19,9 @@ function incomeLabel(month: ForecastMonth) {
   }
 }
 
-/** Budget's year forecast: every month through December and the bills she saved. Saving refetches the plan in place. */
-export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: AnnualBudgetPlan; canEdit?: boolean; onChanged?: () => Promise<void> }) {
+/** Budget's year forecast: every month through December and the bills she saved. Saving refetches the plan in place.
+ * onPendingChange tells the parent's navigation and unload guards about a changed bill form or a save in progress. */
+export function BillsForecast({ plan, canEdit = true, onChanged, onPendingChange }: { plan: AnnualBudgetPlan; canEdit?: boolean; onChanged?: () => Promise<void>; onPendingChange?: (pending: boolean) => void }) {
   const forecast = plan.year_forecast!
   const categories = plan.rows.filter(row => row.active !== false && row.id > 0)
   const [editing, setEditing] = useState<ScheduledBill | 'new' | null>(null)
@@ -29,6 +30,11 @@ export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: Annua
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [draft, setDraft] = useState({ name: '', amount: '', category: '' })
+  const [dirty, setDirty] = useState(false)
+  const requestKey = useRef<string | null>(null)
+  const pending = busy || (editing != null && dirty)
+  useEffect(() => { onPendingChange?.(pending) }, [pending, onPendingChange])
+  useEffect(() => () => onPendingChange?.(false), [onPendingChange])
   const confirmRef = useRef<HTMLButtonElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const addRef = useRef<HTMLButtonElement>(null)
@@ -43,7 +49,8 @@ export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: Annua
     try { await onChanged?.() } catch { setError(`${message} The forecast could not refresh. Reload to see it.`) }
   }
   function openForm(bill: ScheduledBill | 'new') {
-    setEditing(bill); setRemoving(null); setError(''); setNotice('')
+    setEditing(bill); setRemoving(null); setError(''); setNotice(''); setDirty(false)
+    requestKey.current = bill === 'new' ? newBillRequestKey() : null
     setDraft(bill === 'new' ? { name: '', amount: '', category: '' } : { name: bill.name, amount: String(bill.amount_cents / 100), category: bill.budget_category_id == null ? NO_CATEGORY : String(bill.budget_category_id) })
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -54,8 +61,8 @@ export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: Annua
     setBusy(true); setError('')
     try {
       const name = String(data.get('name'))
-      await saveBill(editing === 'new' || editing == null ? null : editing.id, { name, amount: String(data.get('amount')), due_on: String(data.get('due_on')), repeat_months: String(data.get('repeat_months') ?? '') || null, budget_category_id: category === NO_CATEGORY ? null : Number(category), must_pay: data.get('must_pay') === 'on', estimate: data.get('estimate') === 'on' })
-      setEditing(null)
+      await saveBill(editing === 'new' || editing == null ? null : editing.id, { name, amount: String(data.get('amount')), due_on: String(data.get('due_on')), repeat_months: String(data.get('repeat_months') ?? '') || null, budget_category_id: category === NO_CATEGORY ? null : Number(category), must_pay: data.get('must_pay') === 'on', estimate: data.get('estimate') === 'on' }, requestKey.current ?? undefined)
+      setEditing(null); setDirty(false); requestKey.current = null
       returnFocus.current = true
       await refresh(`Saved ${name}.`)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not save the bill.') } finally { setBusy(false) }
@@ -77,7 +84,7 @@ export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: Annua
     const amount = Math.round(Number(draft.amount) * 100)
     return (debt.amount_cents != null && debt.amount_cents > 0 && amount === debt.amount_cents) || words(debt.name).some(word => words(draft.name).includes(word))
   })
-  const form = editing && <form ref={formRef} key={editing === 'new' ? 'new' : editing.id} className="annual-category-form bill-form" onSubmit={submit} aria-label={editing === 'new' ? 'Add a bill' : `Edit ${editing.name}`}>
+  const form = editing && <form ref={formRef} key={editing === 'new' ? 'new' : editing.id} className="annual-category-form bill-form" onSubmit={submit} onChange={() => setDirty(true)} aria-label={editing === 'new' ? 'Add a bill' : `Edit ${editing.name}`}>
     <label>Bill name<input name="name" required maxLength={80} value={draft.name} onChange={event => setDraft({ ...draft, name: event.currentTarget.value })} /></label>
     <label>Bill amount<input name="amount" type="number" inputMode="decimal" required min="0" step="0.01" value={draft.amount} onChange={event => setDraft({ ...draft, amount: event.currentTarget.value })} /></label>
     {debtMatch && <p className="bill-warning" role="status">This looks like your {debtMatch.name} payment. Debt payments already count from My Money, so saving it here counts it twice. Leave debt payments in My Money.</p>}
@@ -94,7 +101,7 @@ export function BillsForecast({ plan, canEdit = true, onChanged }: { plan: Annua
     <label className="bill-check"><input type="checkbox" name="must_pay" defaultChecked={editing === 'new' ? true : editing.must_pay} />Must pay</label>
     <label className="bill-check"><input type="checkbox" name="estimate" defaultChecked={editing === 'new' ? false : editing.estimate} />Amount is an estimate</label>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="bill-actions"><button className="ui-btn ui-btn--primary" disabled={busy} type="submit">{busy ? 'Saving…' : 'Save bill'}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => { setEditing(null); setError('') }}>Cancel</button></div>
+    <div className="bill-actions"><button className="ui-btn ui-btn--primary" disabled={busy} type="submit">{busy ? 'Saving…' : 'Save bill'}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => { setEditing(null); setDirty(false); setError(''); requestKey.current = null }}>Cancel</button></div>
   </form>
 
   return <div className="bills-forecast">

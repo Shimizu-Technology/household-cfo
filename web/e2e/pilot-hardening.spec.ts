@@ -13676,6 +13676,47 @@ test('BOG UI W18 a later successful Home refresh clears the earlier saved-change
   await expect(page.locator('.home-money-values')).toContainText('$9,300')
 })
 
+// A saved bill change whose forecast refresh fails must not leave the old forecast looking current anywhere.
+test('BOG UI household a bill removed while the forecast cannot refresh keeps the warning on Home', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const bill = { id: 5, name: 'Talun water', amount_cents: 4_000, due_on: `${currentYear}-12-05`, repeat_months: 1, budget_category_id: null, must_pay: true, estimate: false, paid_on: null, was_this_paid: false, looks_like_debt: null }
+  workspace.budget.annual_plan.year_forecast = { ...workspace.budget.annual_plan.year_forecast, bills: [bill] }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  let removed = false
+  await page.route('http://api.test/api/v1/bills/5', route => { removed = route.request().method() === 'DELETE'; return route.fulfill({ json: { saved: true } }) })
+  await page.route('http://api.test/api/v1/budget?**', route => route.fulfill({ status: 503, json: { errors: ['Synthetic refresh outage'] } }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByText('Year ahead and bills', { exact: true }).click()
+  await page.getByText('Bills and due dates', { exact: true }).click()
+  await page.getByRole('button', { name: 'Remove Talun water' }).click()
+  await page.getByRole('button', { name: 'Remove bill', exact: true }).click()
+  await expect.poll(() => removed).toBe(true)
+  const warning = page.getByRole('alert').filter({ hasText: 'Your bill change was saved, but the forecast could not refresh.' })
+  await expect(warning).toBeVisible()
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Home$/)
+  // Home still shows the plan it had, under a warning that says to reload before using those totals.
+  await expect(warning).toContainText('Reload before using those totals.')
+})
+
+test('BOG UI household an edited bill holds Budget until it is saved or canceled', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByText('Year ahead and bills', { exact: true }).click()
+  await page.getByText('Bills and due dates', { exact: true }).click()
+  await page.getByRole('button', { name: 'Add bill', exact: true }).click()
+  const form = page.getByRole('form', { name: 'Add a bill' })
+  await form.getByLabel('Bill name').fill('Talun school fee')
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.getByText('You have unsaved budget changes. Save or cancel them before leaving Budget.')).toBeVisible()
+  await expect(form.getByLabel('Bill name')).toHaveValue('Talun school fee')
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Home$/)
+})
+
 test('BOG UI W18 a new version waits for an unsent message and reloads only after it is cleared', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))

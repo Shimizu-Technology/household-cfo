@@ -37,9 +37,11 @@ module HouseholdFinance
       debts = DebtPortfolio.new(@household)
       bills = @household.bills.current_picture.order(:due_on, :id).to_a
       open_bills = bills.reject(&:paid_on)
-      rows = @rows.select { |row| row[:active] }
-      covered = covered_monthly(open_bills, rows, first)
-      plan_known = rows.any? && debts.minimum_payment_known?
+      # The plan lists an archived category only when it has spending: that spending still counts, but none of its plan.
+      rows = @rows
+      active_rows = rows.select { |row| row[:active] }
+      covered = covered_monthly(open_bills, active_rows, first)
+      plan_known = active_rows.any? && debts.minimum_payment_known?
       months = @periods.select { |period| period.starts_on >= first }.sort_by(&:starts_on).map do |period|
         month_start, month_end = period.starts_on, period.starts_on.end_of_month
         index = month_start.month - 1
@@ -51,7 +53,7 @@ module HouseholdFinance
         spent_after = midmonth ? spending_after(midmonth + 1, month_end) : {}
         counted = rows.to_h do |row|
           cell = row[:months][index]
-          planned = Money.cents(cell[:planned])
+          planned = row[:active] ? Money.cents(cell[:planned]) : 0
           linked = due.select { |bill| bill[:budget_category_id] == row[:id] }.sum { |bill| bill[:amount_cents] }
           spent = current ? Money.cents(cell[:actual]) : 0
           after = spent_after.fetch(row[:id], 0)
@@ -67,7 +69,7 @@ module HouseholdFinance
           end
           [ row[:id], cents ]
         end
-        allocations_known = rows.all? { |row| !row[:months][index][:allocation_missing] }
+        allocations_known = active_rows.all? { |row| !row[:months][index][:allocation_missing] }
         known = plan_known && allocations_known
         outside = due.reject { |bill| counted.key?(bill[:budget_category_id]) }
         debt_cents = closed ? 0 : debts.monthly_minimum_cents
@@ -83,7 +85,7 @@ module HouseholdFinance
         estimates << DEBT_MAY_BE_PAID if midmonth && debt_cents.positive?
         { label: month_start.strftime("%B"), starts_on: month_start.iso8601, from_on: midmonth&.iso8601,
           opening_cents: opening_cents, income_cents: income, income_basis: basis, approved_so_far_cents: approved,
-          outflow_cents: known ? out : nil, spending_plan_known: rows.any? && allocations_known, ending_cents: cash, bills: due, reasons: reasons,
+          outflow_cents: known ? out : nil, spending_plan_known: active_rows.any? && allocations_known, ending_cents: cash, bills: due, reasons: reasons,
           includes_estimates: estimates.any?, estimate_reasons: estimates }
       end
       mark_spikes(months)
@@ -137,16 +139,17 @@ module HouseholdFinance
     def income_for(period, month_end, midmonth, current)
       planned = @income[period.id].nil? ? nil : Money.cents(@income[period.id])
       return [ nil, "planned", nil ] if planned.nil?
+      actual = current ? @actual[period.starts_on.month] : nil
+      approved = actual && actual[:actual_cents]
       if midmonth
         received = actual_income_reader.received_through(midmonth)
-        return [ [ planned - received, 0 ].max, "after_balance", received ] if received
+        # Approved income above the plan, some of it after the balance date, still comes in.
+        return [ [ [ planned, approved.to_i ].max - received, 0 ].max, "after_balance", received ] if received
         recurring = @sources.sum { |source| IncomeTimeline.recurring_monthly_cents(source, on: month_end) }
         one_time = @sources.sum { |source| IncomeTimeline.period_cents(source, starts_on: midmonth + 1, ends_on: month_end) } - recurring
         days_left = (month_end - midmonth).to_i
         return [ [ one_time, 0 ].max + recurring * days_left / month_end.day, "estimated_after_balance", nil ]
       end
-      actual = current ? @actual[period.starts_on.month] : nil
-      approved = actual && actual[:actual_cents]
       return [ planned, "planned", nil ] if approved.nil?
       return [ approved, "approved", approved ] unless actual[:partial] || actual[:month_open]
       approved > planned ? [ approved, "approved_so_far", approved ] : [ planned, "planned", approved ]
@@ -180,7 +183,8 @@ module HouseholdFinance
     def mark_spikes(months)
       values = months.filter_map { |month| month[:outflow_cents] unless month[:from_on] }.sort
       return months.each { |month| month[:higher_costs] = false } if values.length < 2
-      typical = values[values.length / 2]
+      middle = values.length / 2
+      typical = values.length.even? ? (values[middle - 1] + values[middle]) / 2 : values[middle]
       months.each { |month| month[:higher_costs] = !month[:from_on] && month[:outflow_cents].to_i >= typical + [ SPIKE_MINIMUM_CENTS, typical / 10 ].max }
     end
 

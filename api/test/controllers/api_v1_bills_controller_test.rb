@@ -59,4 +59,63 @@ class ApiV1BillsControllerTest < ActionDispatch::IntegrationTest
     post "/api/v1/bills", params: { bill: { name: "Talun fee", amount: -1, due_on: "2026-12-20" } }, headers: @headers, as: :json
     assert_response :unprocessable_entity
   end
+
+  test "a retried save with the same key returns the bill it already saved" do
+    headers = @headers.merge("Idempotency-Key" => "talun-bill-save-1")
+    body = { bill: { name: "Talun water", amount: "40", due_on: "2026-12-05" } }
+    post "/api/v1/bills", params: body, headers: headers, as: :json
+    assert_response :created
+    first = response.parsed_body["bill_id"]
+    assert_no_difference [ "Bill.count", -> { @household.household_audit_events.count } ] do
+      post "/api/v1/bills", params: body, headers: headers, as: :json
+    end
+    assert_response :created
+    assert_equal first, response.parsed_body["bill_id"]
+    assert response.parsed_body["replayed"]
+    post "/api/v1/bills", params: body, headers: @headers.merge("Idempotency-Key" => "talun-bill-save-2"), as: :json
+    assert_equal 2, @household.bills.count
+  end
+
+  test "marking a bill paid whose category was archived explains why instead of failing" do
+    category = @household.budget_categories.create!(name: "Talun repairs", stack_key: "discretionary")
+    bill = @household.bills.create!(name: "Talun roof", amount_cents: 9_000, due_on: Date.new(2026, 9, 1), budget_category: category)
+    category.update!(active: false)
+    assert_no_difference -> { @household.household_audit_events.count } do
+      post "/api/v1/bills/#{bill.id}/paid", params: { paid: true }, headers: @headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_match(/active category/, response.parsed_body["errors"].join)
+    assert_nil bill.reload.paid_on
+  end
+
+  test "a bill write from a superseded financial picture is rejected by the database guard" do
+    bill = @household.bills.create!(name: "Talun phone", amount_cents: 6_000, due_on: Date.new(2026, 12, 9))
+    @household.update_columns(financial_generation: @household.financial_generation + 1)
+    error = assert_raises(ActiveRecord::StatementInvalid) { bill.update_columns(amount_cents: 1) }
+    assert_match(/financial_generation_stale/, error.message)
+    assert_raises(ActiveRecord::StatementInvalid) do
+      Bill.insert_all!([ { household_id: @household.id, financial_generation: bill.financial_generation, name: "Stale", amount_cents: 1, due_on: Date.new(2026, 12, 1), created_at: Time.current, updated_at: Time.current } ])
+    end
+  end
+
+  # Runs a change just before the controller takes the household lock: the gap between loading a bill and locking.
+  module BeforeLock
+    mattr_accessor :hook
+    def with_lock(*args, &block)
+      BeforeLock.hook&.call.tap { BeforeLock.hook = nil }
+      super
+    end
+  end
+  Household.prepend(BeforeLock) unless Household.ancestors.include?(BeforeLock)
+
+  test "an edit audits the amount committed before it, not the one read before the lock" do
+    bill = @household.bills.create!(name: "Talun power", amount_cents: 10_000, due_on: Date.new(2026, 12, 15))
+    BeforeLock.hook = -> { Bill.where(id: bill.id).update_all(amount_cents: 12_000) }
+    patch "/api/v1/bills/#{bill.id}", params: { bill: { name: "Talun power and light" } }, headers: @headers, as: :json
+    assert_response :success
+    event = @household.household_audit_events.where(event_type: "bill.updated").sole
+    assert_equal [ 12_000, 12_000 ], event.metadata.values_at("amount_cents_before", "amount_cents_after")
+  ensure
+    BeforeLock.hook = nil
+  end
 end

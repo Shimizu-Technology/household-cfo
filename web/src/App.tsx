@@ -3001,9 +3001,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }
 
   // A saved, paid or removed bill only changes the forecast: refetch the plan in place, keeping her place on the page.
+  // Budget holds navigation until this finishes (the bill form reports it as pending), so no other screen shows the
+  // old forecast meanwhile. If the refetch fails, every cached plan is marked stale and the warning stays on every screen.
   async function handleBillsChanged() {
     const generation = financialMutationGenerationRef.current
-    const budget = await fetchBudget(selectedBudgetYear)
+    let budget: BudgetData
+    try {
+      budget = await fetchBudget(selectedBudgetYear)
+    } catch (caught) {
+      setData({ type: 'shared_financial_commit' })
+      setWorkspaceRefreshNotice({ kind: 'home', message: 'Your bill change was saved, but the forecast could not refresh. Reload before using those totals.' })
+      throw caught
+    }
     if (generation !== financialMutationGenerationRef.current) return
     setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
     await refreshCurrentHouseholdView(budget)
@@ -9401,7 +9410,9 @@ export function AnnualBudgetPlanner({
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
-  const hasUnsavedBudgetChanges = isEditingBudget && totalBudgetChanges > 0
+  // A changed bill form, or a bill save still refreshing the plan, holds Budget like an unsaved budget edit.
+  const [billsPending, setBillsPending] = useState(false)
+  const hasUnsavedBudgetChanges = (isEditingBudget && totalBudgetChanges > 0) || billsPending
   const archivedCategories = plan.archived_categories ?? []
   const today = guamTodayIso()
   const currentCalendarYear = Number(today.slice(0, 4))
@@ -9628,7 +9639,7 @@ export function AnnualBudgetPlanner({
         </div>
       </div>
 
-      {plan.year_forecast && <details ref={forecastRef} className="budget-year-forecast"><summary>Year ahead and bills</summary><BillsForecast plan={plan} canEdit={canEditBills && Boolean(onBillsChanged)} onChanged={onBillsChanged} /></details>}
+      {plan.year_forecast && <details ref={forecastRef} className="budget-year-forecast"><summary>Year ahead and bills</summary>{billsPending && error && <p className="setup-error" role="alert">{error}</p>}<BillsForecast plan={plan} canEdit={canEditBills && Boolean(onBillsChanged)} onChanged={onBillsChanged} onPendingChange={setBillsPending} /></details>}
       <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={!beforePlanStart} confirmedFields={confirmedFields} answer={monthAnswer} />
 
 

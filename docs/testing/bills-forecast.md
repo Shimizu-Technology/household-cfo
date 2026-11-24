@@ -87,4 +87,22 @@ Evidence: [Home summary on phone](evidence/bills-forecast/phone-home-summary.png
 
 Not covered in the browser: a midmonth balance with approved statements through the balance date (unit-tested with a stubbed reader; the coverage check reuses `ActualIncome`'s own statement-coverage rules), and a read-only member in a real session (no seeded read-only household).
 
+## Round 4 (CodeRabbit fixes, rebased on #362)
+
+| Scenario | Result |
+| --- | --- |
+| Retried Save with the same Idempotency-Key returns the saved bill, no duplicate or second audit event | Rails controller test |
+| Stale bill insert/update after a restart rejected by `bills_financial_picture_guard` | Rails controller test |
+| Marking paid a bill whose category was archived returns 422 with the reason | Rails controller test |
+| Edit audit uses the amount committed before the lock | Rails controller test |
+| Archived-category spending after a midmonth balance still counts, without its plan | Rails service test |
+| Approved income above the plan after a midmonth balance still comes in | Rails service test |
+| Even-count median for "higher costs" months | Rails service test |
+| "Can I buy a $500 TV, and will we make it through the year?" leaves the plain forecast answer | Rails service test |
+| "Will we make it through December 2027?" is not answered with this year's forecast | Rails service test |
+| Edited bill blocks leaving Budget, with the message beside the form; Cancel releases it | Playwright, desktop and 390 px Chromium |
+| Bill removed while the forecast refresh fails: warning stays on Home; cached plans marked stale | Playwright, desktop and 390 px Chromium |
+
+Screenshots were not re-taken this round. These fixes change no forecast layout.
+
 Validation and cleanup results are recorded in the PR and final report. The lead owns review and merge; this worker does not merge.

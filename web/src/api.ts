@@ -5605,8 +5605,12 @@ export type ForecastIncomeBasis = 'planned' | 'approved_so_far' | 'approved' | '
 export type ForecastMonth = { label: string; starts_on: string; from_on: string | null; opening_cents: number | null; income_cents: number | null; income_basis: ForecastIncomeBasis; approved_so_far_cents: number | null; outflow_cents: number | null; spending_plan_known: boolean; ending_cents: number | null; bills: ScheduledBill[]; reasons: string[]; includes_estimates: boolean; estimate_reasons?: string[]; higher_costs: boolean }
 export type YearForecast = { starting_cash_cents: number | null; starting_on: string | null; starting_note: string; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: 'short' | 'no_short_month' | 'unknown'; estimate_reasons?: string[]; missing: string[]; bills: ScheduledBill[]; debt_bills: { name: string; amount_cents: number | null }[] }
 export type BillInput = { name: string; amount: string; due_on: string; repeat_months: string | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean }
-export async function saveBill(id: number | null, bill: BillInput) {
-  return fetchJson(`/api/v1/bills${id ? `/${id}` : ''}`, { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bill }) })
+// One key per new bill: a retried Save sends the same key, so the server returns the bill it already saved.
+export function newBillRequestKey() { return `bill-${clientRequestId()}` }
+export async function saveBill(id: number | null, bill: BillInput, idempotencyKey?: string) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (!id && idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+  return fetchJson(`/api/v1/bills${id ? `/${id}` : ''}`, { method: id ? 'PATCH' : 'POST', headers, body: JSON.stringify({ bill }) })
 }
 export async function removeBill(id: number) { return fetchJson(`/api/v1/bills/${id}`, { method: 'DELETE' }) }
 export async function markBillPaid(id: number, paid: boolean) {

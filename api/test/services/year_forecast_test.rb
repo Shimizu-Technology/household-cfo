@@ -253,6 +253,50 @@ class YearForecastTest < ActiveSupport::TestCase
     assert_includes result[:first_short_month][:reasons], "Tasi Demo Appliance Repair"
   end
 
+  # A January 20 purchase in a category archived on January 21 is not in the January 15 balance, so it still leaves cash.
+  test "spending after the balance in an archived category still counts, without its plan" do
+    @household.accounts.first.update!(balance_as_of_on: "2026-01-15")
+    archived = @household.budget_categories.create!(name: "Talun hobby", stack_key: "discretionary")
+    period = HouseholdFinance::AnnualBudgetManager.new(@household).current_period_for(Date.new(2026, 1, 20))
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 1, 20), status: "confirmed",
+      merchant: "Talun hobby shop", total_amount_cents: 4_000, source_type: "manual_ui")
+    transaction.transaction_splits.create!(budget_category: archived, amount_cents: 4_000)
+    archived.update!(active: false)
+    @rows << row(archived, 500).merge(active: false).tap { |archived_row| archived_row[:months][0][:actual] = 40 }
+    result = forecast(today: Date.new(2026, 1, 25))
+    # Utilities' $100 plan (above the $80 power bill), plus the $40 spent in the archived category after the balance.
+    assert_equal 14_000, result[:months][0][:outflow_cents]
+    # Its $500 plan never comes back in later months.
+    assert_equal 10_000, result[:months][1][:outflow_cents]
+  end
+
+  test "a midmonth balance keeps approved income above the plan that came in after it" do
+    @household.accounts.first.update!(balance_as_of_on: "2026-01-15")
+    january = ->(approved) do
+      service = HouseholdFinance::YearForecast.new(@household, year: 2026, periods: @periods, rows: @rows,
+        monthly_income: (1..12).to_h { |month| [ month, 200 ] }, actual_income: { 1 => { actual_cents: approved, partial: true, month_open: true } }, today: Date.new(2026, 1, 20))
+      received = Object.new
+      def received.received_through(_date) = 15_000
+      service.instance_variable_set(:@actual_income_reader, received)
+      service.call[:months][0]
+    end
+    # $300 approved through the 20th, $150 of it by the 15th: the $150 after the balance still comes in.
+    assert_equal 15_000, january.call(30_000)[:income_cents]
+    # $180 approved is below the $200 plan: the plan's $50 still to come.
+    assert_equal 5_000, january.call(18_000)[:income_cents]
+  end
+
+  # November $100 and December $1,500: the median of two months is $800, so December is well above it.
+  test "higher cost months compare against a true median for an even number of months" do
+    @household.bills.destroy_all
+    @rows = [ { id: 0, active: true, name: "Talun costs", stack_key: "non_discretionary", months: Array.new(12) { |index| { planned: index == 11 ? 1_500 : 100, actual: 0 } } } ]
+    @household.accounts.first.update!(balance_as_of_on: "2026-10-31")
+    months = forecast(today: Date.new(2026, 11, 1))[:months]
+    assert_equal %w[November December], months.map { |month| month[:label] }
+    assert months.last[:higher_costs]
+    assert_not months.first[:higher_costs]
+  end
+
   private
 
   def row(category, monthly)

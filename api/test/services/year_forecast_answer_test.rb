@@ -80,6 +80,31 @@ class YearForecastAnswerTest < ActiveSupport::TestCase
     assert_equal 1, calls
   end
 
+  test "a purchase scenario goes to purchase analysis, not the plain year answer" do
+    [ "Can I buy a $500 TV, and will we make it through the year?", "If we spend $900 on a trip, will we make it through December?",
+      "Will we make it through the year if I purchase a new phone?" ].each do |message|
+      assert_not HouseholdFinance::YearForecastAnswer.question?(message), message
+      assert_nil HouseholdFinance::YearForecastAnswer.new(@household, message, forecast: { status: "no_short_month", months: [] }, today: @today).call, message
+      coach = HouseholdFinance::MiaCoachAnswerer.new(@household, message, ensure_plan: false)
+      assert_not_includes coach.support_answer.to_s, "No month runs short", message
+    end
+    [ "Can we get through December?", "Will we make it through the year?" ].each do |message|
+      assert HouseholdFinance::YearForecastAnswer.question?(message), message
+    end
+  end
+
+  test "a question about another year is not answered with this year's forecast" do
+    this_year = { first_short_month: nil, status: "no_short_month", starting_note: "Starting from your cash balances on November 14.", starting_cash_cents: 320_000,
+      months: [ { label: "December", ending_cents: 170_000 } ], estimate_reasons: [] }
+    answer = answer("Will we make it through December 2027?", forecast: this_year)
+    assert_not_includes answer, "$1,700"
+    assert_includes answer, "only through December 2026"
+    assert_includes answer, "Nothing changed."
+    assert_includes answer("Will we make it through December 2026?", forecast: this_year), "December would end with about $1,700"
+    assert_not_includes answer("Will we make it through the end of 2027?", forecast: this_year).to_s, "$1,700"
+    assert_includes answer("Will we make it through the year with $2050 saved?", forecast: this_year), "December would end with about $1,700"
+  end
+
   private
 
   def answer(message, today: @today, forecast: nil)
