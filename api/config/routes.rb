@@ -23,6 +23,9 @@ Rails.application.routes.draw do
       resources :brand_logos, only: :show
     end
     namespace :v1 do
+      resources :bills, only: %i[create update destroy] do
+        post :paid, on: :member
+      end
       resources :enterprise_organizations, only: %i[index show create update] do
         member do
           post :portal
@@ -124,6 +127,7 @@ Rails.application.routes.draw do
       get "profile", to: "households#profile"
       get "dashboard", to: "households#dashboard"
       get "budget", to: "households#budget"
+      get "budget/monthly_close", to: "households#monthly_close"
       get "spending_report", to: "spending_reports#show"
       get "wealth", to: "households#wealth"
       get "optionality", to: "households#optionality"

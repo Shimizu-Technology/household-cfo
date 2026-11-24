@@ -223,6 +223,7 @@ module HouseholdFinance
       priority = priority_answer
       return priority if priority
       return nil if transaction_report?
+      return forecast_answer if forecast_answer
       return "Which purchase price should I compare with the plan? Nothing changed." if purchase_question? && PurchaseQuestionText.for_comparison(message).needs_clarification
       return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
       return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
@@ -243,7 +244,7 @@ module HouseholdFinance
     def support_answer
       return if self.class.prompt_injection?(message)
 
-      priority_answer || (savings_deposit_answer if non_expense_movement_only?) ||
+      priority_answer || forecast_answer || (savings_deposit_answer if non_expense_movement_only?) ||
         (investment_boundary_answer if non_expense_movement_only? && MoneyMovementText.investment_purchase_report?(message))
     end
 
@@ -1488,6 +1489,17 @@ module HouseholdFinance
 
       item = match[1].to_s.squish
       item.presence unless item.match?(/\A(?:it|them|that|this|one|these|those)\z/i)
+    end
+
+    # Year and saved-bill questions only, never ahead of a spending report; the plan is read once for both callers.
+    def forecast_answer
+      return @forecast_answer if defined?(@forecast_answer)
+
+      # Purchase analysis and the Optionality runway scenario take precedence over the plain forecast.
+      @forecast_answer = if YearForecastAnswer.question?(message) && !transaction_report? && !purchase_question? &&
+          !tool_routing_message.match?(TRANSITION_INTENT_PATTERN)
+        YearForecastAnswer.new(household, message, forecast: -> { active_plan[:year] == Date.current.year ? active_plan[:year_forecast] : nil }).call
+      end
     end
 
     def active_plan

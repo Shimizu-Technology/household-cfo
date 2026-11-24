@@ -370,6 +370,17 @@ const annualOutlookMonths = months.map((label, index) => ({
   expected_contributors: index === 11 ? [{ name: 'Holiday travel', amount: 3_000 }] : [],
 }))
 
+// The demo year from this month: $20,000 opening cash, each month's plan, and December's holiday travel standing out.
+const forecastStart = new Date().getMonth()
+let forecastCash = 2_000_000
+const yearForecastMonths = annualOutlookMonths.slice(forecastStart).map((month, offset) => {
+  const index = forecastStart + offset
+  const opening = forecastCash
+  forecastCash += (month.income - month.planned_outflow) * 100
+  return { label: new Date(Date.UTC(currentYear, index, 1)).toLocaleString('en', { month: 'long', timeZone: 'UTC' }), starts_on: month.starts_on, from_on: null, opening_cents: opening, income_cents: month.income * 100, income_basis: 'planned', approved_so_far_cents: null, outflow_cents: month.planned_outflow * 100, spending_plan_known: true, ending_cents: forecastCash, bills: [], reasons: index === 11 ? ['Holiday travel'] : ['Fixed essentials'], includes_estimates: false, higher_costs: index === 11 }
+})
+const yearForecast = { starting_cash_cents: 2_000_000, starting_on: null, starting_note: 'Starting from your cash balances on the last day of last month.', months: yearForecastMonths, first_short_month: null, status: 'no_short_month', missing: [], bills: [], debt_bills: [{ name: 'Monthly debt payments', amount_cents: 20_000 }] }
+
 const budget = {
   framework: 'Expense Stack', intro: 'Annual household plan', monthly_income: 14_200,
   total_monthly_outflow: 5_500, baseline_surplus: 8_700,
@@ -401,6 +412,7 @@ const budget = {
       upcoming_spikes: [{ ...annualOutlookMonths[11], amount_above_typical: 3_000 }],
       next_irregular_month: annualOutlookMonths[11],
     },
+    year_forecast: yearForecast,
     pending_transaction_drafts: [
       { id: 91, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-12`, merchant: 'Dinner with friends', amount: 75, amount_cents: 7_500, status: 'pending', source_type: 'receipt', category_id: 2, category_name: 'Dining out' },
       { id: 92, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-15`, merchant: 'Storm supplies', amount: 40, amount_cents: 4_000, status: 'pending', source_type: 'manual_chat', category_id: 4, category_name: 'Unexpected sinking fund' },
@@ -2235,7 +2247,7 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   })
   expect(layout).toEqual({ fullWidth: true, usesNoteColor: true })
   await expect(home.getByRole('heading', { name: '0.5 months of breathing room' })).toBeVisible()
-  await expect(home.locator('.year-outlook-months')).toContainText('Holiday travel')
+  await expect(home.locator('.year-outlook')).toContainText('Holiday travel')
   await expect(home.locator('.cash-flow-month')).toHaveCount(0)
   await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
@@ -2243,14 +2255,16 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(page).toHaveURL(/#Review$/)
 })
 
-test('BOG UI household year outlook groups steady months without interactive bars', async ({ page }) => {
+test('BOG UI household year outlook gives one glance and opens every month in Budget', async ({ page }) => {
   await page.goto('/')
   const outlook = page.locator('.home-screen .year-outlook')
-  await expect(outlook).toContainText('Jan–Jul')
-  await expect(outlook).toContainText('Aug–Nov')
-  await expect(outlook).toContainText('Dec')
-  await expect(outlook.locator('li')).toHaveCount(3)
-  await expect(outlook.getByRole('button')).toHaveCount(0)
+  await expect(outlook).toContainText('No month runs short through December.')
+  await expect(outlook).toContainText('Higher costs than usual: December (Holiday travel).')
+  await expect(outlook.locator('.forecast-table')).toHaveCount(0)
+  await outlook.getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.locator('.budget-year-forecast')).toHaveAttribute('open', '')
+  await expect(page.locator('.budget-year-forecast .forecast-table')).toContainText('December')
 })
 
 test('BOG UI household Home respects the shared penny-level answer instead of recalculating from budget', async ({ page }) => {
@@ -2288,8 +2302,7 @@ test('BOG UI Home Look A keeps the answer, rows and outlook bounded', async ({ p
   expect(marks.rowHeight).toBeGreaterThanOrEqual(56)
   expect(marks.figureFits).toBe(true)
   expect(marks.overflow).toBe(false)
-  await expect(home.locator('.year-outlook-months > li')).toHaveCount(3)
-  await expect(home.locator('.home-year-columns')).toHaveAttribute('aria-hidden', 'true')
+  await expect(home.locator('.year-outlook-headline')).toHaveText('No month runs short through December.')
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
 })
 
@@ -3905,7 +3918,7 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
   await expect(page.getByRole('heading', { name: 'Spending by category' })).toBeVisible()
   await expect(page.locator('.annual-outlook')).toHaveCount(0)
   await openSection(page, 'Home')
-  await expect(page.locator('.year-outlook')).toContainText('Holiday travel: $3,000')
+  await expect(page.locator('.year-outlook')).toContainText('December (Holiday travel)')
   await openSection(page, 'Review')
   const diningDraft = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await diningDraft.getByText('Purchase details', { exact: true }).click()
@@ -4662,7 +4675,7 @@ test('BOG UI household compact phone layouts keep a stable shell and overlay sec
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
   await openSection(page, 'Home')
-  await expect(page.locator('.home-screen .year-outlook-months > li')).toHaveCount(3)
+  await expect(page.locator('.home-screen .year-outlook-headline')).toBeVisible()
   await openSection(page, 'Ask Mia')
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   // Mia owns the phone header; Account remains reachable through More.
@@ -13093,7 +13106,7 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
     if (section !== 'Home') await openSection(page, section)
     await expectPhoneTargets(page)
     if (section === 'Home') {
-      await expect(page.locator('.year-outlook li')).toHaveCount(3)
+      await expect(page.getByRole('region', { name: 'Year outlook' })).toBeVisible()
       await expectPhoneTargets(page)
     }
     if (section === 'My Money') {
@@ -13671,6 +13684,91 @@ test('BOG UI W18 a later successful Home refresh clears the earlier saved-change
   await expect(warning).toHaveCount(0)
   await openSection(page, 'Home')
   await expect(page.locator('.home-money-values')).toContainText('$9,300')
+})
+
+// A saved bill change whose forecast refresh fails must not leave the old forecast looking current anywhere.
+test('BOG UI household a bill removed while the forecast cannot refresh keeps the warning on Home', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const bill = { id: 5, name: 'Talun water', amount_cents: 4_000, due_on: `${currentYear}-12-05`, repeat_months: 1, budget_category_id: null, must_pay: true, estimate: false, paid_on: null, was_this_paid: false, looks_like_debt: null }
+  workspace.budget.annual_plan.year_forecast = { ...workspace.budget.annual_plan.year_forecast, bills: [bill] }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  let removed = false
+  await page.route('http://api.test/api/v1/bills/5', route => { removed = route.request().method() === 'DELETE'; return route.fulfill({ json: { saved: true } }) })
+  await page.route('http://api.test/api/v1/budget?**', route => route.fulfill({ status: 503, json: { errors: ['Synthetic refresh outage'] } }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByText('Year ahead and bills', { exact: true }).click()
+  await page.getByText('Bills and due dates', { exact: true }).click()
+  await page.getByRole('button', { name: 'Remove Talun water' }).click()
+  await page.getByRole('button', { name: 'Remove bill', exact: true }).click()
+  await expect.poll(() => removed).toBe(true)
+  const warning = page.getByRole('alert').filter({ hasText: 'Your bill change was saved, but the forecast could not refresh.' })
+  await expect(warning).toBeVisible()
+  // Budget stays usable: the rest of the plan is there, and the forecast offers a reload instead of old totals.
+  await expect(page.getByRole('heading', { name: 'Budget', exact: true })).toBeVisible()
+  const forecast = page.locator('.budget-year-forecast')
+  await expect(forecast.getByRole('button', { name: 'Reload forecast', exact: true })).toBeVisible()
+  await expect(forecast).toContainText('Forecast not available')
+  await expect(forecast.locator('.forecast-table')).toHaveCount(0)
+  await expect(forecast.getByText('Talun water')).toHaveCount(0)
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Home$/)
+  // Home keeps the warning and hides the old forecast totals instead of showing them as current.
+  await expect(warning).toContainText('Reload before using those totals.')
+  const outlook = page.locator('.home-screen .year-outlook')
+  await expect(outlook).toContainText('Forecast not available')
+  await expect(outlook.locator('.year-outlook-headline')).toHaveCount(0)
+  await expect(outlook).not.toContainText('would end with about')
+
+  // A fresh plan brings the forecast back on both screens.
+  workspace.budget.annual_plan.year_forecast = { ...workspace.budget.annual_plan.year_forecast, bills: [] }
+  await page.unroute('http://api.test/api/v1/budget?**')
+  await page.route('http://api.test/api/v1/budget?**', route => route.fulfill({ json: workspace.budget }))
+  await outlook.getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await forecast.getByRole('button', { name: 'Reload forecast', exact: true }).click()
+  await expect(forecast.locator('.forecast-table')).toBeVisible()
+  await expect(warning).toHaveCount(0)
+  await openSection(page, 'Home')
+  await expect(outlook.locator('.year-outlook-headline')).toBeVisible()
+  await expect(outlook).not.toContainText('Forecast not available')
+})
+
+test('BOG UI household the Home outlook opens the forecast for the year Home shows', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  const lastYear = structuredClone(workspace.budget)
+  lastYear.annual_plan.year = currentYear - 1
+  lastYear.annual_plan.months.forEach((month, index) => { month.starts_on = `${currentYear - 1}-${String(index + 1).padStart(2, '0')}-01`; month.ends_on = `${currentYear - 1}-${String(index + 1).padStart(2, '0')}-28` })
+  delete (lastYear.annual_plan as { year_forecast?: unknown }).year_forecast
+  await page.route(`http://api.test/api/v1/budget?year=${currentYear - 1}`, route => route.fulfill({ json: lastYear }))
+  await page.route(`http://api.test/api/v1/budget?year=${currentYear}`, route => route.fulfill({ json: workspace.budget }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Previous year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toHaveText(String(currentYear - 1))
+  await openSection(page, 'Home')
+  await page.locator('.home-screen .year-outlook').getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.locator('.budget-year-label')).toHaveText(String(currentYear))
+  await expect(page.locator('.budget-year-forecast')).toHaveAttribute('open', '')
+  await expect(page.locator('.budget-year-forecast .forecast-table')).toBeVisible()
+})
+
+test('BOG UI household an edited bill holds Budget until it is saved or canceled', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByText('Year ahead and bills', { exact: true }).click()
+  await page.getByText('Bills and due dates', { exact: true }).click()
+  await page.getByRole('button', { name: 'Add bill', exact: true }).click()
+  const form = page.getByRole('form', { name: 'Add a bill' })
+  await form.getByLabel('Bill name').fill('Talun school fee')
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.getByText('You have unsaved budget changes. Save or cancel them before leaving Budget.')).toBeVisible()
+  await expect(form.getByLabel('Bill name')).toHaveValue('Talun school fee')
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Home$/)
 })
 
 test('BOG UI W18 a new version waits for an unsent message and reloads only after it is cleared', async ({ page }) => {

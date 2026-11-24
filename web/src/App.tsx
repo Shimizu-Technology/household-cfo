@@ -27,6 +27,7 @@ import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
 import { formatRunway } from './lib/runway'
 import { YearOutlook } from './components/YearOutlook'
+import { BillsForecast } from './components/BillsForecast'
 import { formatReviewMoney } from './lib/reviewMoney'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { restoreAccountFocus } from './lib/accountFocus'
@@ -106,6 +107,7 @@ import {
   BudgetPlanStrip,
   ExpenseStackOverview,
 } from './components/BudgetVisuals'
+import { MonthlyClosePanel } from './components/MonthlyClosePanel'
 import {
   budgetPositionsForMonth,
   budgetPositionTotals,
@@ -808,6 +810,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [debtFocusRequest, setDebtFocusRequest] = useState<DebtFocusRequest | null>(null)
   const budgetFocusSequenceRef = useRef(0)
   const [budgetFocusRequest, setBudgetFocusRequest] = useState<BudgetFocusRequest | null>(null)
+  // Home's year card opens Budget with the forecast already expanded.
+  const [forecastOpenRequest, setForecastOpenRequest] = useState(0)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
   const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -1076,6 +1080,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     () => documentImports.filter((documentImport) => !documentImport.context_paused_by_restart && PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
+  // The cached plans a failed bill refresh left behind: their forecasts are hidden until fresh plans replace them.
+  const [staleForecastPlans, setStaleForecastPlans] = useState<BudgetData[]>([])
   const budgetForView = budgetView
     ? budgets[budgetView.year] ?? (!dataBudgetStale && data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
     : dataBudgetStale ? null : data?.budget
@@ -2997,6 +3003,34 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
+  // A saved, paid or removed bill only changes the forecast: refetch the plan in place, keeping her place on the page.
+  // Budget holds navigation until this finishes (the bill form reports it as pending), so no other screen shows the
+  // old forecast meanwhile. If the refetch fails, Budget stays open with a Reload control, the warning stays on every
+  // screen, and Home and Budget hide the old forecast totals until a fresh plan arrives.
+  async function handleBillsChanged() {
+    const generation = financialMutationGenerationRef.current
+    let budget: BudgetData
+    try {
+      budget = await fetchBudget(selectedBudgetYear)
+    } catch (caught) {
+      setStaleForecastPlans([data?.budget, homeBudget, ...Object.values(budgets)].filter((plan): plan is BudgetData => plan != null))
+      setWorkspaceRefreshNotice({ kind: 'home', message: 'Your bill change was saved, but the forecast could not refresh. Reload before using those totals.' })
+      throw caught
+    }
+    if (generation !== financialMutationGenerationRef.current) return
+    setStaleForecastPlans([])
+    setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
+    await refreshCurrentHouseholdView(budget)
+  }
+
+  // Home opens Budget's forecast for the year Home shows, keeping Budget's own navigation guards.
+  async function openHomeYearForecast() {
+    const year = (homeBudget ?? data?.budget)?.annual_plan?.year
+    if (!switchSection('Budget', { focusHeading: false })) return
+    if (year != null && budgetView?.year !== year && !(await handleBudgetViewChange(year, currentBudgetMonthIndex))) return
+    setForecastOpenRequest(request => request + 1)
+  }
+
   async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
@@ -4380,6 +4414,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onOpenProfile={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('income') : undefined}
               onOpenAccounts={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('assets') : undefined}
               onOpenBudget={visibleSections.includes('Budget') ? () => switchSection('Budget') : undefined}
+              onOpenYearForecast={visibleSections.includes('Budget') ? () => void openHomeYearForecast() : undefined}
+              forecastStale={staleForecastPlans.includes(homeBudget ?? data.budget)}
               canAskMia={visibleSections.includes('Ask Mia')}
               canReviewTransactions={visibleSections.includes('Review')}
               incomeKnown={(!isRealWorkspace || data.dashboard.month_answer?.money_in_cents != null) && (!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0)}
@@ -5069,6 +5105,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
               onReviewTransactions={() => switchSection('Review')}
               isRealWorkspace={Boolean(isRealWorkspace)}
+              showMonthlyClose={Boolean(isRealWorkspace)}
+              financialGeneration={budgetForView.financial_generation ?? data.workspace.financial_generation}
               action={budgetContextAction}
               error={budgetError}
               notice={budgetNotice}
@@ -5097,6 +5135,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               reviewErrors={reviewErrors}
               focusRequest={budgetFocusRequest}
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
+              canEditBills={!isRealWorkspace || data.workspace.can_edit_household !== false}
+              onBillsChanged={isRealWorkspace ? handleBillsChanged : undefined}
+              forecastStale={staleForecastPlans.includes(budgetForView)}
+              forecastOpenRequest={forecastOpenRequest}
             />
             </fieldset>
           ) : (
@@ -7594,6 +7636,41 @@ function annualBudgetPlanSignature(plan: AnnualBudgetPlan) {
   )).join('|')
 }
 
+function monthlyCloseRefreshSignature(plan: AnnualBudgetPlan, financialGeneration?: number) {
+  const rowsPart = plan.rows.map((row) => (
+    `${row.id}:${row.active === false ? '0' : '1'}:${row.name}:${row.stack_key}:${row.planned_total}:${row.actual_total}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}-${month.actual}`).join(',')}`
+  )).join('|')
+  const plannedIncomePart = Object.entries(plan.monthly_income ?? {})
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([periodId, amount]) => `${periodId}:${amount ?? 'null'}`)
+    .join(',')
+  const actualIncomePart = Object.entries(plan.actual_income ?? {})
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([monthNumber, entry]) => `${monthNumber}:${entry.actual_cents ?? 'null'}:${entry.partial ? 1 : 0}:${entry.month_open ? 1 : 0}:${entry.coverage_note}`)
+    .join(',')
+  const archivedPart = (plan.archived_categories ?? []).map((cat) => `${cat.id}:${cat.name}`).join(',')
+  const pendingCount = Math.max(plan.pending_transaction_drafts_meta?.total_count ?? 0, plan.pending_transaction_drafts.length)
+  const cashQuestionCount = plan.cash_purchase_questions_meta?.total_count ?? (plan.cash_purchase_questions?.length ?? 0)
+  const recentTxPart = (plan.recent_transactions ?? [])
+    .map((tx) => `${tx.id}:${tx.amount}:${tx.occurred_on}:${tx.categories.join('/')}`)
+    .join(',')
+
+  return [
+    financialGeneration ?? '',
+    plan.year,
+    plan.plan_available === false ? '0' : '1',
+    plan.plan_starts_on ?? '',
+    plan.monthly_debt_minimums_known === false ? 'unknown' : plan.monthly_debt_minimums,
+    plannedIncomePart,
+    actualIncomePart,
+    rowsPart,
+    archivedPart,
+    pendingCount,
+    cashQuestionCount,
+    recentTxPart,
+  ].join('::')
+}
+
 function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Record<string, string>): BudgetAllocationChange[] {
   return rows.flatMap((row) => row.months.flatMap((month) => {
     if (!month.allocation_id || month.allocation_missing) return []
@@ -9265,6 +9342,8 @@ export function AnnualBudgetPlanner({
   needsSetup = false,
   onReviewTransactions,
   isRealWorkspace,
+  showMonthlyClose = false,
+  financialGeneration,
   action,
   error,
   notice,
@@ -9289,6 +9368,10 @@ export function AnnualBudgetPlanner({
   reviewErrors = {},
   focusRequest,
   onFocusRequestHandled,
+  canEditBills = true,
+  onBillsChanged,
+  forecastStale = false,
+  forecastOpenRequest = 0,
 }: {
   plan: AnnualBudgetPlan
   monthAnswer?: DashboardData['month_answer']
@@ -9297,6 +9380,8 @@ export function AnnualBudgetPlanner({
   needsSetup?: boolean
   onReviewTransactions: () => void
   isRealWorkspace: boolean
+  showMonthlyClose?: boolean
+  financialGeneration?: number
   action: string | null
   error: string | null
   notice?: string | null
@@ -9321,8 +9406,26 @@ export function AnnualBudgetPlanner({
   reviewErrors?: Record<string, string>
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
+  canEditBills?: boolean
+  onBillsChanged?: () => Promise<void>
+  forecastStale?: boolean
+  forecastOpenRequest?: number
 }) {
   const groupLabels = useExpenseGroupLabels()
+  const forecastRef = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!forecastOpenRequest || !forecastRef.current) return
+    forecastRef.current.open = true
+    // After the section's own scroll restore, so the forecast stays in view with focus on it.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        const summary = forecastRef.current?.querySelector<HTMLElement>('summary')
+        summary?.focus({ preventScroll: true })
+        summary?.scrollIntoView({ block: 'start' })
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [forecastOpenRequest])
   const { assistantName } = useBrand()
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentPositions = useMemo(
@@ -9333,6 +9436,10 @@ export function AnnualBudgetPlanner({
   const approvedSpending = budgetPositionTotals(currentPositions).actual
   const calendarMonth = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
   const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
+  const monthlyCloseRefreshKey = useMemo(
+    () => monthlyCloseRefreshSignature(plan, financialGeneration),
+    [plan, financialGeneration],
+  )
   const [budgetEditState, setBudgetEditState] = useState<{
     signature: string
     isEditing: boolean
@@ -9365,7 +9472,9 @@ export function AnnualBudgetPlanner({
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
-  const hasUnsavedBudgetChanges = isEditingBudget && totalBudgetChanges > 0
+  // A changed bill form, or a bill save still refreshing the plan, holds Budget like an unsaved budget edit.
+  const [billsPending, setBillsPending] = useState(false)
+  const hasUnsavedBudgetChanges = (isEditingBudget && totalBudgetChanges > 0) || billsPending
   const archivedCategories = plan.archived_categories ?? []
   const today = guamTodayIso()
   const currentCalendarYear = Number(today.slice(0, 4))
@@ -9592,6 +9701,7 @@ export function AnnualBudgetPlanner({
         </div>
       </div>
 
+      {plan.year_forecast && <details ref={forecastRef} className="budget-year-forecast"><summary>Year ahead and bills</summary>{billsPending && error && <p className="setup-error" role="alert">{error}</p>}<BillsForecast plan={plan} canEdit={canEditBills && Boolean(onBillsChanged)} stale={forecastStale} onChanged={onBillsChanged} onPendingChange={setBillsPending} /></details>}
       <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={!beforePlanStart} confirmedFields={confirmedFields} answer={monthAnswer} />
 
 
@@ -9633,6 +9743,15 @@ export function AnnualBudgetPlanner({
         />
       </details>}
       </div>
+      {showMonthlyClose && (
+        <MonthlyClosePanel
+          year={plan.year}
+          month={currentMonthIndex + 1}
+          refreshKey={monthlyCloseRefreshKey}
+          onAdjustCategory={openCategoryAmountEditor}
+          planningBlockedReason={planningBlockedReason}
+        />
+      )}
       {manualTool && (
         <section id="budget-manual-manager" className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
           <div className="budget-manual-manager-heading">

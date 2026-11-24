@@ -95,7 +95,7 @@ body #root .review-confirmed-list > summary { color: var(--brand-strong); font-s
 .review-confirmed .reviewed-transaction-row > b { margin-inline-start: auto; }
 @container budget-layout (min-width: 780px) {
   .budget-screen .annual-budget-panel { grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: var(--space-5); }
-  .budget-screen .annual-budget-heading, .budget-plan-strip, .budget-manual-manager { grid-column: 1 / -1; }
+  .budget-screen .annual-budget-heading, .budget-plan-strip, .monthly-close-panel, .budget-manual-manager { grid-column: 1 / -1; }
   .budget-screen .expense-stack-overview { grid-column: 1; }
   .budget-rail { grid-column: 2; }
   .budget-screen .annual-budget-panel > [aria-label='Historical spending'] { grid-column: 1; }
