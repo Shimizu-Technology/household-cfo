@@ -5071,6 +5071,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onReviewTransactions={() => switchSection('Review')}
               isRealWorkspace={Boolean(isRealWorkspace)}
               showMonthlyClose={Boolean(isRealWorkspace)}
+              financialGeneration={budgetForView.financial_generation ?? data.workspace.financial_generation}
               action={budgetContextAction}
               error={budgetError}
               notice={budgetNotice}
@@ -7596,6 +7597,41 @@ function annualBudgetPlanSignature(plan: AnnualBudgetPlan) {
   )).join('|')
 }
 
+function monthlyCloseRefreshSignature(plan: AnnualBudgetPlan, financialGeneration?: number) {
+  const rowsPart = plan.rows.map((row) => (
+    `${row.id}:${row.active === false ? '0' : '1'}:${row.name}:${row.stack_key}:${row.planned_total}:${row.actual_total}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}-${month.actual}`).join(',')}`
+  )).join('|')
+  const plannedIncomePart = Object.entries(plan.monthly_income ?? {})
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([periodId, amount]) => `${periodId}:${amount ?? 'null'}`)
+    .join(',')
+  const actualIncomePart = Object.entries(plan.actual_income ?? {})
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([monthNumber, entry]) => `${monthNumber}:${entry.actual_cents ?? 'null'}:${entry.partial ? 1 : 0}:${entry.month_open ? 1 : 0}:${entry.coverage_note}`)
+    .join(',')
+  const archivedPart = (plan.archived_categories ?? []).map((cat) => `${cat.id}:${cat.name}`).join(',')
+  const pendingCount = Math.max(plan.pending_transaction_drafts_meta?.total_count ?? 0, plan.pending_transaction_drafts.length)
+  const cashQuestionCount = plan.cash_purchase_questions_meta?.total_count ?? (plan.cash_purchase_questions?.length ?? 0)
+  const recentTxPart = (plan.recent_transactions ?? [])
+    .map((tx) => `${tx.id}:${tx.amount}:${tx.occurred_on}:${tx.categories.join('/')}`)
+    .join(',')
+
+  return [
+    financialGeneration ?? '',
+    plan.year,
+    plan.plan_available === false ? '0' : '1',
+    plan.plan_starts_on ?? '',
+    plan.monthly_debt_minimums_known === false ? 'unknown' : plan.monthly_debt_minimums,
+    plannedIncomePart,
+    actualIncomePart,
+    rowsPart,
+    archivedPart,
+    pendingCount,
+    cashQuestionCount,
+    recentTxPart,
+  ].join('::')
+}
+
 function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Record<string, string>): BudgetAllocationChange[] {
   return rows.flatMap((row) => row.months.flatMap((month) => {
     if (!month.allocation_id || month.allocation_missing) return []
@@ -9268,6 +9304,7 @@ export function AnnualBudgetPlanner({
   onReviewTransactions,
   isRealWorkspace,
   showMonthlyClose = false,
+  financialGeneration,
   action,
   error,
   notice,
@@ -9301,6 +9338,7 @@ export function AnnualBudgetPlanner({
   onReviewTransactions: () => void
   isRealWorkspace: boolean
   showMonthlyClose?: boolean
+  financialGeneration?: number
   action: string | null
   error: string | null
   notice?: string | null
@@ -9337,6 +9375,10 @@ export function AnnualBudgetPlanner({
   const approvedSpending = budgetPositionTotals(currentPositions).actual
   const calendarMonth = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
   const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
+  const monthlyCloseRefreshKey = useMemo(
+    () => monthlyCloseRefreshSignature(plan, financialGeneration),
+    [plan, financialGeneration],
+  )
   const [budgetEditState, setBudgetEditState] = useState<{
     signature: string
     isEditing: boolean
@@ -9641,7 +9683,7 @@ export function AnnualBudgetPlanner({
         <MonthlyClosePanel
           year={plan.year}
           month={currentMonthIndex + 1}
-          refreshKey={planSignature}
+          refreshKey={monthlyCloseRefreshKey}
           onAdjustCategory={openCategoryAmountEditor}
           planningBlockedReason={planningBlockedReason}
         />

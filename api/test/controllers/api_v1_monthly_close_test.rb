@@ -28,7 +28,7 @@ class ApiV1MonthlyCloseTest < ActionDispatch::IntegrationTest
     tx.transaction_splits.create!(budget_category: groceries, amount_cents: 45_000)
 
     travel_to Time.zone.local(2026, 11, 5, 10, 0, 0) do
-      assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "HouseholdTransaction.count" ] do
+      assert_no_db_writes do
         get "/api/v1/budget/monthly_close", params: { year: 2026, month: 10 }, headers: auth_headers(user)
       end
       assert_response :success
@@ -43,7 +43,7 @@ class ApiV1MonthlyCloseTest < ActionDispatch::IntegrationTest
       assert_equal(-15_000, body.dig("totals", "spending_difference_cents"))
 
       # Unmaterialized year 2028 must also perform zero writes!
-      assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ] do
+      assert_no_db_writes do
         get "/api/v1/budget/monthly_close", params: { year: 2028, month: 3 }, headers: auth_headers(user)
       end
       assert_response :success
@@ -123,7 +123,37 @@ class ApiV1MonthlyCloseTest < ActionDispatch::IntegrationTest
     assert_equal "Non-discretionary", rent["stack_label"]
   end
 
+  test "does not swallow unrelated internal ArgumentError from MonthlyClose#call as 422" do
+    user = create_user(email: "monthly-close-internal-err@example.invalid")
+    HouseholdFinance::WorkspaceResolver.new(user).household
+
+    original_call = HouseholdFinance::MonthlyClose.instance_method(:call)
+    HouseholdFinance::MonthlyClose.define_method(:call) { raise ArgumentError, "unexpected internal bug" }
+    begin
+      error = assert_raises(ArgumentError) do
+        get "/api/v1/budget/monthly_close", params: { year: 2026, month: 10 }, headers: auth_headers(user)
+      end
+      assert_equal "unexpected internal bug", error.message
+    ensure
+      HouseholdFinance::MonthlyClose.define_method(:call, original_call)
+    end
+  end
+
   private
+
+  def assert_no_db_writes(&block)
+    writes = []
+    callback = lambda do |_name, _start, _finish, _id, payload|
+      next if payload[:name] == "SCHEMA" || payload[:cached]
+
+      sql = payload[:sql].to_s
+      if sql.match?(/\A\s*(?:INSERT|UPDATE|DELETE|REPLACE|MERGE|TRUNCATE|CREATE|ALTER|DROP)\b/i)
+        writes << sql
+      end
+    end
+    ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &block)
+    assert_empty writes, "Expected zero database writes, but saw:\n#{writes.join("\n")}"
+  end
 
   def create_user(email:, role: "participant")
     User.create!(clerk_id: "mc-#{SecureRandom.hex(8)}", email: email, role: role, invitation_status: "accepted")

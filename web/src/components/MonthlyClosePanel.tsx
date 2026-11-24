@@ -60,26 +60,26 @@ export function MonthlyClosePanel({
   loadMonthlyClose = fetchMonthlyClose,
 }: MonthlyClosePanelProps) {
   const titleId = useId()
+  const planningBlockedId = useId()
   const groupNames = useExpenseGroupNames()
   const stackLabels = expenseGroupLabels[groupNames]
   const requestIdRef = useRef(0)
   const [reloadNonce, setReloadNonce] = useState(0)
-  const [data, setData] = useState<MonthlyCloseData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const requestKey = `${year}:${month}:${refreshKey ?? ''}:${reloadNonce}`
+  const [resultState, setResultState] = useState<{
+    key: string
+    data: MonthlyCloseData | null
+    error: string | null
+  } | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
     const requestId = ++requestIdRef.current
-    setLoading(true)
-    setError(null)
 
     loadMonthlyClose(year, month, controller.signal)
       .then((result) => {
         if (requestId !== requestIdRef.current || controller.signal.aborted) return
-        setData(result)
-        setError(null)
-        setLoading(false)
+        setResultState({ key: requestKey, data: result, error: null })
       })
       .catch((caught: unknown) => {
         if (requestId !== requestIdRef.current || controller.signal.aborted) return
@@ -87,16 +87,20 @@ export function MonthlyClosePanel({
         const message = caught instanceof Error && caught.message.trim()
           ? caught.message
           : 'Monthly close could not be loaded right now.'
-        setError(message)
-        setLoading(false)
+        setResultState({ key: requestKey, data: null, error: message })
       })
 
     return () => {
       controller.abort()
     }
-  }, [year, month, refreshKey, reloadNonce, loadMonthlyClose])
+  }, [year, month, requestKey, loadMonthlyClose])
 
-  const visibleData = data && data.year === year && data.month === month ? data : null
+  const isCurrent = resultState?.key === requestKey
+  const loading = !isCurrent
+  const error = isCurrent ? resultState.error : null
+  const visibleData = !error && resultState?.data && resultState.data.year === year && resultState.data.month === month
+    ? resultState.data
+    : null
   const headingLabel = visibleData ? `${visibleData.period_label} close` : `${monthNameFallback(year, month)} close`
 
   const groupedCategories = visibleData
@@ -226,7 +230,7 @@ export function MonthlyClosePanel({
                   ? formatReviewMoney(visibleData.totals.debt_minimums_cents)
                   : 'Not entered'}
               </strong>
-              <span className="monthly-close-meta">Tracked separately from category spending.</span>
+              <span className="monthly-close-meta">Planned minimums; tracked separately from category spending.</span>
             </div>
           </div>
 
@@ -245,12 +249,22 @@ export function MonthlyClosePanel({
                   )}
                 </div>
               </div>
-              {visibleData.totals.debt_minimums_known && (visibleData.net.actual_net_after_debt_cents != null || visibleData.net.planned_net_after_debt_cents != null) && (
+              {visibleData.totals.debt_minimums_known && (
+                visibleData.net.actual_net_after_debt_cents != null
+                || visibleData.net.estimated_net_after_planned_debt_cents != null
+                || visibleData.net.planned_net_after_debt_cents != null
+              ) && (
                 <div className="monthly-close-net-row">
-                  <span className="ui-label">After monthly debt payments</span>
+                  <span className="ui-label">
+                    {visibleData.net.actual_net_after_debt_cents != null
+                      ? 'After monthly debt payments'
+                      : 'After planned debt minimums'}
+                  </span>
                   <div className="monthly-close-net-values">
-                    {visibleData.net.actual_net_after_debt_cents != null && (
+                    {visibleData.net.actual_net_after_debt_cents != null ? (
                       <strong>{formatReviewMoney(visibleData.net.actual_net_after_debt_cents)} actual</strong>
+                    ) : visibleData.net.estimated_net_after_planned_debt_cents != null && (
+                      <strong>{formatReviewMoney(visibleData.net.estimated_net_after_planned_debt_cents)} est.</strong>
                     )}
                     {visibleData.net.planned_net_after_debt_cents != null && (
                       <span className="monthly-close-meta">
@@ -330,7 +344,7 @@ export function MonthlyClosePanel({
             <div className="monthly-close-section-head">
               <h5 className="monthly-close-section-title">Categories by spending group</h5>
               {planningBlockedReason && (
-                <p className="monthly-close-note">{planningBlockedReason}</p>
+                <p id={planningBlockedId} className="monthly-close-note">{planningBlockedReason}</p>
               )}
             </div>
 
@@ -394,6 +408,7 @@ export function MonthlyClosePanel({
                                 className="ui-btn ui-btn--tonal monthly-close-adjust-btn"
                                 disabled={Boolean(planningBlockedReason)}
                                 aria-label={`Adjust plan for ${category.name}`}
+                                aria-describedby={planningBlockedReason ? planningBlockedId : undefined}
                                 onClick={() => onAdjustCategory(category.id)}
                               >
                                 Adjust plan

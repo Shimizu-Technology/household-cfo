@@ -48,29 +48,16 @@ class HouseholdFinanceMonthlyCloseTest < ActiveSupport::TestCase
         end
 
         refreshed_plan = HouseholdFinance::AnnualBudgetManager.new(household.reload, year: 2026).read_only_plan_data
-        before_counts = [
-          BudgetYear.count,
-          BudgetPeriod.count,
-          BudgetAllocation.count,
-          HouseholdTransaction.count,
-          HouseholdAuditEvent.count
-        ]
-
-        close = HouseholdFinance::MonthlyClose.new(
-          household,
-          year: 2026,
-          month: 11,
-          annual_plan: refreshed_plan,
-          today: Date.new(2026, 12, 10)
-        ).call
-
-        assert_equal before_counts, [
-          BudgetYear.count,
-          BudgetPeriod.count,
-          BudgetAllocation.count,
-          HouseholdTransaction.count,
-          HouseholdAuditEvent.count
-        ], "MonthlyClose must perform zero writes"
+        close = nil
+        assert_no_db_writes do
+          close = HouseholdFinance::MonthlyClose.new(
+            household,
+            year: 2026,
+            month: 11,
+            annual_plan: refreshed_plan,
+            today: Date.new(2026, 12, 10)
+          ).call
+        end
 
         assert_equal 2026, close[:year]
         assert_equal 11, close[:month]
@@ -103,9 +90,13 @@ class HouseholdFinanceMonthlyCloseTest < ActiveSupport::TestCase
         assert_equal 9_000, close.dig(:totals, :debt_minimums_cents)
         assert close.dig(:totals, :debt_minimums_known)
 
-        # Net summary computed cleanly when income is complete and spending has activity.
+        # Net summary keeps actual net after debt unset (debt minimums are planned, not actual payments),
+        # while exposing an explicit estimate after planned debt minimums.
         assert_equal close.dig(:income, :actual_cents) - expected_actual_spending, close.dig(:net, :actual_net_before_debt_cents)
-        assert_equal close.dig(:net, :actual_net_before_debt_cents) - 9_000, close.dig(:net, :actual_net_after_debt_cents)
+        assert_equal close.dig(:net, :planned_net_before_debt_cents) - 9_000, close.dig(:net, :planned_net_after_debt_cents)
+        assert_nil close.dig(:net, :actual_net_after_debt_cents)
+        assert_nil close.dig(:net, :net_after_debt_difference_cents)
+        assert_equal close.dig(:net, :actual_net_before_debt_cents) - 9_000, close.dig(:net, :estimated_net_after_planned_debt_cents)
 
         # Movers & highlights populated honestly.
         assert close.dig(:changes, :prior_month_has_activity)
@@ -332,7 +323,52 @@ class HouseholdFinanceMonthlyCloseTest < ActiveSupport::TestCase
     refute before_close.dig(:totals, :debt_minimums_known)
   end
 
+  test "uses provisional spending-to-date wording for open months and final wording for closed months" do
+    setup_plan!(year: 2026, primary_income: 5_000)
+    groceries = create_category!(year: 2026, name: "Groceries", stack_key: "non_discretionary", amount: 600)
+    dining = create_category!(year: 2026, name: "Dining", stack_key: "discretionary", amount: 300)
+    confirm_purchase!(year: 2026, month: 10, day: 12, category: groceries, merchant: "Payless", amount_cents: 62_000)
+
+    open_close = HouseholdFinance::MonthlyClose.new(@household.reload, year: 2026, month: 10, today: Date.new(2026, 10, 20)).call
+    assert_equal "open", open_close[:status]
+    open_text = open_close[:highlights].join(" ")
+    assert_includes open_text, "Category spending so far is $620"
+    assert_includes open_text, "under the $900 full-month plan"
+    assert_includes open_text, "Groceries is $20 over the full-month plan so far"
+    refute_includes open_text, "finished"
+    refute_includes open_text, "totaled"
+
+    closed_close = HouseholdFinance::MonthlyClose.new(@household.reload, year: 2026, month: 10, today: Date.new(2026, 11, 5)).call
+    closed_text = closed_close[:highlights].join(" ")
+    assert_includes closed_text, "Category spending totaled $620"
+    assert_includes closed_text, "Groceries finished $20 over plan"
+    assert dining.present?
+  end
+
+  test "raises InvalidPeriod for invalid year or month inputs" do
+    assert_raises(HouseholdFinance::MonthlyClose::InvalidPeriod) do
+      HouseholdFinance::MonthlyClose.new(@household, year: "2026abc", month: 10)
+    end
+    assert_raises(HouseholdFinance::MonthlyClose::InvalidPeriod) do
+      HouseholdFinance::MonthlyClose.new(@household, year: 2026, month: 13)
+    end
+  end
+
   private
+
+  def assert_no_db_writes(&block)
+    writes = []
+    callback = lambda do |_name, _start, _finish, _id, payload|
+      next if payload[:name] == "SCHEMA" || payload[:cached]
+
+      sql = payload[:sql].to_s
+      if sql.match?(/\A\s*(?:INSERT|UPDATE|DELETE|REPLACE|MERGE|TRUNCATE|CREATE|ALTER|DROP)\b/i)
+        writes << sql
+      end
+    end
+    ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &block)
+    assert_empty writes, "MonthlyClose must perform zero writes, but saw:\n#{writes.join("\n")}"
+  end
 
   def setup_plan!(year:, primary_income:)
     unless @household.income_sources.where(source_type: "job").exists?

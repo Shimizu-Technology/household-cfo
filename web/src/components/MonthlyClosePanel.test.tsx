@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { MonthlyCloseData } from '../api'
 import { ExpenseGroupNamesContext } from '../lib/expenseGroups'
@@ -57,8 +57,9 @@ function buildClose(overrides: Partial<MonthlyCloseData> = {}): MonthlyCloseData
       actual_net_before_debt_cents: 220_000,
       net_before_debt_difference_cents: 0,
       planned_net_after_debt_cents: 176_000,
-      actual_net_after_debt_cents: 176_000,
-      net_after_debt_difference_cents: 0,
+      actual_net_after_debt_cents: null,
+      net_after_debt_difference_cents: null,
+      estimated_net_after_planned_debt_cents: 176_000,
     },
     categories: [
       {
@@ -146,9 +147,11 @@ it('renders a complete monthly close with income, spending, separate debt paymen
   expect(screen.getByText('$150 above plan')).toBeTruthy()
   expect(screen.getByText('$3,350')).toBeTruthy()
   expect(screen.getByText('$440')).toBeTruthy()
-  expect(screen.getByText('Tracked separately from category spending.')).toBeTruthy()
+  expect(screen.getByText('Planned minimums; tracked separately from category spending.')).toBeTruthy()
   expect(screen.getByText('$2,200 actual')).toBeTruthy()
-  expect(screen.getByText('$1,760 actual')).toBeTruthy()
+  expect(screen.getByText('After planned debt minimums')).toBeTruthy()
+  expect(screen.getByText('$1,760 est.')).toBeTruthy()
+  expect(screen.queryByText('$1,760 actual')).toBeNull()
   expect(screen.getByText('What changed from September 2026')).toBeTruthy()
   expect(screen.getByText('Biggest increases')).toBeTruthy()
   expect(screen.getByText('Biggest decreases')).toBeTruthy()
@@ -181,6 +184,7 @@ it('hides income shortfall and actual net cash flow for partial or open months a
       planned_net_after_debt_cents: 176_000,
       actual_net_after_debt_cents: null,
       net_after_debt_difference_cents: null,
+      estimated_net_after_planned_debt_cents: null,
     },
     changes: {
       prior_month_has_activity: false,
@@ -199,6 +203,7 @@ it('hides income shortfall and actual net cash flow for partial or open months a
   expect(screen.getByText(/1 deposit still needs your answer in Review/)).toBeTruthy()
   expect(screen.queryByText(/under plan/)).toBeNull()
   expect(screen.queryByText(/actual$/)).toBeNull()
+  expect(screen.queryByText(/est\.$/)).toBeNull()
   expect(screen.getByText(/No confirmed activity in September 2026/)).toBeTruthy()
 })
 
@@ -268,15 +273,95 @@ it('guards against stale responses when switching months rapidly', async () => {
   const view = render(<MonthlyClosePanel year={2026} month={9} loadMonthlyClose={loader} />)
   view.rerender(<MonthlyClosePanel year={2026} month={10} loadMonthlyClose={loader} />)
 
-  resolveOct(buildClose({ month: 10, period_label: 'October 2026' }))
-  await screen.findByRole('heading', { name: 'October 2026 close' })
-
-  // Earlier slower September response arrives late; must NOT overwrite October!
-  resolveSep(buildClose({ month: 9, period_label: 'September 2026' }))
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'October 2026 close' })).toBeTruthy()
+  await act(async () => {
+    resolveOct(buildClose({
+      month: 10,
+      period_label: 'October 2026',
+      highlights: ['October confirmed spending totaled $3,350.'],
+    }))
   })
+  expect(screen.getByRole('heading', { name: 'October 2026 close' })).toBeTruthy()
+  expect(screen.getByText('October confirmed spending totaled $3,350.')).toBeTruthy()
+  expect(screen.getByText('$3,350')).toBeTruthy()
+
+  // Earlier slower September response arrives late; must NOT overwrite or clear October!
+  await act(async () => {
+    resolveSep(buildClose({
+      month: 9,
+      period_label: 'September 2026',
+      totals: { ...buildClose().totals, actual_spending_cents: 199_900 },
+      highlights: ['September confirmed spending totaled $1,999.'],
+    }))
+  })
+  expect(screen.getByRole('heading', { name: 'October 2026 close' })).toBeTruthy()
+  expect(screen.getByText('October confirmed spending totaled $3,350.')).toBeTruthy()
+  expect(screen.getByText('$3,350')).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'September 2026 close' })).toBeNull()
+  expect(screen.queryByText('September confirmed spending totaled $1,999.')).toBeNull()
+  expect(screen.queryByText('$1,999')).toBeNull()
+})
+
+it('refetches and updates rendered totals when refreshKey changes', async () => {
+  const loader = vi.fn()
+    .mockResolvedValueOnce(buildClose())
+    .mockResolvedValueOnce(buildClose({
+      totals: { ...buildClose().totals, actual_spending_cents: 389_000, spending_difference_cents: 69_000 },
+    }))
+
+  const view = render(<MonthlyClosePanel year={2026} month={10} refreshKey="rev-1" loadMonthlyClose={loader} />)
+
+  await screen.findByText('$3,350')
+  expect(loader).toHaveBeenCalledTimes(1)
+
+  view.rerender(<MonthlyClosePanel year={2026} month={10} refreshKey="rev-2" loadMonthlyClose={loader} />)
+
+  await screen.findByText('$3,890')
+  expect(screen.queryByText('$3,350')).toBeNull()
+  expect(loader).toHaveBeenCalledTimes(2)
+})
+
+it('clears stale figures when a refreshKey-triggered refetch fails and recovers on Try again', async () => {
+  const loader = vi.fn()
+    .mockResolvedValueOnce(buildClose())
+    .mockRejectedValueOnce(new Error('Refresh failed while updating actuals.'))
+    .mockResolvedValueOnce(buildClose({
+      totals: { ...buildClose().totals, actual_spending_cents: 342_500 },
+    }))
+
+  const view = render(<MonthlyClosePanel year={2026} month={10} refreshKey="rev-1" loadMonthlyClose={loader} />)
+
+  await screen.findByText('$3,350')
+
+  view.rerender(<MonthlyClosePanel year={2026} month={10} refreshKey="rev-2" loadMonthlyClose={loader} />)
+
+  const alert = await screen.findByRole('alert')
+  expect(within(alert).getByText('Refresh failed while updating actuals.')).toBeTruthy()
+  expect(screen.queryByText('$3,350')).toBeNull()
+  expect(screen.queryByText('$5,550')).toBeNull()
+
+  fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+  await screen.findByText('$3,425')
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(loader).toHaveBeenCalledTimes(3)
+})
+
+it('connects disabled Adjust plan buttons to the blocking reason via aria-describedby', async () => {
+  const reason = 'Save or cancel your income draft before editing your monthly plan.'
+  render(
+    <MonthlyClosePanel
+      year={2026}
+      month={10}
+      loadMonthlyClose={vi.fn().mockResolvedValue(buildClose())}
+      onAdjustCategory={vi.fn()}
+      planningBlockedReason={reason}
+    />,
+  )
+
+  const button = await screen.findByRole('button', { name: 'Adjust plan for Groceries' })
+  expect(button).toHaveProperty('disabled', true)
+  const describedBy = button.getAttribute('aria-describedby')
+  expect(describedBy).toBeTruthy()
+  expect(document.getElementById(describedBy!)?.textContent).toBe(reason)
 })
 
 it('shows an error alert and retries cleanly when Try again is clicked', async () => {

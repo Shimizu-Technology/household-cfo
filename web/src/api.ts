@@ -4284,6 +4284,7 @@ export type MonthlyCloseNet = {
   planned_net_after_debt_cents: number | null
   actual_net_after_debt_cents: number | null
   net_after_debt_difference_cents: number | null
+  estimated_net_after_planned_debt_cents: number | null
 }
 
 export type MonthlyCloseCategory = {

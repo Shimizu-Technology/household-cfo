@@ -5,6 +5,8 @@ module HouseholdFinance
   # plus what changed from the prior month. Never writes to the database and
   # never turns unknown income or missing statements into $0.
   class MonthlyClose
+    class InvalidPeriod < StandardError; end
+
     STATUS_LABELS = {
       "future" => "Upcoming month",
       "open" => "Month in progress",
@@ -16,20 +18,20 @@ module HouseholdFinance
 
     def initialize(
       household,
-      year:,
-      month:,
+      year: nil,
+      month: nil,
       annual_plan: nil,
       prior_annual_plan: nil,
       method: nil,
       today: Time.current.in_time_zone("Pacific/Guam").to_date
     )
       @household = household
+      @today = today.to_date
       @year = parse_year!(year)
       @month = parse_month!(month)
       @supplied_annual_plan = annual_plan
       @supplied_prior_annual_plan = prior_annual_plan
       @method = method || CohortExperience::MethodSettings.for_household(household)
-      @today = today.to_date
     end
 
     def call
@@ -99,8 +101,11 @@ module HouseholdFinance
       net_before_debt_difference_cents = !actual_net_before_debt_cents.nil? && !planned_net_before_debt_cents.nil? ? actual_net_before_debt_cents - planned_net_before_debt_cents : nil
 
       planned_net_after_debt_cents = !planned_net_before_debt_cents.nil? && debt_minimums_known ? planned_net_before_debt_cents - debt_minimums_cents : nil
-      actual_net_after_debt_cents = !actual_net_before_debt_cents.nil? && debt_minimums_known ? actual_net_before_debt_cents - debt_minimums_cents : nil
-      net_after_debt_difference_cents = !actual_net_after_debt_cents.nil? && !planned_net_after_debt_cents.nil? ? actual_net_after_debt_cents - planned_net_after_debt_cents : nil
+      # Debt minimums are planned commitments, not confirmed actual debt payments,
+      # so actual net after debt and its variance remain unset until actual payments exist.
+      actual_net_after_debt_cents = nil
+      net_after_debt_difference_cents = nil
+      estimated_net_after_planned_debt_cents = !actual_net_before_debt_cents.nil? && debt_minimums_known ? actual_net_before_debt_cents - debt_minimums_cents : nil
 
       status = determine_status(target_date: target_date, target_end: target_end, income_actual: income_actual, target_month_has_activity: target_month_has_activity)
       changes = build_changes(
@@ -177,7 +182,8 @@ module HouseholdFinance
           net_before_debt_difference_cents: net_before_debt_difference_cents,
           planned_net_after_debt_cents: planned_net_after_debt_cents,
           actual_net_after_debt_cents: actual_net_after_debt_cents,
-          net_after_debt_difference_cents: net_after_debt_difference_cents
+          net_after_debt_difference_cents: net_after_debt_difference_cents,
+          estimated_net_after_planned_debt_cents: estimated_net_after_planned_debt_cents
         },
         categories: category_items,
         changes: changes,
@@ -190,23 +196,28 @@ module HouseholdFinance
     attr_reader :household, :year, :month, :method, :today
 
     def parse_year!(value)
-      parsed = Integer(value.to_s, 10)
+      parsed = parse_strict_integer!(value, default: today.year, label: "Year")
       unless AnnualBudgetManager.supported_year?(parsed)
-        raise ArgumentError, "Year must be between #{AnnualBudgetManager::SUPPORTED_YEARS.min} and #{AnnualBudgetManager::SUPPORTED_YEARS.max}"
+        raise InvalidPeriod, "Year must be between #{AnnualBudgetManager::SUPPORTED_YEARS.min} and #{AnnualBudgetManager::SUPPORTED_YEARS.max}"
       end
 
       parsed
-    rescue ArgumentError
-      raise ArgumentError, "Year must be between #{AnnualBudgetManager::SUPPORTED_YEARS.min} and #{AnnualBudgetManager::SUPPORTED_YEARS.max}"
     end
 
     def parse_month!(value)
-      parsed = Integer(value.to_s, 10)
-      raise ArgumentError, "Month must be between 1 and 12" unless (1..12).cover?(parsed)
+      parsed = parse_strict_integer!(value, default: today.month, label: "Month")
+      raise InvalidPeriod, "Month must be between 1 and 12" unless (1..12).cover?(parsed)
 
       parsed
-    rescue ArgumentError
-      raise ArgumentError, "Month must be between 1 and 12"
+    end
+
+    def parse_strict_integer!(raw, default:, label:)
+      return default if raw.nil? || raw.to_s.strip.empty?
+
+      text = raw.to_s.strip
+      raise InvalidPeriod, "#{label} must be a whole number" unless text.match?(/\A-?\d+\z/)
+
+      text.to_i
     end
 
     def plan_coverage
@@ -481,7 +492,7 @@ module HouseholdFinance
       end
 
       lines << income_highlight(period_label: period_label, income: income)
-      lines << spending_highlight(period_label: period_label, before_plan_start: before_plan_start, totals: totals)
+      lines << spending_highlight(status: status, period_label: period_label, before_plan_start: before_plan_start, totals: totals)
 
       if (mover_line = mover_highlight(prior_period_label: prior_period_label, totals: totals, changes: changes))
         lines << mover_line
@@ -491,7 +502,11 @@ module HouseholdFinance
         .select { |item| item[:active] && item[:difference_cents].to_i.positive? }
         .max_by { |item| [ item[:difference_cents], item[:name].to_s ] }
       if top_over
-        lines << "#{top_over[:name]} finished #{Money.plain(top_over[:difference_cents])} over plan — review whether to adjust its monthly target."
+        if status == "open"
+          lines << "#{top_over[:name]} is #{Money.plain(top_over[:difference_cents])} over the full-month plan so far — review whether to adjust its monthly target."
+        else
+          lines << "#{top_over[:name]} finished #{Money.plain(top_over[:difference_cents])} over plan — review whether to adjust its monthly target."
+        end
       elsif income[:waiting_deposits].to_i.positive?
         lines << ActualIncome.waiting_note(income[:waiting_deposits])
       end
@@ -521,7 +536,7 @@ module HouseholdFinance
       end
     end
 
-    def spending_highlight(period_label:, before_plan_start:, totals:)
+    def spending_highlight(status:, period_label:, before_plan_start:, totals:)
       unless totals[:has_spending_activity]
         return "No confirmed category spending is recorded for #{period_label} yet."
       end
@@ -529,9 +544,18 @@ module HouseholdFinance
       actual = totals[:actual_spending_cents]
       planned = totals[:planned_spending_cents]
       diff = totals[:spending_difference_cents]
+      provisional = status == "open"
 
       if !planned.nil? && !diff.nil?
-        if diff.positive?
+        if provisional
+          if diff.positive?
+            "Category spending so far is #{Money.plain(actual)}, #{Money.plain(diff)} over the #{Money.plain(planned)} full-month plan."
+          elsif diff.negative?
+            "Category spending so far is #{Money.plain(actual)}, #{Money.plain(-diff)} under the #{Money.plain(planned)} full-month plan."
+          else
+            "Category spending so far has reached the #{Money.plain(planned)} full-month plan."
+          end
+        elsif diff.positive?
           "Category spending totaled #{Money.plain(actual)}, #{Money.plain(diff)} over the #{Money.plain(planned)} plan."
         elsif diff.negative?
           "Category spending totaled #{Money.plain(actual)}, #{Money.plain(-diff)} under the #{Money.plain(planned)} plan."
@@ -539,7 +563,13 @@ module HouseholdFinance
           "Category spending matched the #{Money.plain(planned)} plan."
         end
       elsif before_plan_start
-        "Confirmed category spending totaled #{Money.plain(actual)} in #{period_label}, before your plan started."
+        if provisional
+          "Confirmed category spending so far is #{Money.plain(actual)} in #{period_label}, before your plan started."
+        else
+          "Confirmed category spending totaled #{Money.plain(actual)} in #{period_label}, before your plan started."
+        end
+      elsif provisional
+        "Confirmed category spending so far is #{Money.plain(actual)} in #{period_label}, with no full category plan to compare against."
       else
         "Confirmed category spending totaled #{Money.plain(actual)} in #{period_label}, with no full category plan to compare against."
       end
