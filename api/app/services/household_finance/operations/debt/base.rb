@@ -75,6 +75,12 @@ module HouseholdFinance
           lock ? scope.lock : scope
         end
 
+        # Optional fields added after release. Each is left out of a snapshot while it is
+        # blank, so a review card prepared before the field existed keeps the same
+        # "before" fingerprint. Any entered value (including $0) is included, so a change
+        # still makes the card stale.
+        OPTIONAL_SNAPSHOT_KEYS = %i[due_day past_due_cents].freeze
+
         def debt_snapshot(debt)
           {
             debt: {
@@ -92,14 +98,15 @@ module HouseholdFinance
               archived_at: debt.archived_at&.iso8601,
               source_type: debt.source_type,
               source_metadata: debt.source_metadata
-            }
+            }.reject { |key, value| key.in?(OPTIONAL_SNAPSHOT_KEYS) && value.nil? }
           }
         end
 
         def verify_debt_prediction!(predicted, actual)
           expected = predicted.fetch("debt")
           observed = actual.fetch("debt")
-          return true if expected == observed.slice(*expected.keys)
+          # A blank optional field is absent from the saved snapshot; it matches a predicted nil.
+          return true if expected.all? { |key, value| observed.key?(key) ? observed[key] == value : value.nil? && key.to_sym.in?(OPTIONAL_SNAPSHOT_KEYS) }
           raise Operations::Runner::InvalidPreparedOperation, "The saved debt did not match the reviewed change. Nothing changed."
         end
 

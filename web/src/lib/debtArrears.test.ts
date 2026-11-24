@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ordinalDay, parseDueDay, parseOptionalAmount } from './debtArrears'
+import { changedDebtFields, ordinalDay, parseDueDay, parseOptionalAmount, pastDueStatus } from './debtArrears'
 
 describe('debt arrears helpers', () => {
   it('writes due days the way people say them', () => {
@@ -19,5 +19,21 @@ describe('debt arrears helpers', () => {
     expect(parseDueDay('0')).toBe('invalid')
     expect(parseDueDay('32')).toBe('invalid')
     expect(parseDueDay('2.5')).toBe('invalid')
+  })
+})
+
+describe('debt form changes', () => {
+  it('sends only the fields she changed, with what the form showed before', () => {
+    const baseline = { label: 'Visa', balance: 1200, due_day: null as number | null, past_due: null as number | null }
+    expect(changedDebtFields({ ...baseline, label: 'Travel Card' }, baseline)).toEqual({ changes: { label: 'Travel Card' }, expected: { label: 'Visa' } })
+    expect(changedDebtFields({ ...baseline, past_due: 0 }, baseline)).toEqual({ changes: { past_due: 0 }, expected: { past_due: null } })
+    expect(changedDebtFields(baseline, baseline)).toEqual({ changes: {}, expected: {} })
+  })
+
+  it('keeps $0 past due distinct from not entered', () => {
+    expect(pastDueStatus(null)).toBeNull()
+    expect(pastDueStatus(undefined)).toBeNull()
+    expect(pastDueStatus(0)).toBe('caught_up')
+    expect(pastDueStatus(95.4)).toBe('behind')
   })
 })

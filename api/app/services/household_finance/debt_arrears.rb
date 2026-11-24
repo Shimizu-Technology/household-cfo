@@ -36,8 +36,47 @@ module HouseholdFinance
       "#{debt.label} #{Money.plain(debt.past_due_cents)} past due#{due}"
     end
 
+    # What catching this debt up pays: the past-due amount, never more than its recorded
+    # balance. An unknown balance cannot cap it.
+    def catch_up_cents(debt)
+      return 0 unless debt.past_due?
+      return debt.past_due_cents unless debt.balance_known?
+
+      [ debt.past_due_cents, debt.balance_cents ].min
+    end
+
+    def total_catch_up_cents
+      debts.sum { |debt| catch_up_cents(debt) }
+    end
+
+    # Records that cannot both be true: a past-due amount above the debt's own recorded
+    # balance, or an approved summary total below what she is behind. Until she fixes
+    # them, nothing may call her debt-free or estimate a payoff.
+    def balance_conflict?(debt)
+      debt.past_due? && debt.balance_known? && debt.past_due_cents > debt.balance_cents
+    end
+
+    def conflicts
+      @conflicts ||= begin
+        lines = debts.select { |debt| balance_conflict?(debt) }.map do |debt|
+          "#{debt.label} shows #{Money.plain(debt.past_due_cents)} past due but a #{Money.plain(debt.balance_cents)} balance"
+        end
+        portfolio = DebtPortfolio.new(household)
+        if any? && portfolio.mode == "summary" && portfolio.balance_known? && portfolio.total_balance_cents < total_cents
+          lines << "your approved debt summary shows #{Money.plain(portfolio.total_balance_cents)} owed in all, less than the #{Money.plain(total_cents)} past due"
+        end
+        lines
+      end
+    end
+
+    def conflict?
+      conflicts.any?
+    end
+
     def as_json(*)
-      debts.map { |debt| { id: debt.id, label: debt.label, past_due_cents: debt.past_due_cents, due_day: debt.due_day } }
+      debts.map do |debt|
+        { id: debt.id, label: debt.label, past_due_cents: debt.past_due_cents, due_day: debt.due_day, balance_conflict: balance_conflict?(debt) }
+      end
     end
 
     private

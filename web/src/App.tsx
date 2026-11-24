@@ -126,7 +126,7 @@ import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceS
 import { budgetViewForWorkspace, isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
 import { documentNeedsReview, importIdsForRevisions, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage, withStatementProgress } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
-import { ordinalDay, parseDueDay, parseOptionalAmount } from './lib/debtArrears'
+import { changedDebtFields, ordinalDay, parseDueDay, parseOptionalAmount, pastDueStatus } from './lib/debtArrears'
 import {
   captureApiOperation,
   applyDocumentImport,
@@ -7355,6 +7355,17 @@ function debtDraftFor(debt: DebtRecord): DebtDraft {
   }
 }
 
+/** The saved values a debt form opened with, in the shape the API sends. */
+function debtInputFromDraft(draft: DebtDraft): DebtInput {
+  const number = (text: string) => (text.trim() === '' ? null : Number(text))
+  const dueDay = parseDueDay(draft.due_day)
+  const pastDue = parseOptionalAmount(draft.past_due)
+  return {
+    label: draft.label.trim(), debt_type: draft.debt_type, balance: number(draft.balance), minimum_payment: number(draft.minimum_payment),
+    interest_rate_percent: number(draft.interest_rate_percent), due_day: dueDay === 'invalid' ? null : dueDay, past_due: pastDue === 'invalid' ? null : pastDue,
+  }
+}
+
 function debtDraftWithProposal(base: DebtDraft, payload: MiaActionItem['payload']): DebtDraft {
   return {
     label: proposedText(payload, 'label', base.label),
@@ -7371,7 +7382,7 @@ function debtSourceLabel(source: DebtRecord['source_type'], assistantName: strin
   return { manual_ui: 'Added manually', mia: `Prepared by ${assistantName}`, document_import: 'Approved import', setup: 'Household setup' }[source]
 }
 
-function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirmed, focusRequest, onFocusRequestHandled, onUnsavedChangesChange }: {
+export function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirmed, focusRequest, onFocusRequestHandled, onUnsavedChangesChange }: {
   sectionRef?: Ref<HTMLElement>
   debts: DebtRecord[]
   portfolio: DebtPortfolio
@@ -7470,17 +7481,28 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
       return setError('Use non-negative numbers, or leave a field blank when it is not known yet.')
     }
     const values: DebtInput = { label, debt_type: draft.debt_type, balance, minimum_payment: minimumPayment, interest_rate_percent: apr, due_day: dueDay, past_due: pastDue }
-    const signature = `${editingId === 'new' ? 'create' : `update:${editingId}`}:${JSON.stringify(values)}`
+    // An edit sends only what she changed, so fields saved since this form opened (a
+    // past-due amount applied from Mia in another tab) are never overwritten.
+    const { changes, expected } = editingId === 'new' ? { changes: values, expected: {} } : changedDebtFields(values, debtInputFromDraft(draftBaseline))
+    if (editingId !== 'new' && Object.keys(changes).length === 0) { setEditingId(null); setError(null); return }
+    const signature = `${editingId === 'new' ? 'create' : `update:${editingId}`}:${JSON.stringify(changes)}:${JSON.stringify(expected)}`
     const key = operationKeys.current.keyFor(signature)
     setSaving(true); setError(null)
     try {
       if (editingId === 'new') await createDebt(values, key)
-      else if (typeof editingId === 'number') await updateDebt(editingId, values, key)
+      else if (typeof editingId === 'number') await updateDebt(editingId, changes, key, expected)
       await onChanged()
       operationKeys.current.complete(signature)
       setEditingId(null)
     } catch (caught) {
-      setError(participantErrorMessage(caught, 'This debt could not be saved. Try again.'))
+      if (caught instanceof ApiRequestError && caught.code === 'changed_elsewhere') {
+        operationKeys.current.complete(signature)
+        await onChanged().catch(() => undefined)
+        setEditingId(null)
+        setError('This debt changed in another tab or on another device. The latest details are showing now; open it and make your change again.')
+      } else {
+        setError(participantErrorMessage(caught, 'This debt could not be saved. Try again.'))
+      }
     } finally {
       setSaving(false)
     }
@@ -7582,7 +7604,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
       {noDebtQuestion && editingId === null && <div className="debt-empty"><strong>{debts.length > 0 ? 'No active debts.' : 'No debts added yet.'}</strong><p>{debts.length > 0 ? 'Add a debt or restore an archived one, or explicitly confirm that the household has no debt.' : 'Add the first debt, or explicitly confirm that the household has no debt.'} Blank details stay marked as unknown.</p></div>}
       {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
-<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className={`ui-dot ${debt.past_due != null && debt.past_due > 0 ? 'ui-dot--red' : 'ui-dot--neutral'}`} aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum{debt.due_day != null ? ` · due on the ${ordinalDay(debt.due_day)}` : ''}</span>{debt.past_due != null && debt.past_due > 0 && <span className="debt-past-due">{recordMoney(debt.past_due)} past due</span>}</span>
+<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className={`ui-dot ${pastDueStatus(debt.past_due) === 'behind' ? 'ui-dot--red' : 'ui-dot--neutral'}`} aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum{debt.due_day != null ? ` · due on the ${ordinalDay(debt.due_day)}` : ''}</span>{pastDueStatus(debt.past_due) === 'behind' && <span className="debt-past-due">{recordMoney(debt.past_due ?? null)} past due</span>}{pastDueStatus(debt.past_due) === 'caught_up' && <span className="debt-caught-up">Caught up</span>}</span>
           <span id={`debt-${debt.id}-amount`}><strong>{recordMoney(debt.balance)}</strong></span>
     <span className="money-edit-label">Edit</span></button>
       <div className="debt-row-actions"><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} aria-label={`${archiveId === debt.id ? 'Confirm archive' : 'Archive'} ${debt.label}`} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>

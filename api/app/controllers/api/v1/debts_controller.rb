@@ -16,7 +16,9 @@ module Api
       end
 
       def update
-        result = runner.run(operation_key: "debt.record.update", input: debt_params.to_h.merge(debt_id: scoped_debt.id), idempotency_key: required_idempotency_key)
+        input = debt_params.to_h.merge(debt_id: scoped_debt.id)
+        input[:expected] = expected_params.to_h if expected_params.present?
+        result = runner.run(operation_key: "debt.record.update", input: input, idempotency_key: required_idempotency_key)
         render_debt_response(result.subject)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Debt not found" ] }, status: :not_found
@@ -77,6 +79,12 @@ module Api
 
       def debt_params
         params.fetch(:debt, {}).permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent, :due_day, :past_due)
+      end
+
+      # The values her form showed for each field she changed. The update is refused when
+      # one of them changed elsewhere since, so an older tab cannot erase a newer value.
+      def expected_params
+        @expected_params ||= params.fetch(:expected, {}).permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent, :due_day, :past_due)
       end
 
       def tracking_params

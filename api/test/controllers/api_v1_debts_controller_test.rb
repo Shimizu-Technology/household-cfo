@@ -176,6 +176,40 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, household.household_profile.reload.debt_summary_balance_cents
   end
 
+  test "a label edit from an older tab keeps a past-due amount and due day applied since" do
+    user = create_user(email: "debt-stale-tab@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 4_000)
+    # Applied from Mia in another tab after the older My Money form loaded.
+    debt.update!(past_due_cents: 9_540, due_day: 22)
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { label: "Travel Card" }, expected: { label: "Visa" } },
+      headers: auth_headers(user, idempotency_key: "stale-tab-label"), as: :json
+    assert_response :success
+    debt.reload
+    assert_equal [ "Travel Card", 22, 9_540 ], [ debt.label, debt.due_day, debt.past_due_cents ]
+  end
+
+  test "an older tab cannot overwrite a past-due amount that changed since it loaded" do
+    user = create_user(email: "debt-stale-arrears@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 4_000)
+    debt.update!(past_due_cents: 9_540, due_day: 22)
+
+    # The older form showed both fields blank and she cleared nothing; it still sends its
+    # stale blanks for the fields it thinks it is changing.
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { past_due: nil, due_day: nil }, expected: { past_due: nil, due_day: nil } },
+      headers: auth_headers(user, idempotency_key: "stale-tab-arrears"), as: :json
+    assert_response :conflict
+    assert_equal "changed_elsewhere", JSON.parse(response.body).fetch("code")
+    assert_equal [ 22, 9_540 ], [ debt.reload.due_day, debt.past_due_cents ]
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { past_due: 0 }, expected: { past_due: 95.40 } },
+      headers: auth_headers(user, idempotency_key: "fresh-tab-arrears"), as: :json
+    assert_response :success
+    assert_equal [ 22, 0 ], [ debt.reload.due_day, debt.past_due_cents ]
+  end
+
   private
 
   def create_user(email:)

@@ -76,6 +76,18 @@ module HouseholdFinance
       minimum_payment: /\b(?:monthly\s+)?minimum(?:\s+payment)?\b|\bminimum\s+due\b/i,
       past_due: /\bpast[\s-]+due\b|\bbehind\b|\boverdue\b|\barrears\b/i
     }.freeze
+    ARREARS_CLAUSE_BREAK = /[.;:!?]+(?:\s|\z)|,\s+|\s+\b(?:but|however|though|although|and)\b/i
+    ARREARS_PAST_TENSE = /\b(?:was|were|had\s+been|used\s+to\s+be)\b/i
+    ARREARS_CAUGHT_UP = /\bcaught\s+up\b|\bno\s+longer\s+(?:behind|past[\s-]+due|overdue)\b|\bnot\s+(?:behind|past[\s-]+due|overdue)\b|\bpaid\s+(?:it|that|them|the\s+past[\s-]+due(?:\s+amount)?)\s+off\b|\bup\s+to\s+date\b/i
+    CALENDAR_MONTH_PATTERN = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b\.?/i
+    # The words that tie an "unknown" (clear) to one debt field.
+    DEBT_CLEAR_FIELD_PATTERNS = {
+      amount: /balance|amount\s+owed|owe/i,
+      minimum_payment: /minimum|payment/i,
+      past_due: /past[\s-]+due|behind|overdue|arrears/i,
+      due_day: /due\s+(?:date|day)|due\s+on|when\s+it(?:'|’)?s\s+due/i
+    }.freeze
+    DEBT_UNKNOWN_PATTERN = /unknown|not\s+sure|do\s+not\s+know|don't\s+know/i
     GOAL_MONEY_FIELD_PATTERNS = {
       target_amount: /\b(?:target|goal)(?:\s+amount)?\b/i,
       current_amount: /\b(?:current(?:\s+amount)?|progress|saved|set\s+aside|already\s+have)\b/i
@@ -1603,7 +1615,7 @@ module HouseholdFinance
       else
         needs_clarification = true
         clarification = if references_valid
-          action[:type].in?(%w[create_debt update_debt update_debt_tracking]) ? "How much is the payment each month? Give the amount and I’ll put it on a review card." : "What amount should I use, and what is it for? Nothing changed."
+          action[:type].in?(%w[create_debt update_debt update_debt_tracking]) ? debt_grounding_clarification(action, history_scope: history_scope, prior_action: prior_action) : "What amount should I use, and what is it for? Nothing changed."
         else
           invalid_reference_clarification(action)
         end
@@ -1669,6 +1681,7 @@ module HouseholdFinance
         raise ArgumentError, "Write-plan dependency must point backward" unless dependencies.all? { |dependency| dependency >= 0 && dependency < index }
 
         action = apply_budget_year_default(normalize_action(entry.fetch(:action)))
+        action = discard_ungrounded_debt_unknowns(action, history_scope: :none, prior_action: nil, source_text: exact_source)
         raise ArgumentError, "Unsupported write-plan action" if action[:type] == "none" || action[:type].in?(%w[create_transaction_draft update_transaction_draft ignore_transaction_drafts review_pending_action])
         raise ArgumentError, "Incomplete write-plan action" unless action_complete?(action)
         raise ArgumentError, "Unverified write-plan reference" unless
@@ -2614,8 +2627,31 @@ module HouseholdFinance
       parts.join(" ")
     end
 
-    # A past-due amount must sit next to "past due", "behind", "overdue" or "arrears" in
-    # her own words, so a balance or minimum is never read as arrears.
+    DEBT_GROUNDED_FIELDS = %i[due_day past_due interest_rate_percent minimum_payment amount].freeze
+
+    # Ask about the one debt field her words did not support, not always the minimum.
+    def debt_grounding_clarification(action, history_scope:, prior_action:)
+      name = debt_label_for(action).presence || "this debt"
+      disputed = DEBT_GROUNDED_FIELDS.find do |field|
+        next false if action[field].to_s.strip.blank?
+
+        alone = action.merge((DEBT_GROUNDED_FIELDS - [ field ]).index_with { "" })
+        !action_amounts_grounded?(alone, history_scope: history_scope, prior_action: prior_action)
+      end
+      case disputed
+      when :due_day then "What day of the month is the #{name} payment due, such as the 15th? I’ll put it on a review card. Nothing changed."
+      when :past_due then "How much are you behind on #{name} right now? Give the past-due amount and I’ll put it on a review card. Nothing changed."
+      when :interest_rate_percent then "What APR does #{name} charge? Give the rate from the latest statement and I’ll put it on a review card. Nothing changed."
+      when :amount then "What is the #{name} balance right now? Give the amount and I’ll put it on a review card. Nothing changed."
+      else "How much is the payment each month? Give the amount and I’ll put it on a review card."
+      end
+    end
+
+    # A past-due amount must be a present-tense statement about this debt in her own words
+    # ("I'm $1,500 behind on the Car loan"), with the amount next to "past due", "behind",
+    # "overdue" or "arrears". A date ("past due on 11/15"), a balance or minimum, another
+    # debt's arrears, or arrears she has since caught up ("I was $100 behind, but I caught
+    # up") is never read as what she owes now.
     def debt_past_due_grounded?(action, history_scope:, prior_action:, source_text: nil)
       return true unless action[:type].in?(%w[create_debt update_debt])
 
@@ -2627,12 +2663,54 @@ module HouseholdFinance
       return true if prior_action && cents_or_nil(prior_action[:past_due]) == cents
 
       participant_messages(history_scope: history_scope, source_text: source_text).any? do |text|
-        money_fields_grounded_in_source?({ past_due: cents }, text, DEBT_MONEY_FIELD_PATTERNS)
+        current_arrears_stated?(text.to_s, cents, debt_label_for(action))
       end
     end
 
-    # A due day is only proposed when she wrote that day next to "due" ("due on the 15th",
-    # "the 15th of each month").
+    def current_arrears_stated?(text, cents, label)
+      clauses = text.squish.split(ARREARS_CLAUSE_BREAK)
+      caught_up_later = ->(index) { clauses.drop(index).any? { |clause| clause.match?(ARREARS_CAUGHT_UP) && !other_debt_named?(clause, label) } }
+      clauses.each_with_index.any? do |clause, index|
+        next false unless clause.match?(DEBT_MONEY_FIELD_PATTERNS.fetch(:past_due))
+        next false if clause.match?(ARREARS_PAST_TENSE) || caught_up_later.call(index)
+        next false if other_debt_named?(clause, label)
+
+        occurrences = money_occurrences(clause).reject { |occurrence| calendar_number?(clause, occurrence) }
+        occurrences.any? { |occurrence| occurrence.fetch(:amount_cents) == cents } &&
+          money_fields_grounded_in_source?({ past_due: cents }, clause, DEBT_MONEY_FIELD_PATTERNS, occurrences: occurrences)
+      end
+    end
+
+    # "11/15", "November 15", "the 15th" and "15th of November" are dates, not dollars.
+    def calendar_number?(text, occurrence)
+      before = text[0...occurrence.fetch(:start)]
+      after = text[occurrence.fetch(:finish)..].to_s
+      matched = text[occurrence.fetch(:start)...occurrence.fetch(:finish)]
+      return false if matched.include?("$")
+
+      before.match?(%r{\d\s*/\s*\z}) || after.match?(%r{\A\s*/\s*\d}) || after.match?(/\A(?:st|nd|rd|th)\b/i) ||
+        before.match?(/#{CALENDAR_MONTH_PATTERN.source}\s*\z/i) || after.match?(/\A\s+(?:of\s+)?#{CALENDAR_MONTH_PATTERN.source}/i)
+    end
+
+    def debt_label_for(action)
+      reference = Array(context[:active_debts]).find { |debt| debt[:id].to_i == action[:debt_id].to_i && action[:debt_id].to_i.positive? }
+      (reference && reference[:label]).presence || action[:debt_name].to_s
+    end
+
+    # The clause names a different saved debt and not this one, so its amount is not this
+    # debt's arrears.
+    def other_debt_named?(clause, label)
+      names = Array(context[:active_debts]).map { |debt| debt[:label].to_s }.compact_blank
+      mentioned = ->(name) { clause.match?(/(?<![[:alnum:]])#{Regexp.escape(name)}(?![[:alnum:]])/i) }
+      return false if label.present? && mentioned.call(label)
+
+      names.any? { |name| !name.casecmp(label.to_s).zero? && mentioned.call(name) }
+    end
+
+    # A due day is the day of the month a recurring payment is due, written as one:
+    # "due on the 15th", "the 15th of each month", "due day is 15". A dollar amount
+    # ("the minimum due is $25") or a one-off calendar date ("due on November 15",
+    # "due 11/15", "due on the 15th of December") is never read as a due day.
     def debt_due_day_grounded?(action, history_scope:, prior_action:, source_text: nil)
       return true unless action[:type].in?(%w[create_debt update_debt])
 
@@ -2641,13 +2719,29 @@ module HouseholdFinance
       return true if value.casecmp("unknown").zero? # discard_ungrounded_debt_unknowns already checked she said so
 
       day = value.to_i
-      return true if prior_action&.dig(:due_day).to_s.to_i == day && day.positive?
+      return false unless day.between?(1, 31)
+      return true if prior_action&.dig(:due_day).to_s.to_i == day
 
-      day_pattern = /\b#{day}(?:st|nd|rd|th)?\b/i
-      participant_messages(history_scope: history_scope, source_text: source_text).any? do |text|
-        text.to_s.match?(/\bdue\b.{0,30}#{day_pattern.source}/i) || text.to_s.match?(/#{day_pattern.source}\s+(?:of\s+)?(?:the|each|every)\s+month/i) ||
-          text.to_s.match?(/#{day_pattern.source}.{0,20}\bdue\b/i)
-      end
+      participant_messages(history_scope: history_scope, source_text: source_text).any? { |text| monthly_due_day_stated?(text.to_s.squish, day) }
+    end
+
+    def monthly_due_day_stated?(text, day)
+      number = "(?<![\\d$/.,])#{day}(?![\\d/]|[.,]\\d|\\s*(?:%|dollars?|bucks|percent))"
+      ordinal = "#{number}(?:st|nd|rd|th)"
+      not_a_date = "(?!\\s+(?:of\\s+)?#{CALENDAR_MONTH_PATTERN.source})(?!\\s*,?\\s*(?:19|20)\\d{2}\\b)"
+      forms = [
+        # "due on the 15th", "due the 15th", "due on the 15", "due by the 15th"
+        /\bdue\b(?:\s+(?:on|by))?\s+the\s+#{number}(?:st|nd|rd|th)?\b#{not_a_date}/i,
+        # "due on 15th", "due 15th"
+        /\bdue\b(?:\s+(?:on|by))?\s+#{ordinal}\b#{not_a_date}/i,
+        # "due day is 15", "due date: the 15th", "due day 15"
+        /\bdue\s+(?:day|date)\b(?:\s+is|\s*:|\s+on)?\s+(?:the\s+)?#{number}(?:st|nd|rd|th)?\b#{not_a_date}/i,
+        # "the 15th of each month", "15th of every month", "the 15 each month"
+        /(?:\bthe\s+#{number}(?:st|nd|rd|th)?|#{ordinal})\b\s+(?:of\s+)?(?:the|each|every)\s+month\b/i,
+        # "every month on the 15th", "monthly on the 15th"
+        /\b(?:(?:every|each)\s+month|monthly)\s+on\s+the\s+#{number}(?:st|nd|rd|th)?\b/i
+      ]
+      forms.any? { |pattern| text.match?(pattern) }
     end
 
     def debt_apr_grounded?(action, history_scope:, prior_action:, source_text: nil)
@@ -2687,18 +2781,29 @@ module HouseholdFinance
       action.merge(setup_updates: setup_updates)
     end
 
-    def discard_ungrounded_debt_unknowns(action, history_scope:, prior_action:)
+    # "unknown" clears a saved debt field back to not entered. It is kept only when her
+    # own words (the item's exact source span in a write plan) say that field is unknown,
+    # so "Rename Visa to Travel Card" can never clear Visa's past-due amount or due day.
+    def discard_ungrounded_debt_unknowns(action, history_scope:, prior_action:, source_text: nil)
       return action unless action[:type].in?(%w[create_debt update_debt update_debt_tracking])
 
       filtered = action.dup
-      { amount: /balance|amount\s+owed|owe/i, minimum_payment: /minimum|payment/i, past_due: /past[\s-]+due|behind|overdue|arrears/i, due_day: /due\s+(?:date|day)|due\s+on|when\s+it(?:'|’)?s\s+due/i }.each do |field, field_pattern|
+      DEBT_CLEAR_FIELD_PATTERNS.each do |field, field_pattern|
         next unless filtered[field].to_s.casecmp("unknown").zero?
-        next if prior_action&.dig(field).to_s.casecmp("unknown").zero?
-        next if participant_messages(history_scope: history_scope).any? { |text| debt_unknown_stated?(text, field_pattern) }
+        next if source_text.nil? && prior_action&.dig(field).to_s.casecmp("unknown").zero?
+        next if participant_messages(history_scope: history_scope, source_text: source_text).any? { |text| debt_unknown_stated?(text, field_pattern) }
 
         filtered[field] = ""
       end
       filtered
+    end
+
+    def self.debt_clear_stated?(text, field)
+      pattern = DEBT_CLEAR_FIELD_PATTERNS.fetch(field.to_sym)
+      unknown = DEBT_UNKNOWN_PATTERN
+      normalized = text.to_s.squish
+      normalized.match?(/(?:#{pattern.source}).{0,40}(?:#{unknown.source})/i) ||
+        normalized.match?(/(?:#{unknown.source}).{0,40}(?:#{pattern.source})/i)
     end
 
     def discard_ungrounded_account_unknown(action, history_scope:, prior_action:)
@@ -2765,7 +2870,7 @@ module HouseholdFinance
     end
 
     def debt_unknown_stated?(text, field_pattern)
-      unknown = /unknown|not\s+sure|do\s+not\s+know|don't\s+know/i
+      unknown = DEBT_UNKNOWN_PATTERN
       normalized = text.to_s.squish
       normalized.match?(/(?:#{field_pattern.source}).{0,40}(?:#{unknown.source})/i) ||
         normalized.match?(/(?:#{unknown.source}).{0,40}(?:#{field_pattern.source})/i)
@@ -3324,8 +3429,8 @@ module HouseholdFinance
       false
     end
 
-    def money_fields_grounded_in_source?(proposed_fields, source_text, field_patterns)
-      occurrences = money_occurrences(source_text)
+    def money_fields_grounded_in_source?(proposed_fields, source_text, field_patterns, occurrences: nil)
+      occurrences ||= money_occurrences(source_text)
       labels = field_patterns.flat_map do |field, pattern|
         source_text.to_s.to_enum(:scan, pattern).map do
           match = Regexp.last_match

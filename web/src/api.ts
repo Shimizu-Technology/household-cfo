@@ -522,7 +522,8 @@ export type DashboardData = {
     /** Statement files waiting for review; Home links to them without loading every import. */
     document_review_count?: number
     /** Active debts she is behind on, largest first. */
-    past_due_debts?: Array<{ id: number; label: string; past_due_cents: number; due_day: number | null }>
+    /** balance_conflict: the past-due amount is above the debt's own recorded balance, so one of them is wrong. */
+    past_due_debts?: Array<{ id: number; label: string; past_due_cents: number; due_day: number | null; balance_conflict?: boolean }>
     current_month_label: string
     current_month_index: number
     current_year: number
@@ -4139,11 +4140,15 @@ export async function createDebt(values: DebtInput, idempotencyKey: string): Pro
   return payload.debt
 }
 
-export async function updateDebt(id: number, values: DebtInput, idempotencyKey: string): Promise<DebtRecord> {
+/**
+ * Sends only the changed fields. `expected` holds what the form showed for each one; the
+ * server refuses the edit (409 changed_elsewhere) if any of them changed since.
+ */
+export async function updateDebt(id: number, values: Partial<DebtInput>, idempotencyKey: string, expected?: Partial<DebtInput>): Promise<DebtRecord> {
   const payload = await fetchJson<{ debt: DebtRecord }>(`/api/v1/debts/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ debt: values }),
+    body: JSON.stringify(expected && Object.keys(expected).length > 0 ? { debt: values, expected } : { debt: values }),
   })
   return payload.debt
 }

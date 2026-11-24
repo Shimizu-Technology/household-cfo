@@ -564,3 +564,10 @@ it('lists a debt she is behind on first in what needs her, and opens Debt', asyn
   await userEvent.click(first)
   expect(openDebt).toHaveBeenCalledTimes(1)
 })
+
+it('says plainly when a past-due amount is more than the debt\'s balance', () => {
+  const conflicted = { ...dashboard, action_center: { ...dashboard.action_center, past_due_debts: [{ id: 8, label: 'Store card', past_due_cents: 4000, due_day: 3, balance_conflict: true }] } } as DashboardData
+  render(<HomeScreen dashboard={conflicted} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={vi.fn()} />)
+  const [first] = within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('button')
+  expect(first.textContent).toBe('Store card: $40 past due · more than its balance, check both')
+})

@@ -17,3 +17,26 @@ export function parseDueDay(text: string): number | null | 'invalid' {
   const value = Number(text)
   return Number.isInteger(value) && value >= 1 && value <= 31 ? value : 'invalid'
 }
+
+/**
+ * The fields she changed on a debt form, and what the form showed for each before she
+ * changed it. Only these are sent, with `expected` holding the old values, so an older
+ * tab never overwrites a past-due amount or due day saved since (from Mia or another
+ * device): an unchanged field is not sent, and a changed one is refused if it moved.
+ */
+export function changedDebtFields<T extends Record<string, unknown>>(values: T, baseline: T): { changes: Partial<T>; expected: Partial<T> } {
+  const changes: Partial<T> = {}
+  const expected: Partial<T> = {}
+  for (const key of Object.keys(values) as Array<keyof T>) {
+    if (Object.is(values[key], baseline[key])) continue
+    changes[key] = values[key]
+    expected[key] = baseline[key]
+  }
+  return { changes, expected }
+}
+
+/** "Caught up" for an explicit $0, the amount when behind, nothing when not entered. */
+export function pastDueStatus(pastDue: number | null | undefined): 'caught_up' | 'behind' | null {
+  if (pastDue == null) return null
+  return pastDue > 0 ? 'behind' : 'caught_up'
+}

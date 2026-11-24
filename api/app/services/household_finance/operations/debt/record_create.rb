@@ -23,8 +23,10 @@ module HouseholdFinance
           values[:balance_cents] = 0 unless values.key?(:balance_cents)
           values[:minimum_payment_known] = false unless values.key?(:minimum_payment_known)
           values[:minimum_payment_cents] = 0 unless values.key?(:minimum_payment_cents)
-          values[:due_day] = normalize_due_day(input[:due_day])
-          values[:past_due_cents] = normalize_past_due(input).fetch(:past_due_cents, nil)
+          # Only when she gave them: a Mia card prepared before these fields existed has
+          # neither key, and adding nil keys here would break its exact input check.
+          values[:due_day] = normalize_due_day(input[:due_day]) if input.key?(:due_day)
+          values.merge!(normalize_past_due(input))
           values
         end
 

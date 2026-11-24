@@ -311,9 +311,11 @@ module HouseholdFinance
       }
     end
 
+    # due_date (an exact next payment date) is never recorded; due_day is the recurring day
+    # of the month she may enter. With no canonical rows (summary mode) neither is known.
     def debt_unavailable_fields(debts)
-      fields = %w[fees exact_payoff_amount]
-      fields.unshift("due_date") if debts.where(due_day: nil).exists?
+      fields = %w[due_date fees exact_payoff_amount]
+      fields.unshift("due_day") if !debts.exists? || debts.where(due_day: nil).exists?
       fields.unshift("apr") if debts.where(interest_rate_percent: nil).exists?
       fields.unshift("balance") if debts.where(balance_known: false).exists?
       fields.unshift("minimum_payment") if debts.where(minimum_payment_known: false).exists?

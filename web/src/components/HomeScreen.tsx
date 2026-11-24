@@ -113,7 +113,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
       <h3 className="ui-section home-needs-heading">Needs you</h3>
       <div className="ui-rows">
         {pastDueDebts.map(debt => {
-          const text = <>{debt.label}: <span className="home-past-due-amount">{formatReviewMoney(debt.past_due_cents)}</span> past due{debt.due_day != null ? ` · next payment due on the ${ordinalDay(debt.due_day)}` : ''}</>
+          const text = <>{debt.label}: <span className="home-past-due-amount">{formatReviewMoney(debt.past_due_cents)}</span> past due{debt.balance_conflict ? ' · more than its balance, check both' : debt.due_day != null ? ` · next payment due on the ${ordinalDay(debt.due_day)}` : ''}</>
           return onOpenDebt
             ? <HomeAction key={`past-due-${debt.id}`} urgent onClick={onOpenDebt}>{text}</HomeAction>
             : <p key={`past-due-${debt.id}`} className="ui-row home-past-due-row"><span className="ui-dot ui-dot--red" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{text}</span></span></p>

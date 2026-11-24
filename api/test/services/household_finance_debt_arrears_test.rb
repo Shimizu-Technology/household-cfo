@@ -73,7 +73,7 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
     dashboard = HouseholdFinance::DataPresenter.new(@household).dashboard
     past_due = dashboard.fetch(:action_center).fetch(:past_due_debts)
 
-    assert_equal [ { id: @car.id, label: "Car loan", past_due_cents: 150_000, due_day: 15 } ], past_due
+    assert_equal [ { id: @car.id, label: "Car loan", past_due_cents: 150_000, due_day: 15, balance_conflict: false } ], past_due
     debt = HouseholdFinance::DataPresenter.new(@household).debt_records.find { |record| record[:id] == @car.id }
     assert_equal 1_500.0, debt.fetch(:past_due)
     assert_equal 15, debt.fetch(:due_day)
@@ -129,7 +129,19 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
 
     assert_equal [ 15, "$1,500" ], records.fetch("Car loan").values_at(:due_day, :past_due)
     assert_nil records.fetch("Store card")[:past_due]
-    assert_includes debts.fetch(:unavailable_fields), "due_date"
+    assert_includes debts.fetch(:unavailable_fields), "due_date", "an exact next due date is never recorded"
+    assert_includes debts.fetch(:unavailable_fields), "due_day", "the Store card has no due day"
+
+    @card.update!(due_day: 3)
+    fields = HouseholdFinance::MiaContextBuilder.new(@household).send(:debt_context).fetch(:unavailable_fields)
+    assert_includes fields, "due_date", "a recurring due day is not an exact due date"
+    refute_includes fields, "due_day"
+
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 1_000_000, debt_summary_balance_known: true,
+      debt_summary_minimum_payment_cents: 34_500, debt_summary_minimum_payment_known: true)
+    summary = HouseholdFinance::MiaContextBuilder.new(@household).send(:debt_context)
+    assert_empty summary.fetch(:records)
+    assert_equal %w[due_day due_date], summary.fetch(:unavailable_fields) & %w[due_day due_date], "no canonical rows means neither is known"
     assert_equal "Car loan", debts.dig(:past_due, :debts, 0, :label)
     assert_match "comes first", debts.dig(:past_due, :rule)
   end
@@ -155,5 +167,167 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
     applied = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
     assert applied.success?, applied.errors.to_sentence
     assert_equal [ 22, 9_540 ], [ @card.reload.due_day, @card.past_due_cents ]
+  end
+
+  test "a Mia create card prepared before due day and past due existed still applies" do
+    draft = mia_draft(type: "create_debt", debt_name: "Clinic plan", debt_type: "medical", balance: "800", minimum_payment: "40")
+    make_pre_deploy!(draft.mia_action_items.sole)
+
+    applied = HouseholdFinance::MiaActionDraftApplier.new(draft.reload, user: @user).call
+    assert applied.success?, applied.errors.to_sentence
+    clinic = @household.debts.find_by!(label: "Clinic plan")
+    assert_equal [ 80_000, nil, nil ], [ clinic.balance_cents, clinic.due_day, clinic.past_due_cents ]
+  end
+
+  test "a Mia update card prepared before due day and past due existed still applies, and a changed value still makes it stale" do
+    draft = mia_draft(type: "update_debt", debt_id: @card.id, debt_name: "Store card", amount: "600")
+    make_pre_deploy!(draft.mia_action_items.sole)
+
+    applied = HouseholdFinance::MiaActionDraftApplier.new(draft.reload, user: @user).call
+    assert applied.success?, applied.errors.to_sentence
+    assert_equal [ 60_000, nil, nil ], [ @card.reload.balance_cents, @card.due_day, @card.past_due_cents ]
+
+    stale = mia_draft(type: "update_debt", debt_id: @card.id, debt_name: "Store card", amount: "550")
+    make_pre_deploy!(stale.mia_action_items.sole)
+    @card.update!(past_due_cents: 3_500)
+    refused = HouseholdFinance::MiaActionDraftApplier.new(stale.reload, user: @user).call
+    refute refused.success?, "a past-due amount entered since the card was drafted makes it stale"
+    assert_equal 60_000, @card.reload.balance_cents
+  end
+
+  test "a current Mia arrears card applies once and a retry replays it" do
+    draft = mia_draft(type: "update_debt", debt_id: @card.id, debt_name: "Store card", past_due: "95.40", due_day: "22")
+    first = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+    assert first.success?, first.errors.to_sentence
+    assert_equal [ 22, 9_540 ], [ @card.reload.due_day, @card.past_due_cents ]
+
+    item = draft.reload.mia_action_items.sole
+    replay = HouseholdFinance::Operations::Runner.new(@household, user: @user).run_prepared(
+      prepared: item.prepared_operation, prepared_fingerprint: item.prepared_operation_fingerprint,
+      idempotency_key: "mia-action-item:#{item.id}", source: "mia", reviewable: item
+    )
+    assert replay.replayed?
+    assert_equal [ 22, 9_540 ], [ @card.reload.due_day, @card.past_due_cents ]
+  end
+
+  test "applying a rename-only plan keeps both debts' past-due amounts and due days" do
+    @card.update!(past_due_cents: 0, due_day: 5)
+    message = "Rename Car loan to Truck loan and rename Store card to Blue Card"
+    clears = { past_due: "unknown", due_day: "unknown" }
+    draft = mia_draft({ type: "compound_action_plan", actions: [
+      { source_text: "Rename Car loan to Truck loan", depends_on: [], action: { type: "update_debt", debt_id: @car.id, debt_name: "Car loan", new_name: "Truck loan", **clears } },
+      { source_text: "rename Store card to Blue Card", depends_on: [], action: { type: "update_debt", debt_id: @card.id, debt_name: "Store card", new_name: "Blue Card", **clears } }
+    ] }, raw_input: message)
+
+    applied = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+    assert applied.success?, applied.errors.to_sentence
+    assert_equal [ "Truck loan", 15, 150_000 ], [ @car.reload.label, @car.due_day, @car.past_due_cents ]
+    assert_equal [ "Blue Card", 5, 0 ], [ @card.reload.label, @card.due_day, @card.past_due_cents ]
+  end
+
+  test "a debt the catch-up pays off is not the target for extra principal" do
+    # Visa: $100 balance, all of it past due. Catching up pays it off.
+    visa = @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 10_000, minimum_payment_cents: 2_500,
+      interest_rate_percent: 35.0, past_due_cents: 10_000)
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.", debt_order: "both").call
+
+    assert_includes answer, "Catching up Visa pays off its $100 balance, so its $25 minimum is not owed on top."
+    assert_includes answer, "($345 total across the debts listed)", "Visa's minimum is not counted on top of its catch-up"
+    # Hand check: $5,200 - $3,000 - $370 minimums = $1,830 surplus; - $1,600 catch-up + $25
+    # Visa minimum not owed = $255 for extra principal, under the Store card's $605 cap.
+    assert_includes answer, "up to $255 from the current monthly surplus to Store card"
+    refute_match(/(?:Avalanche|Snowball): Visa first/, answer)
+    refute_match(/up to \$[\d,]+ to Visa/, answer)
+    assert_includes answer, "Avalanche: Store card first", "the highest APR left after the catch-up"
+
+    first = HouseholdFinance::DebtStrategyPlanner.new(@household, "What should I pay first?", debt_order: "both").arrears_first_answer
+    refute_includes first, "extra payments go to Visa"
+    refute_match(/starts with Visa/, first)
+    assert visa.reload.past_due?
+  end
+
+  test "a refund covers the catch-up before any principal when the monthly surplus cannot" do
+    # Hand check: $5,200 income - $3,000 essentials - $345 minimums = $1,855 surplus.
+    # $5,000 of new essentials makes it -$3,145, so none of the $1,500 catch-up is funded.
+    @household.expense_items.create!(label: "Clinic stay", stack_key: "non_discretionary", amount_cents: 500_000, cadence: "monthly")
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "I have a $50 refund. Should I use it on debt? Give me a debt plan.", debt_order: "avalanche").call
+
+    assert_includes answer, "Put the whole $50 toward the past-due amounts first."
+    assert_includes answer, "That still leaves $1,450 past due, so none of it goes to extra principal."
+    refute_includes answer, "avalanche targets"
+    assert_includes answer, "3. Hold extra principal until the past-due amounts are caught up."
+    assert_includes answer, "The $50 one-time amount goes to the catch-up first, as above."
+  end
+
+  test "a past-due amount above a $0 balance is a records problem, never debt-free" do
+    @car.destroy!
+    @card.update!(balance_cents: 0, minimum_payment_cents: 0, past_due_cents: 4_000)
+    planner = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.")
+
+    refute planner.confirmed_debt_free?
+    answer = planner.call
+    assert_includes answer, "Your debt records do not add up yet: Store card shows $40 past due but a $0 balance."
+    refute_includes answer, "no outstanding debt"
+    refute_match(/up to \$/, answer)
+    assert_nil HouseholdFinance::MiaCoachAnswerer.new(@household, "Give me a debt plan.").send(:confirmed_debt_free_answer)
+    assert HouseholdFinance::DataPresenter.new(@household).dashboard.dig(:action_center, :past_due_debts, 0, :balance_conflict)
+  end
+
+  test "an overdue debt under a $0 approved summary is surfaced, not called debt-free" do
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 0, debt_summary_balance_known: true,
+      debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: true)
+    planner = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.")
+
+    refute planner.confirmed_debt_free?
+    answer = planner.call
+    assert_includes answer, "your approved debt summary shows $0 owed in all, less than the $1,500 past due"
+    refute_includes answer, "no outstanding debt"
+  end
+
+  test "a statement balance below the past-due amount keeps both fields and flags the conflict" do
+    offer = { "kind" => "debt", "key" => "a" * 64, "tracked_account_id" => 41, "identity_version_id" => 1, "revision_approval_id" => 1,
+      "as_of_on" => "2026-11-30", "statement_label" => "Talun Auto ····2210", "balance_cents" => 100_000,
+      "choices" => [ { "id" => @car.id } ], "target" => nil, "can_add_new" => false }
+    # The approved statement's offer, without building a statement import here.
+    operation = Class.new(HouseholdFinance::Operations::Debt::StatementBalanceApply) { define_method(:current_offer) { |_input| offer } }.new(@household)
+    input = { tracked_account_id: 41, offer_key: "a" * 64, debt_id: @car.id }
+    prepared = operation.prepare(input)
+    assert_equal [ 15, 150_000 ], prepared.predicted_after_snapshot.fetch("debt").values_at("due_day", "past_due_cents")
+    Debt.transaction { operation.execute!(prepared, source: "manual_ui") }
+    assert_equal [ 100_000, 15, 150_000 ], [ @car.reload.balance_cents, @car.due_day, @car.past_due_cents ]
+    assert HouseholdFinance::DebtArrears.new(@household).conflict?
+    assert_includes HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call, "Car loan shows $1,500 past due but a $1,000 balance"
+  end
+
+  private
+
+  def mia_draft(command = nil, raw_input: "model resolved debt command", **fields)
+    command ||= fields
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: Date.current.year)
+    result = HouseholdFinance::MiaActionDraftBuilder.new(@household, user: @user, annual_budget_manager: manager,
+      raw_input: raw_input, command: command).call
+    assert result.proposal, result.response
+    session = @household.chat_sessions.find_or_create_by!(user: @user) { |record| record.title = "Ask Mia" }
+    result.proposal.create_draft!(
+      source_chat_message: session.chat_messages.create!(role: "user", content: "Please update my debt"),
+      assistant_chat_message: session.chat_messages.create!(role: "assistant", content: "Review this change")
+    )
+  end
+
+  # Rewrites a card the way it was stored before the two debt fields existed.
+  def make_pre_deploy!(item)
+    legacy_keys = %w[due_day past_due_cents]
+    strip = ->(value) { value.is_a?(Hash) ? value.except(*legacy_keys) : value }
+    prepared = item.prepared_operation.deep_dup
+    prepared["normalized_input"] = strip.call(prepared["normalized_input"])
+    %w[before_snapshot predicted_after_snapshot].each do |key|
+      prepared[key]["debt"] = strip.call(prepared[key]["debt"]) if prepared[key]["debt"]
+    end
+    prepared["before_fingerprint"] = HouseholdFinance::Operations::PreparedOperation.fingerprint(prepared["before_snapshot"])
+    item.update_columns(
+      payload: strip.call(item.payload), before_snapshot: strip.call(item.before_snapshot), after_snapshot: strip.call(item.after_snapshot),
+      prepared_operation: prepared, prepared_operation_fingerprint: HouseholdFinance::Operations::PreparedOperation.from_hash(prepared).fingerprint
+    )
+    refute item.reload.prepared_operation.fetch("normalized_input").key?("past_due_cents")
   end
 end
