@@ -51,7 +51,8 @@ module HouseholdFinance
       "consumer_debt" => "pay down consumer debt (cards and loans, not the mortgage)",
       "surplus" => "keep the rest as surplus"
     }.freeze
-    WINDFALL_SPLIT_WORDS = { "emergency_fund" => "to the emergency fund", "consumer_debt" => "to consumer debt", "surplus" => "kept as surplus" }.freeze
+    WINDFALL_SPLIT_WORDS = { "emergency_fund" => "to the emergency fund", "consumer_debt_catch_up" => "to catch up what you are behind on",
+      "consumer_debt" => "to consumer debt", "surplus" => "kept as surplus" }.freeze
     WINDFALL_UNKNOWN_WORDS = {
       "emergency_fund" => "emergency fund step: add your savings balances and planned monthly costs in My Money so I can size the gap",
       "consumer_debt" => "debt step: list your cards and loans (not the mortgage) in My Money so I can size it"
@@ -416,6 +417,12 @@ module HouseholdFinance
       purchase_question? || readiness_coaching || debt_strategy || matched_guardrail || tax_context || conditional_monthly_income_question?
     end
 
+    # A debt she is behind on is the first thing to pay, whatever the payoff order.
+    def arrears_first_answer
+      DebtStrategyPlanner.new(household, message, conversation_messages: conversation_messages, ensure_plan: ensure_plan,
+        debt_order: method_settings.fetch("debt_order")).arrears_first_answer
+    end
+
     def debt_strategy_answer
       return nil if normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
       return nil if normalized_message.match?(/balance transfer/i)
@@ -553,6 +560,9 @@ module HouseholdFinance
       return nil unless normalized_message.match?(BILL_TRIAGE_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
       return nil if readiness_follow_up?
+
+      arrears_first = arrears_first_answer
+      return arrears_first if arrears_first
 
       "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and monthly debt payments outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
     end
@@ -1657,12 +1667,22 @@ module HouseholdFinance
     # The program's windfall order, and for a named amount the dollars at each step.
     def windfall_line(amount_cents)
       order = method_settings.fetch("windfall")
-      steps = order.each_with_index.map { |key, index| "#{index + 1}) #{WINDFALL_STEP_WORDS.fetch(key)}" }.join(", ")
+      catch_up_cents = WindfallSplit.consumer_catch_up_cents(household)
+      steps = order.each_with_index.map do |key, index|
+        words = WINDFALL_STEP_WORDS.fetch(key)
+        words = "#{words}, catching up the #{money(catch_up_cents)} past due before any extra principal" if key == "consumer_debt" && catch_up_cents.positive?
+        "#{index + 1}) #{words}"
+      end.join(", ")
       line = "Your program's order for one-time money: #{steps}."
+      conflicts = DebtArrears.new(household).conflicts
+      if conflicts.any?
+        check_note = catch_up_cents.positive? ? "Check your debts before any extra principal goes to debt." : "Check your debts before any of it goes to debt."
+        line = "#{line} Your debt records do not add up yet: #{conflicts.to_sentence}. #{check_note}"
+      end
       return line unless amount_cents&.positive?
 
       split = WindfallSplit.new(amount_cents: amount_cents, order: order, emergency_fund_gap_cents: windfall_emergency_fund_gap_cents,
-        consumer_debt_cents: WindfallSplit.consumer_debt_cents(household)).call
+        consumer_debt_cents: WindfallSplit.consumer_debt_cents(household), catch_up_cents: catch_up_cents).call
       parts = split.map do |step|
         next "#{money(step[:cents])} #{WINDFALL_SPLIT_WORDS.fetch(step[:key])}" if step[:room_known]
 

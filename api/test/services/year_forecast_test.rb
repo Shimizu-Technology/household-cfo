@@ -325,6 +325,112 @@ class YearForecastTest < ActiveSupport::TestCase
     assert_equal 150_000, march[:outflow_cents]
   end
 
+  # Talun's debts tracked one by one: the car loan is due on the 10th, the store card on the 31st, the clinic plan has
+  # no saved due day.
+  test "a debt with a saved due day counts on that day, so a midmonth balance leaves out one already due" do
+    @household.household_profile.update!(debt_tracking_mode: "individual")
+    @household.debts.create!(label: "Car loan", debt_type: "auto_loan", balance_cents: 980_000, minimum_payment_cents: 31_000, due_day: 10)
+    @household.debts.create!(label: "Store card", debt_type: "credit_card", balance_cents: 64_000, minimum_payment_cents: 3_500, due_day: 31)
+    @household.accounts.first.update!(balance_as_of_on: "2026-01-15")
+    result = forecast(today: Date.new(2026, 1, 20))
+    january, february = result[:months]
+
+    # January from the 16th: the car loan (due the 10th) is in the balance; the store card is due the 31st.
+    assert_equal [ [ "Store card", 3_500, "2026-01-31" ] ], january[:debts].map { |item| item.values_at(:name, :amount_cents, :due_on) }
+    assert_equal 10_000 + 3_500, january[:outflow_cents]
+    assert_not_includes january[:estimate_reasons], HouseholdFinance::YearForecast::DEBT_MAY_BE_PAID, "every counted payment has a date after the balance"
+    # February has 28 days: the store card's 31st falls on the 28th.
+    assert_equal [ [ "Car loan", "2026-02-10" ], [ "Store card", "2026-02-28" ] ], february[:debts].map { |item| item.values_at(:name, :due_on) }
+    assert_equal 10_000 + 31_000 + 3_500, february[:outflow_cents]
+    assert_equal [ 10, 31 ], result[:debt_bills].map { |debt| debt[:due_day] }
+
+    @household.debts.create!(label: "Clinic plan", debt_type: "medical", balance_cents: 30_000, minimum_payment_cents: 2_500)
+    january = forecast(today: Date.new(2026, 1, 20))[:months].first
+    assert_includes january[:debts].map { |item| item[:name] }, "Clinic plan"
+    assert_includes january[:estimate_reasons], HouseholdFinance::YearForecast::DEBT_MAY_BE_PAID, "an undated minimum may already be paid"
+  end
+
+  test "a debt's past-due amount counts once, owed now, never above its balance" do
+    @household.household_profile.update!(debt_tracking_mode: "individual")
+    @household.debts.create!(label: "Car loan", debt_type: "auto_loan", balance_cents: 980_000, minimum_payment_cents: 31_000, due_day: 10, past_due_cents: 150_000)
+    # All of Visa's $100 balance is past due: catching up pays it off, so no minimum follows.
+    @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 10_000, minimum_payment_cents: 2_500, due_day: 5, past_due_cents: 10_000)
+    months = forecast[:months]
+
+    assert_equal [ [ "Car loan", 150_000, true ], [ "Visa", 10_000, true ], [ "Car loan", 31_000, false ] ],
+      months[0][:debts].map { |item| item.values_at(:name, :amount_cents, :past_due) }
+    assert_equal 10_000 + 150_000 + 10_000 + 31_000, months[0][:outflow_cents]
+    assert_equal [ "Car loan (past due)", "Visa (past due)" ], months[0][:reasons].first(2)
+    assert_equal [ [ "Car loan", 31_000 ] ], months[1][:debts].map { |item| item.values_at(:name, :amount_cents) }, "owed once, in the first month only"
+    assert_equal 10_000 + 31_000, months[1][:outflow_cents]
+    assert_equal 150_000, forecast[:debt_bills].find { |debt| debt[:name] == "Car loan" }[:past_due_cents]
+
+    # A balance dated January 31 starts the forecast in February, which then carries the past-due amount.
+    @household.accounts.first.update!(balance_as_of_on: "2026-01-31")
+    february = forecast(today: Date.new(2026, 1, 31))[:months].first
+    assert_equal "February", february[:label]
+    assert_equal [ 150_000, 10_000 ], february[:debts].select { |item| item[:past_due] }.map { |item| item[:amount_cents] }
+  end
+
+  # Talun Telecom: $120 a month, $951.70 behind from earlier months.
+  test "a recurring bill's past-due amount counts once in the first month, outside the monthly plan" do
+    @household.bills.create!(name: "Talun Telecom", amount_cents: 12_000, due_on: "2026-01-12", repeat_months: 1, past_due_cents: 95_170)
+    months = forecast[:months]
+    assert_equal 10_000 + 12_000 + 95_170, months[0][:outflow_cents]
+    assert_equal "Talun Telecom (past due)", months[0][:reasons].first
+    past_due = months[0][:bills].find { |bill| bill[:past_due] }
+    assert_equal [ "Talun Telecom", 95_170, "2026-01-01" ], past_due.values_at(:name, :amount_cents, :due_on)
+    assert_equal 10_000 + 12_000, months[1][:outflow_cents]
+    assert_empty months[1][:bills].select { |bill| bill[:past_due] }
+  end
+
+  test "a one-time bill she marked paid never counts its past-due amount" do
+    @household.bills.create!(name: "Talun clinic visit", amount_cents: 18_000, due_on: "2026-01-05", paid_on: "2026-01-03", past_due_cents: 5_000)
+    assert_equal 10_000, forecast[:months][0][:outflow_cents]
+  end
+
+  # Power: $80 a month in Utilities ($100 plan), $200 behind. Spending recorded this month counts toward the plan and
+  # the catch-up together, so a catch-up already paid this month is not counted twice.
+  test "a category bill's past-due amount adds to the plan, and this month's spending counts toward both" do
+    @household.bills.first.update!(past_due_cents: 20_000)
+    assert_equal 30_000, forecast[:months][0][:outflow_cents], "$100 plan + $200 past due"
+
+    @rows[0][:months][0][:actual] = 250
+    assert_equal 30_000, forecast[:months][0][:outflow_cents], "$250 spent so far is part of the $300 owed, not on top"
+    @rows[0][:months][0][:actual] = 350
+    assert_equal 35_000, forecast[:months][0][:outflow_cents], "spending above the plan and catch-up counts"
+    assert_equal 10_000, forecast[:months][1][:outflow_cents]
+  end
+
+  test "a midmonth balance counts a category catch-up already paid before it only once" do
+    @household.accounts.first.update!(balance_as_of_on: "2026-01-15")
+    @household.bills.first.update!(due_on: "2026-01-10", past_due_cents: 20_000)
+    @rows[0][:months][0][:actual] = 250
+    # $100 plan + $200 past due = $300 owed; $250 was spent before the 15th, so $50 is left.
+    january = forecast(today: Date.new(2026, 1, 20))[:months][0]
+    assert_equal 5_000, january[:outflow_cents]
+
+    @rows[0][:months][0][:actual] = 50
+    # $50 spent before the 15th leaves $50 of plan and the whole $200 catch-up.
+    assert_equal 25_000, forecast(today: Date.new(2026, 1, 20))[:months][0][:outflow_cents]
+  end
+
+  test "an unpaid one-time bill keeps its past-due amount after its date until she marks it paid" do
+    @household.bills.create!(name: "Talun clinic visit", amount_cents: 12_000, due_on: "2026-01-10", past_due_cents: 20_000)
+    on_the_day = forecast(today: Date.new(2026, 1, 10))[:months][0]
+    day_after = forecast(today: Date.new(2026, 1, 11))[:months][0]
+    # $100 utilities plan + $120 bill + $200 past due, the same before and after the date.
+    assert_equal 42_000, on_the_day[:outflow_cents]
+    assert_equal 42_000, day_after[:outflow_cents]
+    assert_equal [ [ 12_000, true ], [ 20_000, false ] ],
+      day_after[:bills].select { |bill| bill[:name] == "Talun clinic visit" }.map { |bill| [ bill[:amount_cents], bill[:was_this_paid] ] }
+    mia = HouseholdFinance::YearForecastAnswer.new(@household, "What's due this month?", today: Date.new(2026, 1, 11)).call
+    assert_includes mia, "Past due and owed now: Talun clinic visit, $200."
+
+    @household.bills.find_by!(name: "Talun clinic visit").update!(paid_on: "2026-01-11")
+    assert_equal 10_000, forecast(today: Date.new(2026, 1, 11))[:months][0][:outflow_cents]
+  end
+
   private
 
   def row(category, monthly)

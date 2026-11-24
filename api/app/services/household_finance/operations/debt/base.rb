@@ -33,6 +33,34 @@ module HouseholdFinance
           {}
         end
 
+        # Blank clears it back to "not entered"; 0 means she confirmed she is caught up.
+        def normalize_past_due(input)
+          if input.key?(:past_due)
+            value = input[:past_due]
+            return { past_due_cents: nil } if value.nil? || value.to_s.strip.blank?
+
+            return { past_due_cents: Money.cents!(value, message: "Past-due amount must be a number with no more than two decimal places") }
+          end
+          return {} unless input.key?(:past_due_cents)
+
+          value = input[:past_due_cents]
+          return { past_due_cents: nil } if value.nil?
+          cents = Integer(value)
+          raise ArgumentError, "Past-due amount cannot be negative" if cents.negative?
+          { past_due_cents: cents }
+        rescue TypeError
+          raise ArgumentError, "Past-due amount must be a number"
+        end
+
+        def normalize_due_day(value)
+          return nil if value.nil? || value.to_s.strip.blank?
+          day = Integer(value.to_s.strip, 10)
+          raise ArgumentError unless day.between?(1, 31)
+          day
+        rescue ArgumentError, TypeError
+          raise ArgumentError, "Due day must be a day of the month from 1 to 31"
+        end
+
         def normalize_apr(value)
           return nil if value.nil? || value.to_s.strip.blank?
           decimal = BigDecimal(value.to_s)
@@ -47,6 +75,12 @@ module HouseholdFinance
           lock ? scope.lock : scope
         end
 
+        # Optional fields added after release. Each is left out of a snapshot while it is
+        # blank, so a review card prepared before the field existed keeps the same
+        # "before" fingerprint. Any entered value (including $0) is included, so a change
+        # still makes the card stale.
+        OPTIONAL_SNAPSHOT_KEYS = %i[due_day past_due_cents].freeze
+
         def debt_snapshot(debt)
           {
             debt: {
@@ -58,18 +92,21 @@ module HouseholdFinance
               minimum_payment_cents: debt.minimum_payment_cents,
               minimum_payment_known: debt.minimum_payment_known?,
               interest_rate_percent: debt.interest_rate_percent&.to_f,
+              due_day: debt.due_day,
+              past_due_cents: debt.past_due_cents,
               active: debt.active?,
               archived_at: debt.archived_at&.iso8601,
               source_type: debt.source_type,
               source_metadata: debt.source_metadata
-            }
+            }.reject { |key, value| key.in?(OPTIONAL_SNAPSHOT_KEYS) && value.nil? }
           }
         end
 
         def verify_debt_prediction!(predicted, actual)
           expected = predicted.fetch("debt")
           observed = actual.fetch("debt")
-          return true if expected == observed.slice(*expected.keys)
+          # A blank optional field is absent from the saved snapshot; it matches a predicted nil.
+          return true if expected.all? { |key, value| observed.key?(key) ? observed[key] == value : value.nil? && key.to_sym.in?(OPTIONAL_SNAPSHOT_KEYS) }
           raise Operations::Runner::InvalidPreparedOperation, "The saved debt did not match the reviewed change. Nothing changed."
         end
 

@@ -2,10 +2,20 @@
 
 module HouseholdFinance
   # Request-local comparisons. Rational cents preserve the annual split exactly.
+  #
+  # Known consumer-debt arrears (catch_up_cents, each debt row's past_due_cents) are a
+  # one-time obligation: a spend must fit the year's surplus after the catch-up, and
+  # debt-payment cash catches them up before any extra avalanche principal. Recurring
+  # costs, the base surplus and the emergency-fund target stay on the recurring baseline.
   class CfoFilterCalculator
-    def initialize(income_cents:, costs_cents:, savings_cents:, debt_cents:, method:, target_runway_months: nil, debts: nil, wealth_tone: nil)
+    # debt_conflicts: DebtArrears#conflicts. While any exist, the total debt is unknown,
+    # so no payoff estimate or debt-free reading is given; known arrears still come first.
+    def initialize(income_cents:, costs_cents:, savings_cents:, debt_cents:, method:, target_runway_months: nil, debts: nil, wealth_tone: nil, catch_up_cents: 0, debt_conflicts: [])
+      @debt_conflicts = Array(debt_conflicts)
+      debt_cents = nil if @debt_conflicts.any?
       @income, @costs, @savings, @debt, @method = income_cents, costs_cents, savings_cents, debt_cents, method
       @debts, @wealth_tone = debts, wealth_tone
+      @catch_up = catch_up_cents.to_i
       @target_runway_months = target_runway_months || method.fetch("emergency_fund_months")
     end
 
@@ -14,14 +24,19 @@ module HouseholdFinance
       @base = surplus
       @debt_months_cache = {}
       @debt_outcomes = {}
+      @catch_up_months = {}
       @gap = @costs && @savings && [ (@costs * @target_runway_months).round - @savings, 0 ].max
       annual = surplus && surplus * 12
-      after = annual && annual - spend_cents
+      # The catch-up is owed once, from this year's surplus, before money is free to spend.
+      after = annual && annual - @catch_up - spend_cents
       before_state = state(surplus)
       {
-        base_surplus_cents: surplus, annual_surplus_cents: annual, after_spend_surplus_cents: after,
+        base_surplus_cents: surplus, annual_surplus_cents: annual, catch_up_cents: @catch_up, after_spend_surplus_cents: after,
+        debt_records_conflict: @debt_conflicts,
         exceeds_annual_surplus: spend_cents.positive? && after && after.negative?,
-        before: before_state, after: state(after && Rational(after, 12)),
+        # The monthly projection pays the catch-up inside the debt budget, so it is not
+        # taken from the monthly surplus a second time here.
+        before: before_state, after: state(annual && Rational(annual - spend_cents, 12)),
         lift_cents: lift_cents, lift_split: @method.fetch("income_split").transform_values { |percent| (Rational(lift_cents * percent, 100)).round(2).to_f },
         lifted: state(@base && @base + lift_cents, base_surplus: surplus && surplus + lift_cents),
         targets: [ target("Emergency fund", before_state[:emergency_months], before_state[:emergency_tone], :emergency),
@@ -29,7 +44,7 @@ module HouseholdFinance
         priority_statuses: { emergency_fund: before_state[:emergency_tone], debt: before_state[:debt_tone],
           wealth: @wealth_tone, experiences: @gap && surplus && (before_state[:emergency_months] && before_state[:emergency_months] <= 24 ? "yellow" : "red") },
         windfall: WindfallSplit.new(amount_cents: windfall_cents, order: @method.fetch("windfall"),
-          emergency_fund_gap_cents: @gap, consumer_debt_cents: @debt).call
+          emergency_fund_gap_cents: @gap, consumer_debt_cents: @debt, catch_up_cents: @catch_up).call
       }
     end
 
@@ -42,6 +57,7 @@ module HouseholdFinance
       ef = emergency_months(surplus)
       debt = debt_months(surplus)
       { emergency_months: ef, emergency_tone: @gap && surplus && ReadinessCalculator.target_tone(ef, status),
+        catch_up_months: debt_known? && surplus && @catch_up.positive? ? @catch_up_months[[ surplus, 1200 ]] : nil,
         debt_months: debt, debt_timing: debt.nil? && debt_known? ? @debt_outcomes[surplus] : nil, debt_tone: debt_known? && surplus ? ReadinessCalculator.target_tone(debt, status) : nil,
         surplus_tone: base_surplus && (base_surplus >= status.fetch("surplus_green_cents") ? "green" : base_surplus >= status.fetch("surplus_yellow_cents") ? "yellow" : "red") }
     end
@@ -60,6 +76,8 @@ module HouseholdFinance
 
     # Fixed aggregate minimums, with freed payments and extra going to highest APR.
     # Monthly interest is calculated before payments; no invented APR or minimum.
+    # Cash left after the minimums catches up known past-due amounts first (lowering the
+    # same balance, unpaid arrears carried to the next month), then goes to principal.
     def debt_months(lift, limit: 1200)
       return nil unless lift && debt_known?
       return 0 if @debt.zero?
@@ -71,26 +89,39 @@ module HouseholdFinance
     end
 
     def amortize_debt(lift, limit:)
+      key = [ lift, limit ]
       # Integer numerators share a denominator: preserve fractional cents
       # exactly without Rational arithmetic in the amortization loop.
       rates = @debts.map { |debt| debt[:rate_percent].to_r / 1200 }
       factor = rates.map(&:denominator).reduce(1, :lcm)
       rows = @debts.zip(rates).sort_by { |_, rate| -rate }.map do |debt, rate|
-        { balance: debt[:balance_cents] * 1200, minimum: debt[:minimum_cents],
+        arrears = [ debt[:past_due_cents].to_i, debt[:balance_cents] ].min
+        { balance: debt[:balance_cents] * 1200, minimum: debt[:minimum_cents], arrears: [ arrears, 0 ].max * 1200,
           interest: rate.numerator * (factor / rate.denominator) }
       end
+      behind = rows.any? { |debt| debt[:arrears].positive? }
       denominator = 1200
       budget = @debts.sum { |debt| debt[:minimum_cents] } + [ lift, 0 ].max * share("debt")
       budget_numerator, budget_denominator = budget.numerator, budget.denominator
       1.upto(limit) do |month|
         previous_balances = rows.map { |debt| debt[:balance] * factor }
         denominator *= factor
-        rows.each { |debt| debt[:balance] *= factor + debt[:interest] }
+        rows.each { |debt| debt[:balance] *= factor + debt[:interest]; debt[:arrears] *= factor }
         left = budget_numerator * denominator / budget_denominator
         rows.each do |debt|
           payment = [ debt[:minimum] * denominator, debt[:balance] ].min
           debt[:balance] -= payment
           left -= payment
+        end
+        rows.each do |debt|
+          payment = [ left, debt[:arrears], debt[:balance] ].min
+          debt[:balance] -= payment
+          debt[:arrears] = [ debt[:arrears] - payment, debt[:balance] ].min
+          left -= payment
+        end
+        if behind && rows.all? { |debt| debt[:arrears] <= 0 }
+          @catch_up_months[key] = month
+          behind = false
         end
         rows.each do |debt|
           payment = [ left, debt[:balance] ].min

@@ -41,16 +41,25 @@ module Api
 
       def scope = current_household.bills.current_picture
 
-      def audit!(bill, action, before: nil, after: nil)
+      def audit!(bill, action, before: nil, after: nil, past_due_before: bill.past_due_cents)
         current_household.household_audit_events.create!(actor_type: "user", user: current_user,
           event_type: "bill.#{action}", auditable_type: "Bill", auditable_id: bill.id, occurred_at: Time.current,
-          metadata: { name: bill.name, amount_cents_before: before, amount_cents_after: after, due_on: bill.due_on&.iso8601, repeat_months: bill.repeat_months, paid_on: bill.paid_on&.iso8601 })
+          metadata: { name: bill.name, amount_cents_before: before, amount_cents_after: after, due_on: bill.due_on&.iso8601, repeat_months: bill.repeat_months, paid_on: bill.paid_on&.iso8601,
+            past_due_cents_before: past_due_before, past_due_cents_after: bill.past_due_cents })
       end
 
       def save_bill(bill, status)
-        values = params.require(:bill).permit(:name, :amount, :due_on, :repeat_months, :must_pay, :estimate, :budget_category_id).to_h
+        values = params.require(:bill).permit(:name, :amount, :due_on, :repeat_months, :must_pay, :estimate, :budget_category_id, :past_due).to_h
         amount = values.delete("amount")
         values[:amount_cents] = HouseholdFinance::Money.cents!(amount) unless amount.nil?
+        # Blank clears it back to not entered; 0 means she is caught up.
+        if values.key?("past_due")
+          past_due = values.delete("past_due")
+          values[:past_due_cents] = past_due.to_s.strip.blank? ? nil : HouseholdFinance::Money.cents!(past_due, message: "Past-due amount must be a number")
+        end
+        # A new bill with no past-due amount has none: a lost-response retry that leaves it out must match a blank
+        # saved amount, so clearing it on the retry is a conflict rather than silently keeping the first amount.
+        values[:past_due_cents] = nil if bill.new_record? && !values.key?(:past_due_cents)
         # A repeating bill has no single payment to mark paid.
         values[:paid_on] = nil if values["repeat_months"].present?
         replayed = false
@@ -71,8 +80,9 @@ module Api
           # The amount before this edit is the one committed now, not the one read before the lock.
           bill.reload unless created
           before = created ? nil : bill.amount_cents
+          past_due_before = created ? nil : bill.past_due_cents
           bill.update!(values)
-          audit!(bill, created ? "created" : "updated", before: before, after: bill.amount_cents)
+          audit!(bill, created ? "created" : "updated", before: before, after: bill.amount_cents, past_due_before: past_due_before)
         end
         if conflict
           return render json: { errors: [ "This bill was already saved before your changes. Refresh to see it, then edit it again." ], bill_id: conflict.id },

@@ -3,6 +3,7 @@ import { formatRunway } from '../lib/runway'
 import { YearOutlook } from './YearOutlook'
 import { guamTodayIso } from '../lib/householdDate'
 import { formatReviewMoney } from '../lib/reviewMoney'
+import { ordinalDay } from '../lib/debtArrears'
 import { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useBrand } from '../contexts/brandContextValue'
 
@@ -64,7 +65,9 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
   const plan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
   const left = answer?.plan_left_cents
   const purchaseCount = canReviewTransactions ? actionCenter.transaction_review_count : 0
-  const needsReview = purchaseCount > 0 || pendingImportCount > 0 || (canAskMia && actionCenter.mia_action_review_count > 0)
+  // Debts she is behind on lead what needs her: catching up comes before anything extra.
+  const pastDueDebts = actionCenter.past_due_debts ?? []
+  const needsReview = pastDueDebts.length > 0 || purchaseCount > 0 || pendingImportCount > 0 || (canAskMia && actionCenter.mia_action_review_count > 0)
   const goal = dashboard.readiness_path.target_runway_months
   const known = answer?.money_in_cents != null && answer.planned_out_cents != null && left != null
   const income = Math.max(0, answer?.money_in_cents ?? 0)
@@ -109,6 +112,12 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
     {needsReview && <section className="home-needs-you home-other-reviews ui-card" aria-label="Needs you">
       <h3 className="ui-section home-needs-heading">Needs you</h3>
       <div className="ui-rows">
+        {pastDueDebts.map(debt => {
+          const text = <>{debt.label}: <span className="home-past-due-amount">{formatReviewMoney(debt.past_due_cents)}</span> past due{debt.balance_conflict ? ' · more than its balance, check both' : debt.due_day != null ? ` · next payment due on the ${ordinalDay(debt.due_day)}` : ''}</>
+          return onOpenDebt
+            ? <HomeAction key={`past-due-${debt.id}`} urgent onClick={onOpenDebt}>{text}</HomeAction>
+            : <p key={`past-due-${debt.id}`} className="ui-row home-past-due-row"><span className="ui-dot ui-dot--red" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{text}</span></span></p>
+        })}
         {purchaseCount > 0 && <div className="home-next-action"><HomeAction onClick={onReviewTransactions}>{`Review ${purchaseCount} purchase${purchaseCount === 1 ? '' : 's'}`}</HomeAction></div>}
         {pendingImportCount > 0 && <HomeAction secondary onClick={onReviewImports}>{pendingImportCount} file{pendingImportCount === 1 ? '' : 's'} waiting for review</HomeAction>}
         {canAskMia && actionCenter.mia_action_review_count > 0 && <HomeAction secondary onClick={onReviewMiaActions}>{actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'} waiting for review</HomeAction>}
@@ -165,8 +174,8 @@ function Chevron() {
   return <svg className="ui-row__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
 }
 
-function HomeAction({ children, onClick, secondary = false, className = '' }: { children: ReactNode; onClick: () => void; secondary?: boolean; className?: string }) {
-  return <button type="button" className={`ui-row ${secondary ? 'text-button' : ''} ${className}`} onClick={onClick}><span className={`ui-dot${secondary ? ' ui-dot--attention' : ''}`} aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{children}</span></span><Chevron /></button>
+function HomeAction({ children, onClick, secondary = false, urgent = false, className = '' }: { children: ReactNode; onClick: () => void; secondary?: boolean; urgent?: boolean; className?: string }) {
+  return <button type="button" className={`ui-row ${secondary ? 'text-button' : ''} ${className}`} onClick={onClick}><span className={`ui-dot${urgent ? ' ui-dot--red' : secondary ? ' ui-dot--attention' : ''}`} aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{children}</span></span><Chevron /></button>
 }
 
 export function HomeMoneyValues({ answer }: { answer?: DashboardData['month_answer'] }) {

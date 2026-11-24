@@ -16,7 +16,9 @@ module Api
       end
 
       def update
-        result = runner.run(operation_key: "debt.record.update", input: debt_params.to_h.merge(debt_id: scoped_debt.id), idempotency_key: required_idempotency_key)
+        input = debt_params.to_h.merge(debt_id: scoped_debt.id)
+        input[:expected] = expected_params.to_h if expected_params.present?
+        result = runner.run(operation_key: "debt.record.update", input: input, idempotency_key: required_idempotency_key)
         render_debt_response(result.subject)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Debt not found" ] }, status: :not_found
@@ -76,7 +78,19 @@ module Api
       end
 
       def debt_params
-        params.fetch(:debt, {}).permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent)
+        params.fetch(:debt, {}).permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent, :due_day, :past_due)
+      end
+
+      # The values her form showed for each field she changed. The update is refused when
+      # one of them changed elsewhere since, so an older tab cannot erase a newer value.
+      def expected_params
+        @expected_params ||= begin
+          expected = params.fetch(:expected, {})
+          raise ArgumentError, "expected must be an object of the values the form showed" unless expected.is_a?(ActionController::Parameters) || expected.is_a?(Hash)
+
+          expected = ActionController::Parameters.new(expected) if expected.is_a?(Hash)
+          expected.permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent, :due_day, :past_due)
+        end
       end
 
       def tracking_params
@@ -93,6 +107,8 @@ module Api
           balance: debt.balance_known? ? HouseholdFinance::Money.dollars(debt.balance_cents) : nil,
           minimum_payment: debt.minimum_payment_known? ? HouseholdFinance::Money.dollars(debt.minimum_payment_cents) : nil,
           interest_rate_percent: debt.interest_rate_percent&.to_f,
+          due_day: debt.due_day,
+          past_due: debt.past_due_cents && HouseholdFinance::Money.dollars(debt.past_due_cents),
           active: debt.active?, archived_at: debt.archived_at&.iso8601,
           source_type: debt.source_type, source_metadata: debt.source_metadata
         }

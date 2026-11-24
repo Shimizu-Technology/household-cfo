@@ -4,6 +4,10 @@ import { Button } from './Button'
 
 export type FilterScenario = {
   annual_surplus_cents?: number | null
+  /** Known past-due amounts on cards and loans, owed once from this year's surplus. */
+  catch_up_cents?: number
+  /** Debt records that cannot both be true; no payoff estimate until she checks them. */
+  debt_records_conflict?: string[]
   exceeds_annual_surplus?: boolean
   lift_split?: Record<string, number>
   lifted?: FilterState
@@ -27,7 +31,7 @@ export type RunwayScenario = {
 const money = (cents: number | null) => cents === null ? 'Unknown' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 const cents = (value: string) => /^\d+(\.\d{1,2})?$/.test(value) && Number(value) <= 9999999.99 ? Math.round(Number(value) * 100) : null
 const months = (state: FilterState) => state.emergency_months === null ? state.emergency_tone ? 'Not reached at this surplus' : 'Unknown' : `${state.emergency_months} months`
-const debtTiming = (state: FilterState) => state.debt_months != null ? `${state.debt_months} months` : state.debt_timing === 'never' ? 'Never pays off at these payments' : state.debt_tone ? 'Takes more than 100 years at these payments' : 'Unknown: add debt balances, rates and minimums'
+const debtTiming = (state: FilterState, conflict = false) => conflict ? 'Unknown: check your debts' : state.debt_months != null ? `${state.debt_months} months` : state.debt_timing === 'never' ? 'Never pays off at these payments' : state.debt_tone ? 'Takes more than 100 years at these payments' : 'Unknown: add debt balances, rates and minimums'
 const initialMoney = (value: number | null) => value === null ? '' : String(value / 100)
 
 function Amount({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -54,7 +58,9 @@ export function CfoScenarios({ initial, onAsk }: { initial: FilterScenario; onAs
     } catch { if (id === request.current) setError('Could not calculate this possibility. Try again; nothing changed.') }
     finally { if (id === request.current) setBusy(false) }
   }
+  const debtConflict = (result.debt_records_conflict?.length ?? 0) > 0
   return <div className="finance-scenarios">
+    {debtConflict && <p role="status">Your debt records do not add up yet: {result.debt_records_conflict?.join('; ')}. Check your debts before this plans any payoff.</p>}
     <article className="ui-card">
       <h3>I am considering spending…</h3>
       <p>A one-time purchase reduces this year’s base surplus, excluding bonuses. The remainder is divided over 12 months using your method’s emergency fund and debt shares. This comparison is not a saved plan.</p>
@@ -66,9 +72,10 @@ export function CfoScenarios({ initial, onAsk }: { initial: FilterScenario; onAs
       <div aria-live="polite">
         <p>Emergency fund: {months(result.before)} ({result.before.emergency_tone ?? 'unknown'}) → {months(result.after)} ({result.after.emergency_tone ?? 'unknown'})</p>
         <p>Annual surplus after spending: <strong>{money(result.after_spend_surplus_cents)}</strong> ({result.before.surplus_tone ?? 'unknown'} → {result.after.surplus_tone ?? 'unknown'})</p>
+        {(result.catch_up_cents ?? 0) > 0 && <p>That already sets aside {money(result.catch_up_cents ?? 0)} to catch up what you are behind on, before any extra principal.</p>}
         {result.base_surplus_cents !== null && result.base_surplus_cents < 0 && <p>The plan already spends more than it brings in.</p>}
         {result.exceeds_annual_surplus && <p>This exceeds the year’s surplus and draws from savings.</p>}
-        <p>Debt: {debtTiming(result.before)} → {debtTiming(result.after)} ({result.after.debt_tone ?? 'unknown'})</p>
+        <p>Debt: {debtTiming(result.before, debtConflict)} → {debtTiming(result.after, debtConflict)} ({result.after.debt_tone ?? 'unknown'})</p>
       </div>
     </article>
     <article className="ui-card">
@@ -84,7 +91,7 @@ export function CfoScenarios({ initial, onAsk }: { initial: FilterScenario; onAs
       </form>
       <div aria-live="polite">
         {hasLift && result.lift_split && <p>Lift split: EF {money(result.lift_split.emergency_fund)} · Debt {money(result.lift_split.debt)} · Surplus {money(result.lift_split.surplus)}</p>}
-        {hasLift && result.lifted && <p>With this lift: EF {months(result.lifted)} ({result.lifted.emergency_tone ?? 'unknown'}); debt {debtTiming(result.lifted)} ({result.lifted.debt_tone ?? 'unknown'}); base surplus {result.lifted.surplus_tone ?? 'unknown'}.</p>}
+        {hasLift && result.lifted && <p>With this lift: EF {months(result.lifted)} ({result.lifted.emergency_tone ?? 'unknown'}); debt {debtTiming(result.lifted, debtConflict)} ({result.lifted.debt_tone ?? 'unknown'}); base surplus {result.lifted.surplus_tone ?? 'unknown'}.</p>}
       </div>
     </article>
     <article className="ui-card">
@@ -93,7 +100,7 @@ export function CfoScenarios({ initial, onAsk }: { initial: FilterScenario; onAs
         <Amount label="Windfall amount ($)" value={windfall} onChange={setWindfall} />
         <Button type="submit" disabled={busy}>Split this windfall</Button>
       </form>
-      <ul aria-live="polite">{result.windfall.map(step => <li key={step.key}>{step.key === 'emergency_fund' ? 'Emergency fund' : step.key === 'consumer_debt' ? 'Consumer debt' : 'Surplus'}: {money(step.cents)}{!step.room_known && ' held here until the missing balance is known'}</li>)}</ul>
+      <ul aria-live="polite">{result.windfall.map(step => <li key={step.key}>{step.key === 'emergency_fund' ? 'Emergency fund' : step.key === 'consumer_debt_catch_up' ? 'Catch up past-due debt' : step.key === 'consumer_debt' ? 'Consumer debt' : 'Surplus'}: {money(step.cents)}{!step.room_known && (debtConflict && step.key === 'consumer_debt' ? ' held here until your debt records add up' : ' held here until the missing balance is known')}</li>)}</ul>
     </article>
     <article className="ui-card">
       <h3>Three ways to create room</h3>

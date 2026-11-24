@@ -10323,6 +10323,8 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .forecast-headline.is-short { color: var(--ink); font-weight: var(--weight-semibold); }
 .bill-warning { color: var(--ink); font-weight: var(--weight-semibold); }
 .bill-hint, .bill-notice { color: var(--muted); font-size: var(--text-sm); }
+/* Owed now from earlier bills: the danger colour, with tabular figures, like a debt's past-due amount. */
+.bill-past-due { color: var(--color-danger); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .bill-confirm { margin-top: 8px; }
 .bill-form { margin-top: 12px; }
 .bill-check { display: flex; gap: 8px; align-items: center; }

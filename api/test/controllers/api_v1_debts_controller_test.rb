@@ -38,6 +38,28 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert_nil debt.archived_at
   end
 
+  test "participant saves and clears a due day and past-due amount" do
+    user = create_user(email: "debt-arrears@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Car loan", debt_type: "auto_loan", balance_cents: 980_000, minimum_payment_cents: 31_000)
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { due_day: 15, past_due: 1_500 } },
+      headers: auth_headers(user, idempotency_key: "arrears-car"), as: :json
+    assert_response :success
+    body = JSON.parse(response.body).fetch("debt")
+    assert_equal [ 15, 1_500.0 ], body.values_at("due_day", "past_due")
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { due_day: nil, past_due: nil } },
+      headers: auth_headers(user, idempotency_key: "arrears-car-clear"), as: :json
+    assert_response :success
+    assert_equal [ nil, nil ], JSON.parse(response.body).fetch("debt").values_at("due_day", "past_due")
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { due_day: 32 } },
+      headers: auth_headers(user, idempotency_key: "arrears-car-bad"), as: :json
+    assert_response :unprocessable_entity
+    assert_nil debt.reload.due_day
+  end
+
   test "participant cannot mutate another household debt" do
     owner = create_user(email: "debt-owner@example.com")
     intruder = create_user(email: "debt-intruder@example.com")
@@ -152,6 +174,54 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_content
     assert_includes response.body, HouseholdFinance::Money::MAX_AMOUNT_TEXT
     assert_equal 0, household.household_profile.reload.debt_summary_balance_cents
+  end
+
+  test "a label edit from an older tab keeps a past-due amount and due day applied since" do
+    user = create_user(email: "debt-stale-tab@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 4_000)
+    # Applied from Mia in another tab after the older My Money form loaded.
+    debt.update!(past_due_cents: 9_540, due_day: 22)
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { label: "Travel Card" }, expected: { label: "Visa" } },
+      headers: auth_headers(user, idempotency_key: "stale-tab-label"), as: :json
+    assert_response :success
+    debt.reload
+    assert_equal [ "Travel Card", 22, 9_540 ], [ debt.label, debt.due_day, debt.past_due_cents ]
+  end
+
+  test "an older tab cannot overwrite a past-due amount that changed since it loaded" do
+    user = create_user(email: "debt-stale-arrears@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 4_000)
+    debt.update!(past_due_cents: 9_540, due_day: 22)
+
+    # The older form showed both fields blank and she cleared nothing; it still sends its
+    # stale blanks for the fields it thinks it is changing.
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { past_due: nil, due_day: nil }, expected: { past_due: nil, due_day: nil } },
+      headers: auth_headers(user, idempotency_key: "stale-tab-arrears"), as: :json
+    assert_response :conflict
+    assert_equal "changed_elsewhere", JSON.parse(response.body).fetch("code")
+    assert_equal [ 22, 9_540 ], [ debt.reload.due_day, debt.past_due_cents ]
+
+    patch "/api/v1/debts/#{debt.id}", params: { debt: { past_due: 0 }, expected: { past_due: 95.40 } },
+      headers: auth_headers(user, idempotency_key: "fresh-tab-arrears"), as: :json
+    assert_response :success
+    assert_equal [ 22, 0 ], [ debt.reload.due_day, debt.past_due_cents ]
+  end
+
+  test "an expected value that is not an object is refused, not a server error" do
+    user = create_user(email: "debt-expected-shape@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 4_000, past_due_cents: 9_540)
+
+    [ "Visa", [ "Visa" ], 95 ].each_with_index do |expected, index|
+      patch "/api/v1/debts/#{debt.id}", params: { debt: { past_due: 0 }, expected: expected },
+        headers: auth_headers(user, idempotency_key: "expected-shape-#{index}"), as: :json
+      assert_response :unprocessable_entity, expected.inspect
+      assert_includes JSON.parse(response.body).fetch("errors").join, "expected"
+    end
+    assert_equal 9_540, debt.reload.past_due_cents
   end
 
   private

@@ -32,6 +32,18 @@ class HouseholdFinanceMiaActionPlanTest < ActiveSupport::TestCase
     assert_equal 2, presented.fetch(:remaining_item_count)
   end
 
+  test "a plan item's replacement label never authorizes clearing a debt field" do
+    builder = HouseholdFinance::MiaActionPlanBuilder.new(@household, user: @user, annual_budget_manager: @manager, selected_month: Date.current.month, raw_input: "", actions: [])
+    [ "Due Day Unknown", "Past Due Unknown" ].each do |label|
+      action = { type: "update_debt", debt_id: 1, debt_name: "Visa", new_name: label, past_due: "unknown", due_day: "unknown" }
+      filtered = builder.send(:without_unstated_debt_clears, action, "Rename Visa to \"#{label}\"")
+      assert_equal [ "", "" ], filtered.values_at(:past_due, :due_day), label
+    end
+
+    kept = builder.send(:without_unstated_debt_clears, { type: "update_debt", new_name: "Travel Card", past_due: "unknown" }, "Rename Visa to Travel Card and the past due is unknown")
+    assert_equal "unknown", kept[:past_due]
+  end
+
   test "routes income source reviews to My Profile and schedule reviews to Budget" do
     presenter = HouseholdFinance::MiaActionDraftPresenter.new(MiaActionDraft.new)
     item = Struct.new(:operation_key, :action_type)
