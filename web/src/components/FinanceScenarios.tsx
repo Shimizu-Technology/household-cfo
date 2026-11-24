@@ -4,6 +4,8 @@ import { Button } from './Button'
 
 export type FilterScenario = {
   annual_surplus_cents?: number | null
+  /** Known past-due amounts on cards and loans, owed once from this year's surplus. */
+  catch_up_cents?: number
   exceeds_annual_surplus?: boolean
   lift_split?: Record<string, number>
   lifted?: FilterState
@@ -66,6 +68,7 @@ export function CfoScenarios({ initial, onAsk }: { initial: FilterScenario; onAs
       <div aria-live="polite">
         <p>Emergency fund: {months(result.before)} ({result.before.emergency_tone ?? 'unknown'}) → {months(result.after)} ({result.after.emergency_tone ?? 'unknown'})</p>
         <p>Annual surplus after spending: <strong>{money(result.after_spend_surplus_cents)}</strong> ({result.before.surplus_tone ?? 'unknown'} → {result.after.surplus_tone ?? 'unknown'})</p>
+        {(result.catch_up_cents ?? 0) > 0 && <p>That already sets aside {money(result.catch_up_cents ?? 0)} to catch up what you are behind on, before any extra principal.</p>}
         {result.base_surplus_cents !== null && result.base_surplus_cents < 0 && <p>The plan already spends more than it brings in.</p>}
         {result.exceeds_annual_surplus && <p>This exceeds the year’s surplus and draws from savings.</p>}
         <p>Debt: {debtTiming(result.before)} → {debtTiming(result.after)} ({result.after.debt_tone ?? 'unknown'})</p>
@@ -93,7 +96,7 @@ export function CfoScenarios({ initial, onAsk }: { initial: FilterScenario; onAs
         <Amount label="Windfall amount ($)" value={windfall} onChange={setWindfall} />
         <Button type="submit" disabled={busy}>Split this windfall</Button>
       </form>
-      <ul aria-live="polite">{result.windfall.map(step => <li key={step.key}>{step.key === 'emergency_fund' ? 'Emergency fund' : step.key === 'consumer_debt' ? 'Consumer debt' : 'Surplus'}: {money(step.cents)}{!step.room_known && ' held here until the missing balance is known'}</li>)}</ul>
+      <ul aria-live="polite">{result.windfall.map(step => <li key={step.key}>{step.key === 'emergency_fund' ? 'Emergency fund' : step.key === 'consumer_debt_catch_up' ? 'Catch up past-due debt' : step.key === 'consumer_debt' ? 'Consumer debt' : 'Surplus'}: {money(step.cents)}{!step.room_known && ' held here until the missing balance is known'}</li>)}</ul>
     </article>
     <article className="ui-card">
       <h3>Three ways to create room</h3>

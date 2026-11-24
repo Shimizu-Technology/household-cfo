@@ -129,6 +129,41 @@ class HouseholdFinanceToolCalculatorsTest < ActiveSupport::TestCase
     assert_equal 1200, runway(savings: savings)[:months]
   end
 
+  test "known arrears are a one-time catch-up paid before extra avalanche principal" do
+    method = CohortExperience::MethodSettings.defaults
+    debts = [
+      { balance_cents: 200_000, rate_percent: 29.99, minimum_cents: 5_000, past_due_cents: nil },
+      { balance_cents: 300_000, rate_percent: 5, minimum_cents: 10_000, past_due_cents: 50_000 }
+    ]
+    build = ->(income, debt_rows, catch_up) { HouseholdFinance::CfoFilterCalculator.new(income_cents: income, costs_cents: 400_000, savings_cents: 0,
+      debt_cents: 500_000, debts: debt_rows, method: method, catch_up_cents: catch_up) }
+
+    # $400 surplus, 25% to debt: $100 a month after the minimums catches up the $500 in five months.
+    funded = build.call(440_000, debts, 50_000).call(spend_cents: 400_000)
+    assert_equal 5, funded[:before][:catch_up_months]
+    assert_equal 50_000, funded[:catch_up_cents]
+    assert_equal 4_000_00 * 12 / 10 - 50_000 - 400_000, funded[:after_spend_surplus_cents], "the catch-up comes out of the year's surplus before a spend"
+    # The recurring baseline is unchanged: same base surplus and emergency-fund gap months.
+    plain = build.call(440_000, debts.map { |row| row.merge(past_due_cents: nil) }, 0).call
+    assert_equal plain[:base_surplus_cents], funded[:base_surplus_cents]
+    assert_equal plain[:before][:emergency_months], funded[:before][:emergency_months]
+    assert_nil plain[:before][:catch_up_months]
+    assert_operator funded[:before][:debt_months], :>=, plain[:before][:debt_months], "catching up the 5% loan delays the 29.99% card"
+
+    # Zero or negative surplus: nothing is left after the minimums, so the arrears carry
+    # forward until a paid-off card's minimum frees cash; never caught up in month one.
+    [ 400_000, 350_000 ].each do |income|
+      stuck = build.call(income, debts, 50_000).call(spend_cents: 10_000)
+      assert_operator stuck[:before][:catch_up_months], :>, 12, income
+      assert stuck[:exceeds_annual_surplus], "a spend cannot come before the catch-up"
+    end
+
+    # A windfall below the arrears goes entirely to the catch-up once the fund is full.
+    small = HouseholdFinance::CfoFilterCalculator.new(income_cents: 440_000, costs_cents: 400_000, savings_cents: 10_000_000,
+      debt_cents: 500_000, debts: debts, method: method, catch_up_cents: 50_000).call(windfall_cents: 20_000)[:windfall]
+    assert_equal [ [ "consumer_debt_catch_up", 20_000 ] ], small.map { |step| [ step[:key], step[:cents] ] }
+  end
+
   test "debt never payoff and the 1200 month boundary are distinct" do
     build = ->(balance, rate, minimum) { HouseholdFinance::CfoFilterCalculator.new(income_cents: 400_000, costs_cents: 400_000,
       savings_cents: 0, debt_cents: balance, debts: [ { balance_cents: balance, rate_percent: rate, minimum_cents: minimum } ], method: CohortExperience::MethodSettings.defaults).call }

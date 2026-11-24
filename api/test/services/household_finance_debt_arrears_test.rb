@@ -299,6 +299,28 @@ class HouseholdFinanceDebtArrearsTest < ActiveSupport::TestCase
     assert_includes HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call, "Car loan shows $1,500 past due but a $1,000 balance"
   end
 
+  test "the CFO filter and Mia's windfall answer catch up card and loan arrears first, never the mortgage" do
+    @household.debts.create!(label: "Talun home loan", debt_type: "mortgage", balance_cents: 25_000_000, minimum_payment_cents: 140_000,
+      interest_rate_percent: 6.0, past_due_cents: 280_000)
+    scenario = HouseholdFinance::DataPresenter.new(@household).send(:cfo_filter_scenario, windfall_cents: 5_000_000)
+    assert_equal 150_000, scenario.fetch(:catch_up_cents), "the mortgage's arrears are not consumer catch-up"
+    steps = scenario.fetch(:windfall).to_h { |step| [ step[:key], step[:cents] ] }
+    assert_equal 150_000, steps.fetch("consumer_debt_catch_up")
+    assert_equal %w[emergency_fund consumer_debt_catch_up consumer_debt], steps.keys.first(3)
+    assert_equal 980_000 + 64_000 - 150_000, steps.fetch("consumer_debt"), "principal room is what is left of the same balances"
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(@household, "I got a $1,000 bonus").send(:windfall_line, 100_000)
+    assert_includes answer, "catching up the $1,500 past due before any extra principal"
+
+    # Summary mode: the total is unknown, but the known arrears are still reported.
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 2_600_000, debt_summary_balance_known: true,
+      debt_summary_minimum_payment_cents: 175_000, debt_summary_minimum_payment_known: true)
+    split = HouseholdFinance::WindfallSplit.new(amount_cents: 200_000, order: %w[consumer_debt emergency_fund surplus], emergency_fund_gap_cents: 0,
+      consumer_debt_cents: HouseholdFinance::WindfallSplit.consumer_debt_cents(@household.reload),
+      catch_up_cents: HouseholdFinance::WindfallSplit.consumer_catch_up_cents(@household)).call
+    assert_equal [ { key: "consumer_debt_catch_up", cents: 150_000, room_known: true }, { key: "consumer_debt", cents: 50_000, room_known: false } ], split
+  end
+
   private
 
   def mia_draft(command = nil, raw_input: "model resolved debt command", **fields)

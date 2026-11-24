@@ -69,10 +69,35 @@ class HouseholdFinanceWindfallSplitTest < ActiveSupport::TestCase
     assert_equal 0, consumer_debt(household)
   end
 
+  test "within consumer debt, known past-due amounts are caught up before extra principal" do
+    # A windfall smaller than the arrears goes entirely to the catch-up.
+    assert_equal [ [ "consumer_debt_catch_up", 30_000 ] ], pairs(split(amount: 30_000, order: ORDER, gap: 0, debt: 200_000, catch_up: 50_000))
+    # Fully funded catch-up: the rest pays principal on what is left of the same balance.
+    assert_equal [ [ "consumer_debt_catch_up", 50_000 ], [ "consumer_debt", 150_000 ], [ "surplus", 50_000 ] ],
+      pairs(split(amount: 250_000, order: ORDER, gap: 0, debt: 200_000, catch_up: 50_000))
+    # The emergency fund gap still comes first under the program's order.
+    assert_equal [ [ "emergency_fund", 40_000 ], [ "consumer_debt_catch_up", 50_000 ], [ "consumer_debt", 10_000 ] ],
+      pairs(split(amount: 100_000, order: ORDER, gap: 40_000, debt: 200_000, catch_up: 50_000))
+  end
+
+  test "known arrears are reported even when the total consumer debt is unknown" do
+    assert_equal [ { key: "consumer_debt_catch_up", cents: 50_000, room_known: true }, { key: "consumer_debt", cents: 50_000, room_known: false } ],
+      split(amount: 100_000, order: ORDER, gap: 0, debt: nil, catch_up: 50_000)
+  end
+
+  test "the catch-up counts cards and loans, never the mortgage, and stops at each balance" do
+    household = household_with_debts
+    household.debts.create!(label: "Talun home loan", debt_type: "mortgage", balance_cents: 30_000_000, minimum_payment_cents: 150_000, past_due_cents: 300_000)
+    household.debts.create!(label: "Talun Visa", debt_type: "credit_card", balance_cents: 15_000, minimum_payment_cents: 2_500, past_due_cents: 20_000)
+    household.debts.create!(label: "Clinic plan", debt_type: "medical", balance_cents: 80_000, minimum_payment_cents: 4_000, past_due_cents: 8_000)
+    household.debts.create!(label: "Store card", debt_type: "credit_card", balance_cents: 64_000, minimum_payment_cents: 3_500)
+    assert_equal 15_000 + 8_000, HouseholdFinance::WindfallSplit.consumer_catch_up_cents(household.reload)
+  end
+
   private
 
-  def split(amount:, order:, gap:, debt:)
-    HouseholdFinance::WindfallSplit.new(amount_cents: amount, order: order, emergency_fund_gap_cents: gap, consumer_debt_cents: debt).call
+  def split(amount:, order:, gap:, debt:, catch_up: 0)
+    HouseholdFinance::WindfallSplit.new(amount_cents: amount, order: order, emergency_fund_gap_cents: gap, consumer_debt_cents: debt, catch_up_cents: catch_up).call
   end
 
   def pairs(split) = split.map { |step| [ step[:key], step[:cents] ] }

@@ -297,9 +297,11 @@ module HouseholdFinance
     # this request; they never update a plan, balance, goal or income source.
     def cfo_filter_scenario(spend_cents: 0, windfall_cents: 0, lift_cents: 0)
       facts = tool_facts
+      # Consumer debts only (never the mortgage). past_due_cents stays nil when not entered.
       CfoFilterCalculator.new(income_cents: facts[:income_cents], costs_cents: facts[:costs_cents],
         savings_cents: facts[:savings_cents], debt_cents: WindfallSplit.consumer_debt_cents(household), method: method_settings, target_runway_months: target_runway_months,
-        debts: debt_portfolio.mode == "individual" ? debt_portfolio.active_debts.reject { |debt| debt.debt_type == "mortgage" }.map { |debt| { balance_cents: debt.balance_known? ? debt.balance_cents : nil, rate_percent: debt.interest_rate_percent, minimum_cents: debt.minimum_payment_known? ? debt.minimum_payment_cents : nil } } : nil)
+        catch_up_cents: WindfallSplit.consumer_catch_up_cents(household),
+        debts: debt_portfolio.mode == "individual" ? debt_portfolio.active_debts.reject { |debt| debt.debt_type == "mortgage" }.map { |debt| { balance_cents: debt.balance_known? ? debt.balance_cents : nil, rate_percent: debt.interest_rate_percent, minimum_cents: debt.minimum_payment_known? ? debt.minimum_payment_cents : nil, past_due_cents: debt.past_due_cents } } : nil)
         .call(spend_cents: spend_cents, windfall_cents: windfall_cents, lift_cents: lift_cents)
         .merge(facts: facts, cut_choices: SpendingPatterns::Analyzer.new(household, protected: method_settings.fetch("protected")).call[:candidate_changes])
     end
@@ -855,7 +857,7 @@ module HouseholdFinance
     def windfall_step(key)
       case key
       when "emergency_fund" then "Fill the emergency fund gap"
-      when "consumer_debt" then "Pay down consumer debt (cards and loans, not the mortgage)"
+      when "consumer_debt" then "Pay down consumer debt (cards and loans, not the mortgage), catching up anything past due before extra principal"
       else "Keep the rest as surplus"
       end
     end
