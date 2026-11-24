@@ -83,3 +83,9 @@ test('income lift explains that a shortfall is covered before splitting surplus'
   render(<CfoScenarios initial={filter} />)
   expect(screen.getByText(/income lift first covers any shortfall/).textContent).toContain('remaining positive surplus')
 })
+test('a known catch-up is named in the spend check and comes before consumer debt in the windfall split', () => {
+  render(<CfoScenarios initial={{ ...filter, base_surplus_cents: 40000, after_spend_surplus_cents: 330000, catch_up_cents: 150000,
+    windfall: [{ key: 'emergency_fund', cents: 20000, room_known: true }, { key: 'consumer_debt_catch_up', cents: 150000, room_known: true }, { key: 'consumer_debt', cents: 30000, room_known: false }] }} />)
+  expect(screen.getByText('That already sets aside $1,500.00 to catch up what you are behind on, before any extra principal.')).toBeTruthy()
+  expect(Array.from(screen.getByText('Emergency fund: $200.00').closest('ul')!.children).map(item => item.textContent)).toEqual(['Emergency fund: $200.00', 'Catch up past-due debt: $1,500.00', 'Consumer debt: $300.00 held here until the missing balance is known'])
+})
