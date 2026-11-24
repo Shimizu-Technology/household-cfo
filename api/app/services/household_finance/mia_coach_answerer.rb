@@ -1493,7 +1493,9 @@ module HouseholdFinance
     def forecast_answer
       return @forecast_answer if defined?(@forecast_answer)
 
-      @forecast_answer = if YearForecastAnswer.question?(message) && !transaction_report?
+      # Purchase analysis and the Optionality runway scenario take precedence over the plain forecast.
+      @forecast_answer = if YearForecastAnswer.question?(message) && !transaction_report? && !purchase_question? &&
+          !tool_routing_message.match?(TRANSITION_INTENT_PATTERN)
         YearForecastAnswer.new(household, message, forecast: -> { active_plan[:year] == Date.current.year ? active_plan[:year_forecast] : nil }).call
       end
     end

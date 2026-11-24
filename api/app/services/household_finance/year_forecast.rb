@@ -51,6 +51,9 @@ module HouseholdFinance
         from = midmonth ? midmonth + 1 : month_start
         due = due_bills(open_bills, from, month_end, month_start == first)
         spent_after = midmonth ? spending_after(midmonth + 1, month_end) : {}
+        # Sinking bills dated on or before a midmonth balance were paid from cash already counted; spending up to their
+        # amount was those covered bills, not the part of the plan they don't cover.
+        paid_before = midmonth ? bills_due_by_category(bills, month_start, midmonth) : {}
         counted = rows.to_h do |row|
           cell = row[:months][index]
           planned = row[:active] ? Money.cents(cell[:planned]) : 0
@@ -63,7 +66,9 @@ module HouseholdFinance
           cents = if closed
             linked
           elsif midmonth
-            [ [ plan - (spent - after), 0 ].max + due_extra, linked, after ].max
+            before = spent - after
+            before = [ before - paid_before.fetch(row[:id], 0), 0 ].max if SINKING.include?(row[:stack_key])
+            [ [ plan - before, 0 ].max + due_extra, linked, after ].max
           else
             [ plan + due_extra, linked, spent ].max
           end
@@ -123,6 +128,12 @@ module HouseholdFinance
     end
 
     def long(date) = date.year == @today.year ? date.strftime("%B %-d") : date.strftime("%B %-d, %Y")
+
+    def bills_due_by_category(bills, from, to)
+      bills.each_with_object(Hash.new(0)) do |bill, totals|
+        totals[bill.budget_category_id] += bill.amount_cents * bill.due_dates(from, to).length if bill.budget_category_id
+      end
+    end
 
     def due_bills(bills, from, to, first_month)
       bills.flat_map do |bill|

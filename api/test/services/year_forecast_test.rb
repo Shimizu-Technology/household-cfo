@@ -181,6 +181,21 @@ class YearForecastTest < ActiveSupport::TestCase
     assert_equal 1_000, forecast(today: Date.new(2026, 1, 20))[:months][0][:outflow_cents]
   end
 
+  test "a covered sinking bill paid before a midmonth balance keeps the uncovered plan in that month" do
+    car = @household.budget_categories.create!(name: "Car", stack_key: "sinking_expected")
+    @rows << row(car, 250)
+    @household.bills.create!(name: "Car registration", amount_cents: 150_000, due_on: "2026-03-10", repeat_months: 12, budget_category: car)
+    @household.accounts.first.update!(balance_as_of_on: "2026-03-15")
+    @rows[1][:months][2][:actual] = 1_500
+    march = forecast(today: Date.new(2026, 3, 20))[:months][0]
+    assert_equal "2026-03-15", march[:from_on]
+    # $1,500 paid on the 10th was the covered bill, not the $125 a month the bill doesn't cover: $100 utilities + $125 car.
+    assert_equal 22_500, march[:outflow_cents]
+    # Spending beyond the bill still uses up the uncovered plan: $1,550 spent leaves $75 of the $125.
+    @rows[1][:months][2][:actual] = 1_550
+    assert_equal 17_500, forecast(today: Date.new(2026, 3, 20))[:months][0][:outflow_cents]
+  end
+
   test "partial current month income uses the larger of approved so far and the plan" do
     result = forecast(actual: { 1 => { actual_cents: 5000, partial: true, month_open: true } })
     assert_equal 20_000, result[:months][0][:income_cents]

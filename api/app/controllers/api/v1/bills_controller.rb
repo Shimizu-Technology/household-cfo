@@ -54,11 +54,17 @@ module Api
         # A repeating bill has no single payment to mark paid.
         values[:paid_on] = nil if values["repeat_months"].present?
         replayed = false
+        conflict = nil
         current_household.with_lock do
           HouseholdFinance::FinancialGenerationGuard.request!(current_household)
           created = bill.new_record?
           saved = scope.find_by(idempotency_key: bill.idempotency_key) if created
           if saved
+            # A lost-response retry sends the same values; edits made after it must not be dropped silently.
+            saved.assign_attributes(values)
+            changed = saved.changed?
+            saved.restore_attributes
+            conflict = saved if changed
             bill, replayed = saved, true
             next
           end
@@ -67,6 +73,10 @@ module Api
           before = created ? nil : bill.amount_cents
           bill.update!(values)
           audit!(bill, created ? "created" : "updated", before: before, after: bill.amount_cents)
+        end
+        if conflict
+          return render json: { errors: [ "This bill was already saved before your changes. Refresh to see it, then edit it again." ], bill_id: conflict.id },
+            status: :conflict
         end
         render json: { saved: true, bill_id: bill.id, replayed: replayed }, status: status
       rescue ActiveRecord::RecordInvalid => error

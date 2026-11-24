@@ -13693,10 +13693,54 @@ test('BOG UI household a bill removed while the forecast cannot refresh keeps th
   await expect.poll(() => removed).toBe(true)
   const warning = page.getByRole('alert').filter({ hasText: 'Your bill change was saved, but the forecast could not refresh.' })
   await expect(warning).toBeVisible()
+  // Budget stays usable: the rest of the plan is there, and the forecast offers a reload instead of old totals.
+  await expect(page.getByRole('heading', { name: 'Budget', exact: true })).toBeVisible()
+  const forecast = page.locator('.budget-year-forecast')
+  await expect(forecast.getByRole('button', { name: 'Reload forecast', exact: true })).toBeVisible()
+  await expect(forecast).toContainText('Forecast not available')
+  await expect(forecast.locator('.forecast-table')).toHaveCount(0)
+  await expect(forecast.getByText('Talun water')).toHaveCount(0)
   await openSection(page, 'Home')
   await expect(page).toHaveURL(/#Home$/)
-  // Home still shows the plan it had, under a warning that says to reload before using those totals.
+  // Home keeps the warning and hides the old forecast totals instead of showing them as current.
   await expect(warning).toContainText('Reload before using those totals.')
+  const outlook = page.locator('.home-screen .year-outlook')
+  await expect(outlook).toContainText('Forecast not available')
+  await expect(outlook.locator('.year-outlook-headline')).toHaveCount(0)
+  await expect(outlook).not.toContainText('would end with about')
+
+  // A fresh plan brings the forecast back on both screens.
+  workspace.budget.annual_plan.year_forecast = { ...workspace.budget.annual_plan.year_forecast, bills: [] }
+  await page.unroute('http://api.test/api/v1/budget?**')
+  await page.route('http://api.test/api/v1/budget?**', route => route.fulfill({ json: workspace.budget }))
+  await outlook.getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await forecast.getByRole('button', { name: 'Reload forecast', exact: true }).click()
+  await expect(forecast.locator('.forecast-table')).toBeVisible()
+  await expect(warning).toHaveCount(0)
+  await openSection(page, 'Home')
+  await expect(outlook.locator('.year-outlook-headline')).toBeVisible()
+  await expect(outlook).not.toContainText('Forecast not available')
+})
+
+test('BOG UI household the Home outlook opens the forecast for the year Home shows', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  const lastYear = structuredClone(workspace.budget)
+  lastYear.annual_plan.year = currentYear - 1
+  lastYear.annual_plan.months.forEach((month, index) => { month.starts_on = `${currentYear - 1}-${String(index + 1).padStart(2, '0')}-01`; month.ends_on = `${currentYear - 1}-${String(index + 1).padStart(2, '0')}-28` })
+  delete (lastYear.annual_plan as { year_forecast?: unknown }).year_forecast
+  await page.route(`http://api.test/api/v1/budget?year=${currentYear - 1}`, route => route.fulfill({ json: lastYear }))
+  await page.route(`http://api.test/api/v1/budget?year=${currentYear}`, route => route.fulfill({ json: workspace.budget }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Previous year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toHaveText(String(currentYear - 1))
+  await openSection(page, 'Home')
+  await page.locator('.home-screen .year-outlook').getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.locator('.budget-year-label')).toHaveText(String(currentYear))
+  await expect(page.locator('.budget-year-forecast')).toHaveAttribute('open', '')
+  await expect(page.locator('.budget-year-forecast .forecast-table')).toBeVisible()
 })
 
 test('BOG UI household an edited bill holds Budget until it is saved or canceled', async ({ page }) => {

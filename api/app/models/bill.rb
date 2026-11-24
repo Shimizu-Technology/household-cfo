@@ -44,6 +44,8 @@ class Bill < ApplicationRecord
   private
 
   def category_in_picture
+    # A supplied id that matches no category would otherwise reach the foreign key as a server error.
+    return errors.add(:budget_category, "must be an active category in your current plan") if budget_category_id.present? && budget_category.nil?
     return unless budget_category
     unless budget_category.household_id == household_id && budget_category.financial_generation == financial_generation && budget_category.active?
       errors.add(:budget_category, "must be an active category in your current plan")

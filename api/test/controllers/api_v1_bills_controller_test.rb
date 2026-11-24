@@ -76,6 +76,38 @@ class ApiV1BillsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2, @household.bills.count
   end
 
+  test "a category id that is not in her current plan is a clear 422, not a database error" do
+    missing = BudgetCategory.maximum(:id).to_i + 1_000
+    assert_no_difference [ "Bill.count", -> { @household.household_audit_events.count } ] do
+      post "/api/v1/bills", params: { bill: { name: "Talun fee", amount: 50, due_on: "2026-12-20", budget_category_id: missing } }, headers: @headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body["errors"].join, "active category in your current plan"
+
+    bill = @household.bills.create!(name: "Talun power", amount_cents: 8_000, due_on: "2026-12-28", repeat_months: 1)
+    patch "/api/v1/bills/#{bill.id}", params: { bill: { budget_category_id: missing } }, headers: @headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body["errors"].join, "active category in your current plan"
+    assert_nil bill.reload.budget_category_id
+  end
+
+  test "a replayed save key with edited values is refused instead of dropping the edits" do
+    headers = @headers.merge("Idempotency-Key" => "talun-bill-edit-replay")
+    post "/api/v1/bills", params: { bill: { name: "Talun water", amount: "40", due_on: "2026-12-05", repeat_months: "", must_pay: false } }, headers: headers, as: :json
+    assert_response :created
+    bill = Bill.find(response.parsed_body["bill_id"])
+    assert_no_difference [ "Bill.count", -> { @household.household_audit_events.count } ] do
+      post "/api/v1/bills", params: { bill: { name: "Talun water", amount: "40.00", due_on: "2026-12-05", repeat_months: "", must_pay: "false" } }, headers: headers, as: :json
+      assert_response :created
+      assert response.parsed_body["replayed"]
+      post "/api/v1/bills", params: { bill: { name: "Talun water", amount: "55", due_on: "2026-12-09" } }, headers: headers, as: :json
+    end
+    assert_response :conflict
+    assert_includes response.parsed_body["errors"].join, "already saved"
+    assert_equal bill.id, response.parsed_body["bill_id"]
+    assert_equal [ 4_000, Date.new(2026, 12, 5) ], bill.reload.values_at(:amount_cents, :due_on)
+  end
+
   test "marking a bill paid whose category was archived explains why instead of failing" do
     category = @household.budget_categories.create!(name: "Talun repairs", stack_key: "discretionary")
     bill = @household.bills.create!(name: "Talun roof", amount_cents: 9_000, due_on: Date.new(2026, 9, 1), budget_category: category)

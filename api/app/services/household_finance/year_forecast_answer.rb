@@ -13,7 +13,7 @@ module HouseholdFinance
     )
     # A purchase scenario ("Can I buy a $500 TV and still make it through the year?") needs purchase analysis:
     # the plain forecast doesn't include the purchase.
-    PURCHASE_SCENARIO = /\b(?:buy|buying|purchas\w*|afford)\b|\bspend(?:ing)?\s+(?:\$|about\s+\$|around\s+\$)?\d/i
+    PURCHASE_SCENARIO = /\b(?:buy|buying|purchas\w*|afford|book|booking|order)\b|\bspend(?:ing)?\s+(?:\$|about\s+\$|around\s+\$)?\d/i
     NEXT_BILL_PATTERN = /\b(?:next|upcoming)\s+(?:big(?:gest)?\s+|large(?:st)?\s+|major\s+)?bill\b/i
     DUE_PATTERN = /\b(?:what|which)(?:['’]s|\s+is|\s+bills?\s+(?:are|is))?\s+(?:\w+\s+){0,2}?due\s+(this month|next month|in\s+(?:#{MonthTerms.pattern}))\b/i
     BIG_BILL_DAYS = 60
@@ -23,6 +23,9 @@ module HouseholdFinance
     def self.question?(message)
       text = message.to_s.squish
       return false if text.match?(NOT_A_FORECAST_QUESTION) || text.match?(PURCHASE_SCENARIO) || MiaCoachAnswerer.spend_report_text?(text)
+      # A write ("Change my income to $4,000, and will we make it?") is drafted first, and leaving a job is an
+      # Optionality runway scenario: the plain forecast includes neither change.
+      return false if MiaCoachAnswerer.explicit_write_request?(text) || text.match?(MiaCoachAnswerer::TRANSITION_INTENT_PATTERN)
       return false unless text.include?("?") || text.match?(/\A(?:will|would|can|do|are|is|which|what|when|show|tell)\b/i)
 
       text.match?(YEAR_PATTERN) || text.match?(NEXT_BILL_PATTERN) || text.match?(DUE_PATTERN)

@@ -25,6 +25,8 @@ type HomeScreenProps = {
   onOpenDebt?: () => void
   onOpenBudget?: () => void
   onOpenYearForecast?: () => void
+  /** A bill change was saved but the forecast didn't refresh: the year outlook hides its old totals. */
+  forecastStale?: boolean
   onOpenProfile?: () => void
   onOpenAccounts?: () => void
   incomeKnown?: boolean
@@ -39,7 +41,7 @@ type HomeScreenProps = {
   homeViewError?: string | null
 }
 
-export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAddPurchase, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenYearForecast, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true, homeView = 'month', onChangeHomeView, homeViewSaving = false, homeViewError = null, balanceOffers }: HomeScreenProps) {
+export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAddPurchase, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenYearForecast, forecastStale = false, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true, homeView = 'month', onChangeHomeView, homeViewSaving = false, homeViewError = null, balanceOffers }: HomeScreenProps) {
   const { assistantName } = useBrand()
   const screenRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -82,7 +84,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
   const yearFirst = plan != null && homeView === 'year'
   // Her own choice, saved to her account; it sits with the year so it reads as "this card first".
   const viewSwitch = onChangeHomeView && <><button ref={switchRef} type="button" className="ui-btn ui-btn--tonal ui-btn--full home-view-switch" disabled={homeViewSaving} onClick={() => { restoreSwitchFocus.current = document.activeElement === switchRef.current; onChangeHomeView(yearFirst ? 'month' : 'year') }}>{yearFirst ? 'Show this month first' : 'Show the year first'}</button>{homeViewError && <p className="form-error">{homeViewError}</p>}</>
-  const yearOutlook = plan && <YearOutlook key="year-outlook" plan={plan} moneyKnown={incomeKnown && planKnown && answer?.money_in_cents != null && answer?.planned_out_cents != null} onOpenBudget={onOpenYearForecast} footer={viewSwitch} />
+  const yearOutlook = plan && <YearOutlook key="year-outlook" plan={plan} moneyKnown={incomeKnown && planKnown && answer?.money_in_cents != null && answer?.planned_out_cents != null} stale={forecastStale} onOpenBudget={onOpenYearForecast} footer={viewSwitch} />
   const miaName = `Tell ${assistantName} what changed`
   const miaContent = <><span className="ui-monogram" aria-hidden="true" data-initial={Array.from(assistantName)[0]} /><span className="ui-row__body"><span className="ui-row__title">{miaName}</span></span><Chevron /></>
   return <div className="home-layout"><section ref={screenRef} className={`screen-grid home-screen${yearFirst ? ' home-screen--year-first' : ''}`}>

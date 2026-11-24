@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AnnualBudgetPlan, ForecastMonth, ScheduledBill, YearForecast } from '../api'
-import { markBillPaid, removeBill, saveBill } from '../api'
+import { ApiRequestError, markBillPaid, removeBill, saveBill } from '../api'
 import { BillsForecast } from './BillsForecast'
 
 vi.mock('../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api')>()), saveBill: vi.fn(), removeBill: vi.fn(), markBillPaid: vi.fn() }))
@@ -188,4 +188,106 @@ it('sends one request key per new bill and the same key when a save is retried',
   fireEvent.submit(next)
   await waitFor(() => expect(saveBill).toHaveBeenCalledTimes(3))
   expect(vi.mocked(saveBill).mock.calls[2][2]).not.toBe(first[2])
+})
+
+it('locks every bill field while a save is in progress', async () => {
+  let finish: (value: unknown) => void = () => {}
+  vi.mocked(saveBill).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  render(<BillsForecast plan={plan()} onChanged={vi.fn().mockResolvedValue(undefined)} />)
+  open()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Talun power' }))
+  const form = screen.getByRole('form', { name: 'Edit Talun power' })
+  fireEvent.submit(form)
+  await waitFor(() => expect(saveBill).toHaveBeenCalledOnce())
+  const controls = Array.from(form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input, select, button'))
+  expect(controls.length).toBeGreaterThanOrEqual(9)
+  expect(controls.filter(control => !control.disabled).map(control => control.name || control.textContent)).toEqual([])
+  finish({})
+  await waitFor(() => expect(screen.queryByRole('form', { name: 'Edit Talun power' })).toBeNull())
+})
+
+it('keeps a changed bill open until she saves or cancels it, and still switches from an unchanged one', () => {
+  render(<BillsForecast plan={plan()} onChanged={vi.fn()} />)
+  open()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Talun power' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Talun repair' }))
+  const repair = screen.getByRole('form', { name: 'Edit Talun repair' })
+  fireEvent.change(within(repair).getByLabelText('Bill amount'), { target: { value: '700' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Talun power' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add bill' }))
+  expect(screen.getByRole('form', { name: 'Edit Talun repair' })).toBe(repair)
+  expect(screen.queryByRole('form', { name: /Edit Talun power|Add a bill/ })).toBeNull()
+  expect((within(repair).getByLabelText('Bill amount') as HTMLInputElement).value).toBe('700')
+  expect(within(repair).getByRole('alert').textContent).toBe('You have unsaved bill changes. Save or cancel them before opening another bill.')
+  fireEvent.click(within(repair).getByRole('button', { name: 'Cancel' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add bill' }))
+  expect(screen.getByRole('form', { name: 'Add a bill' })).toBeTruthy()
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('closes the form and releases navigation when the bill being edited is removed', async () => {
+  vi.mocked(removeBill).mockResolvedValue({})
+  const pending = vi.fn()
+  const view = render(<BillsForecast plan={plan()} onChanged={vi.fn().mockResolvedValue(undefined)} onPendingChange={pending} />)
+  open()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Talun repair' }))
+  fireEvent.change(within(screen.getByRole('form', { name: 'Edit Talun repair' })).getByLabelText('Bill amount'), { target: { value: '700' } })
+  expect(pending).toHaveBeenLastCalledWith(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Talun repair' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Remove bill' }))
+  await waitFor(() => expect(screen.queryByRole('form', { name: 'Edit Talun repair' })).toBeNull())
+  expect(pending).toHaveBeenLastCalledWith(false)
+
+  // Removed elsewhere: the refreshed plan no longer has the bill she had open.
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Talun power' }))
+  fireEvent.change(within(screen.getByRole('form', { name: 'Edit Talun power' })).getByLabelText('Bill amount'), { target: { value: '90' } })
+  expect(pending).toHaveBeenLastCalledWith(true)
+  view.rerender(<BillsForecast plan={plan({ bills: [] })} onChanged={vi.fn()} onPendingChange={pending} />)
+  await waitFor(() => expect(pending).toHaveBeenLastCalledWith(false))
+  expect(screen.queryByRole('form')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Add bill' }))
+  expect(screen.getByRole('form', { name: 'Add a bill' })).toBeTruthy()
+})
+
+it('updates the bill an earlier save already added instead of dropping her later edits', async () => {
+  const conflict = new ApiRequestError('This bill was already saved before your changes.', { status: 409, errors: ['This bill was already saved before your changes.'], payload: { bill_id: 41 } })
+  vi.mocked(saveBill).mockRejectedValueOnce(new Error('Network error')).mockRejectedValueOnce(conflict).mockResolvedValue({})
+  const changed = vi.fn().mockResolvedValue(undefined)
+  render(<BillsForecast plan={plan()} onChanged={changed} />)
+  open()
+  fireEvent.click(screen.getByRole('button', { name: 'Add bill' }))
+  const form = screen.getByRole('form', { name: 'Add a bill' })
+  fireEvent.change(within(form).getByLabelText('Bill name'), { target: { value: 'School fee' } })
+  fireEvent.change(within(form).getByLabelText('Bill amount'), { target: { value: '200' } })
+  fireEvent.change(within(form).getByLabelText('First due date'), { target: { value: '2027-01-05' } })
+  fireEvent.change(within(form).getByLabelText('Category'), { target: { value: 'none' } })
+  fireEvent.submit(form)
+  await waitFor(() => expect(within(form).getByRole('alert').textContent).toContain('Network error'))
+  fireEvent.change(within(form).getByLabelText('Bill amount'), { target: { value: '250' } })
+  fireEvent.submit(form)
+  await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe('An earlier Save already added this bill. Press Save bill again to update it with these changes.'))
+  expect(changed).toHaveBeenCalledOnce()
+  expect((within(form).getByLabelText('Bill amount') as HTMLInputElement).value).toBe('250')
+  fireEvent.submit(form)
+  await waitFor(() => expect(saveBill).toHaveBeenCalledTimes(3))
+  const calls = vi.mocked(saveBill).mock.calls
+  expect(calls[1][0]).toBeNull()
+  expect(calls[1][2]).toBe(calls[0][2])
+  expect(calls[2][0]).toBe(41)
+  expect(calls[2][1]).toEqual(expect.objectContaining({ amount: '250' }))
+  await waitFor(() => expect(screen.getByText('Saved School fee.')).toBeTruthy())
+})
+
+it('hides stale forecast totals and bills after a failed refresh and offers a reload', async () => {
+  const changed = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
+  render(<BillsForecast plan={plan()} stale onChanged={changed} />)
+  expect(screen.queryByRole('table')).toBeNull()
+  expect(screen.queryByText(/No month runs short/)).toBeNull()
+  expect(screen.queryByText('Bills and due dates')).toBeNull()
+  expect(screen.getByText(/Forecast not available/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Reload forecast' }))
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('The forecast still could not refresh. Try again in a moment.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Reload forecast' }))
+  await waitFor(() => expect(changed).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
 })

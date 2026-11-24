@@ -1079,6 +1079,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     () => documentImports.filter((documentImport) => !documentImport.context_paused_by_restart && PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
+  // The cached plans a failed bill refresh left behind: their forecasts are hidden until fresh plans replace them.
+  const [staleForecastPlans, setStaleForecastPlans] = useState<BudgetData[]>([])
   const budgetForView = budgetView
     ? budgets[budgetView.year] ?? (!dataBudgetStale && data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
     : dataBudgetStale ? null : data?.budget
@@ -3002,20 +3004,30 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
   // A saved, paid or removed bill only changes the forecast: refetch the plan in place, keeping her place on the page.
   // Budget holds navigation until this finishes (the bill form reports it as pending), so no other screen shows the
-  // old forecast meanwhile. If the refetch fails, every cached plan is marked stale and the warning stays on every screen.
+  // old forecast meanwhile. If the refetch fails, Budget stays open with a Reload control, the warning stays on every
+  // screen, and Home and Budget hide the old forecast totals until a fresh plan arrives.
   async function handleBillsChanged() {
     const generation = financialMutationGenerationRef.current
     let budget: BudgetData
     try {
       budget = await fetchBudget(selectedBudgetYear)
     } catch (caught) {
-      setData({ type: 'shared_financial_commit' })
+      setStaleForecastPlans([data?.budget, homeBudget, ...Object.values(budgets)].filter((plan): plan is BudgetData => plan != null))
       setWorkspaceRefreshNotice({ kind: 'home', message: 'Your bill change was saved, but the forecast could not refresh. Reload before using those totals.' })
       throw caught
     }
     if (generation !== financialMutationGenerationRef.current) return
+    setStaleForecastPlans([])
     setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
     await refreshCurrentHouseholdView(budget)
+  }
+
+  // Home opens Budget's forecast for the year Home shows, keeping Budget's own navigation guards.
+  async function openHomeYearForecast() {
+    const year = (homeBudget ?? data?.budget)?.annual_plan?.year
+    if (!switchSection('Budget', { focusHeading: false })) return
+    if (year != null && budgetView?.year !== year && !(await handleBudgetViewChange(year, currentBudgetMonthIndex))) return
+    setForecastOpenRequest(request => request + 1)
   }
 
   async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
@@ -4401,7 +4413,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onOpenProfile={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('income') : undefined}
               onOpenAccounts={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('assets') : undefined}
               onOpenBudget={visibleSections.includes('Budget') ? () => switchSection('Budget') : undefined}
-              onOpenYearForecast={visibleSections.includes('Budget') ? () => { if (switchSection('Budget', { focusHeading: false })) setForecastOpenRequest(request => request + 1) } : undefined}
+              onOpenYearForecast={visibleSections.includes('Budget') ? () => void openHomeYearForecast() : undefined}
+              forecastStale={staleForecastPlans.includes(homeBudget ?? data.budget)}
               canAskMia={visibleSections.includes('Ask Mia')}
               canReviewTransactions={visibleSections.includes('Review')}
               incomeKnown={(!isRealWorkspace || data.dashboard.month_answer?.money_in_cents != null) && (!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0)}
@@ -5121,6 +5134,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
               canEditBills={!isRealWorkspace || data.workspace.can_edit_household !== false}
               onBillsChanged={isRealWorkspace ? handleBillsChanged : undefined}
+              forecastStale={staleForecastPlans.includes(budgetForView)}
               forecastOpenRequest={forecastOpenRequest}
             />
             </fieldset>
@@ -9316,6 +9330,7 @@ export function AnnualBudgetPlanner({
   onFocusRequestHandled,
   canEditBills = true,
   onBillsChanged,
+  forecastStale = false,
   forecastOpenRequest = 0,
 }: {
   plan: AnnualBudgetPlan
@@ -9351,6 +9366,7 @@ export function AnnualBudgetPlanner({
   onFocusRequestHandled?: () => void
   canEditBills?: boolean
   onBillsChanged?: () => Promise<void>
+  forecastStale?: boolean
   forecastOpenRequest?: number
 }) {
   const groupLabels = useExpenseGroupLabels()
@@ -9639,7 +9655,7 @@ export function AnnualBudgetPlanner({
         </div>
       </div>
 
-      {plan.year_forecast && <details ref={forecastRef} className="budget-year-forecast"><summary>Year ahead and bills</summary>{billsPending && error && <p className="setup-error" role="alert">{error}</p>}<BillsForecast plan={plan} canEdit={canEditBills && Boolean(onBillsChanged)} onChanged={onBillsChanged} onPendingChange={setBillsPending} /></details>}
+      {plan.year_forecast && <details ref={forecastRef} className="budget-year-forecast"><summary>Year ahead and bills</summary>{billsPending && error && <p className="setup-error" role="alert">{error}</p>}<BillsForecast plan={plan} canEdit={canEditBills && Boolean(onBillsChanged)} stale={forecastStale} onChanged={onBillsChanged} onPendingChange={setBillsPending} /></details>}
       <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={!beforePlanStart} confirmedFields={confirmedFields} answer={monthAnswer} />
 
 

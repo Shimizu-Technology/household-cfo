@@ -93,6 +93,32 @@ class YearForecastAnswerTest < ActiveSupport::TestCase
     end
   end
 
+  test "a write request, a booking and a job transition scenario are not answered with the plain forecast" do
+    write = "Change my monthly income to $4,000, and will we make it through the year?"
+    booking = "Can I book a $500 flight and will we make it through the year?"
+    [ write, booking ].each do |message|
+      assert_not HouseholdFinance::YearForecastAnswer.question?(message), message
+      coach = HouseholdFinance::MiaCoachAnswerer.new(@household, message, ensure_plan: false)
+      assert_nil coach.support_answer, message
+      refute_match(/through December|runs short/, coach.call.to_s, message)
+    end
+    assert_equal :write, HouseholdFinance::MiaCoachAnswerer.routing_priority(write)
+
+    user = User.create!(clerk_id: "talun-forecast-runway", email: "talun-forecast-runway@example.invalid", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Talun runway household")
+    household.household_memberships.create!(user: user, role: "owner")
+    HouseholdFinance::SetupUpdater.new(household, household_name: "Talun runway household", primary_goal: "Build a business",
+      primary_income: "5400", business_income: "0", fixed_expenses: "2600", flexible_spend: "1300", expected_sinking_fund: "250", unexpected_sinking_fund: "150",
+      emergency_fund: "3200", target_runway_months: "3", credit_card_debt: "1800", debt_payment: "90").call
+    runway = "Can we last through December if I quit my job and draw $500 per month for runway?"
+    assert_not HouseholdFinance::YearForecastAnswer.question?(runway)
+    coach = HouseholdFinance::MiaCoachAnswerer.new(household.reload, runway, ensure_plan: false, user: user)
+    assert_nil coach.support_answer
+    answer = coach.call
+    assert_includes answer, "Your transition runway"
+    assert_includes answer, "$500 drawn from savings"
+  end
+
   test "a question about another year is not answered with this year's forecast" do
     this_year = { first_short_month: nil, status: "no_short_month", starting_note: "Starting from your cash balances on November 14.", starting_cash_cents: 320_000,
       months: [ { label: "December", ending_cents: 170_000 } ], estimate_reasons: [] }
