@@ -291,3 +291,36 @@ it('hides stale forecast totals and bills after a failed refresh and offers a re
   await waitFor(() => expect(changed).toHaveBeenCalledTimes(2))
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
 })
+
+it('preserves all bill fields across a stale unmount and reload during conflict recovery', async () => {
+  const conflict = new ApiRequestError('This bill was already saved before your changes.', { status: 409, errors: ['This bill was already saved before your changes.'], payload: { bill_id: 41 } })
+  vi.mocked(saveBill).mockRejectedValueOnce(conflict).mockResolvedValue({})
+  const changed = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
+  const view = render(<BillsForecast plan={plan()} onChanged={changed} />)
+  open()
+  fireEvent.click(screen.getByRole('button', { name: 'Add bill' }))
+  const form = screen.getByRole('form', { name: 'Add a bill' })
+  fireEvent.change(within(form).getByLabelText('Bill name'), { target: { value: 'School fee' } })
+  fireEvent.change(within(form).getByLabelText('Bill amount'), { target: { value: '250' } })
+  fireEvent.change(within(form).getByLabelText('First due date'), { target: { value: '2027-01-05' } })
+  fireEvent.change(within(form).getByLabelText(/Repeat every how many months/), { target: { value: '6' } })
+  fireEvent.change(within(form).getByLabelText('Category'), { target: { value: 'none' } })
+  fireEvent.click(within(form).getByLabelText('Must pay'))
+  fireEvent.click(within(form).getByLabelText('Amount is an estimate'))
+  fireEvent.submit(form)
+  await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe('An earlier Save already added this bill. Press Save bill again to update it with these changes.'))
+
+  // Simulate parent marking forecast stale while background refresh failed, then recovering after Reload.
+  view.rerender(<BillsForecast plan={plan()} stale onChanged={changed} />)
+  expect(screen.queryByRole('form')).toBeNull()
+  view.rerender(<BillsForecast plan={plan()} stale={false} onChanged={changed} />)
+  open()
+  const remounted = screen.getByRole('form', { name: 'Add a bill' })
+  fireEvent.submit(remounted)
+  await waitFor(() => expect(saveBill).toHaveBeenCalledTimes(2))
+  expect(vi.mocked(saveBill).mock.calls[1]).toEqual([
+    41,
+    { name: 'School fee', amount: '250', due_on: '2027-01-05', repeat_months: '6', budget_category_id: null, must_pay: false, estimate: true },
+    expect.stringMatching(/^bill-/),
+  ])
+})

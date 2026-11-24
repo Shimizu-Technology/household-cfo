@@ -52,8 +52,9 @@ module HouseholdFinance
         due = due_bills(open_bills, from, month_end, month_start == first)
         spent_after = midmonth ? spending_after(midmonth + 1, month_end) : {}
         # Sinking bills dated on or before a midmonth balance were paid from cash already counted; spending up to their
-        # amount was those covered bills, not the part of the plan they don't cover.
-        paid_before = midmonth ? bills_due_by_category(bills, month_start, midmonth) : {}
+        # amount was those covered bills, not the part of the plan they don't cover. An overdue one-time bill still
+        # awaiting a paid answer is unpaid and still counts in upcoming outflow, so it must not offset earlier spending.
+        paid_before = midmonth ? bills_due_by_category(bills.reject { |bill| bill.awaiting_answer?(@today) }, month_start, midmonth) : {}
         counted = rows.to_h do |row|
           cell = row[:months][index]
           planned = row[:active] ? Money.cents(cell[:planned]) : 0

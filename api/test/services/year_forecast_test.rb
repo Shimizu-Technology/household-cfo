@@ -312,6 +312,19 @@ class YearForecastTest < ActiveSupport::TestCase
     assert_not months.first[:higher_costs]
   end
 
+  test "an unpaid overdue one-time sinking bill before a midmonth balance does not offset unrelated earlier spending" do
+    @household.bills.destroy_all
+    sinking = @household.budget_categories.create!(name: "Talun yearly", stack_key: "sinking_expected")
+    # $250/mo plan with an unpaid one-time $1,500 bill due March 10 (still awaiting paid confirmation on March 15):
+    # uncovered plan is $125/mo. Unrelated $125 spent on March 5 already used March's uncovered plan, so March outflow
+    # must stay $1,500 (just the unpaid bill), not $1,625.
+    @household.bills.create!(name: "Talun tax", amount_cents: 150_000, due_on: Date.new(2026, 3, 10), budget_category: sinking)
+    @household.accounts.first.update!(balance_as_of_on: "2026-03-15")
+    @rows = [ row(sinking, 250).tap { |sinking_row| sinking_row[:months][2][:actual] = 125 } ]
+    march = forecast(today: Date.new(2026, 3, 15))[:months].find { |month| month[:label] == "March" }
+    assert_equal 150_000, march[:outflow_cents]
+  end
+
   private
 
   def row(category, monthly)

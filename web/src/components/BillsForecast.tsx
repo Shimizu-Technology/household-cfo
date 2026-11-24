@@ -33,7 +33,7 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const [draft, setDraft] = useState({ name: '', amount: '', category: '' })
+  const [draft, setDraft] = useState({ name: '', amount: '', category: '', due_on: '', repeat_months: '', must_pay: true, estimate: false })
   const [dirty, setDirty] = useState(false)
   const [reminder, setReminder] = useState('')
   const [reloadError, setReloadError] = useState('')
@@ -68,17 +68,18 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
     setEditing(bill); setRemoving(null); setError(''); setNotice(''); setDirty(false); setReminder('')
     requestKey.current = bill === 'new' ? newBillRequestKey() : null
     savedId.current = null
-    setDraft(bill === 'new' ? { name: '', amount: '', category: '' } : { name: bill.name, amount: String(bill.amount_cents / 100), category: bill.budget_category_id == null ? NO_CATEGORY : String(bill.budget_category_id) })
+    setDraft(bill === 'new'
+      ? { name: '', amount: '', category: '', due_on: '', repeat_months: '', must_pay: true, estimate: false }
+      : { name: bill.name, amount: String(bill.amount_cents / 100), category: bill.budget_category_id == null ? NO_CATEGORY : String(bill.budget_category_id), due_on: bill.due_on, repeat_months: bill.repeat_months == null ? '' : String(bill.repeat_months), must_pay: bill.must_pay, estimate: bill.estimate })
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const category = String(data.get('category') ?? '')
+    const category = draft.category
     if (!category) { setError('Choose the category this bill belongs to, or choose “Not in any category plan”.'); return }
     setBusy(true); setError(''); setReminder('')
     try {
-      const name = String(data.get('name'))
-      await saveBill(savedId.current ?? (editing === 'new' || editing == null ? null : editing.id), { name, amount: String(data.get('amount')), due_on: String(data.get('due_on')), repeat_months: String(data.get('repeat_months') ?? '') || null, budget_category_id: category === NO_CATEGORY ? null : Number(category), must_pay: data.get('must_pay') === 'on', estimate: data.get('estimate') === 'on' }, requestKey.current ?? undefined)
+      const name = draft.name
+      await saveBill(savedId.current ?? (editing === 'new' || editing == null ? null : editing.id), { name, amount: draft.amount, due_on: draft.due_on, repeat_months: draft.repeat_months || null, budget_category_id: category === NO_CATEGORY ? null : Number(category), must_pay: draft.must_pay, estimate: draft.estimate }, requestKey.current ?? undefined)
       closeForm()
       returnFocus.current = true
       await refresh(`Saved ${name}.`)
@@ -113,8 +114,8 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
     <label>Bill name<input name="name" required maxLength={80} disabled={busy} value={draft.name} onChange={event => setDraft({ ...draft, name: event.currentTarget.value })} /></label>
     <label>Bill amount<input name="amount" type="number" inputMode="decimal" required min="0" step="0.01" disabled={busy} value={draft.amount} onChange={event => setDraft({ ...draft, amount: event.currentTarget.value })} /></label>
     {debtMatch && <p className="bill-warning" role="status">This looks like your {debtMatch.name} payment. Debt payments already count from My Money, so saving it here counts it twice. Leave debt payments in My Money.</p>}
-    <label>First due date<input name="due_on" type="date" required disabled={busy} defaultValue={editing === 'new' ? '' : editing.due_on} /></label>
-    <label>Repeat every how many months? (blank for one time)<input name="repeat_months" type="number" inputMode="numeric" min="1" max="120" disabled={busy} defaultValue={editing === 'new' ? '' : editing.repeat_months ?? ''} /></label>
+    <label>First due date<input name="due_on" type="date" required disabled={busy} value={draft.due_on} onChange={event => setDraft({ ...draft, due_on: event.currentTarget.value })} /></label>
+    <label>Repeat every how many months? (blank for one time)<input name="repeat_months" type="number" inputMode="numeric" min="1" max="120" disabled={busy} value={draft.repeat_months} onChange={event => setDraft({ ...draft, repeat_months: event.currentTarget.value })} /></label>
     <label>Category<select name="category" required disabled={busy} value={draft.category} onChange={event => setDraft({ ...draft, category: event.currentTarget.value })}>
       <option value="" disabled>Choose a category</option>
       {categories.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
@@ -123,8 +124,8 @@ export function BillsForecast({ plan, canEdit = true, stale = false, onChanged, 
     {draft.category === NO_CATEGORY && <p className="bill-hint">This bill isn’t part of any category plan, so it adds to your planned costs when it’s due.</p>}
     {chosen && SINKING.has(chosen.stack_key) && <p className="bill-hint">{chosen.name} is money you set aside for planned costs. The bill counts when it’s due, and the part of the monthly plan it covers stays in your savings. Any part your saved bills don’t cover still counts every month.</p>}
     {chosen && !SINKING.has(chosen.stack_key) && <p className="bill-hint">Counts inside {chosen.name}: the larger of the plan or this bill, not both.</p>}
-    <label className="bill-check"><input type="checkbox" name="must_pay" disabled={busy} defaultChecked={editing === 'new' ? true : editing.must_pay} />Must pay</label>
-    <label className="bill-check"><input type="checkbox" name="estimate" disabled={busy} defaultChecked={editing === 'new' ? false : editing.estimate} />Amount is an estimate</label>
+    <label className="bill-check"><input type="checkbox" name="must_pay" disabled={busy} checked={draft.must_pay} onChange={event => setDraft({ ...draft, must_pay: event.currentTarget.checked })} />Must pay</label>
+    <label className="bill-check"><input type="checkbox" name="estimate" disabled={busy} checked={draft.estimate} onChange={event => setDraft({ ...draft, estimate: event.currentTarget.checked })} />Amount is an estimate</label>
     {reminder && <p className="form-error" role="alert">{reminder}</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="bill-actions"><button className="ui-btn ui-btn--primary" disabled={busy} type="submit">{busy ? 'Saving…' : 'Save bill'}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => { closeForm(); setError('') }}>Cancel</button></div>
