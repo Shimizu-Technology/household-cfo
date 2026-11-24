@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, fetchDocumentSourceReview, mutateStatementReview } from '../api'
 import { participantReviewFixture, sourceReviewFixture } from '../../e2e/sourceReviewFixtures'
@@ -133,24 +133,24 @@ describe('statement review a participant can finish', () => {
     data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: null }
     fetchReview.mockResolvedValue(data)
     mutate.mockRejectedValueOnce(new ApiRequestError('Coverage changed in another window.', { status: 409 }))
-    mount()
-    fireEvent.click(await screen.findByRole('button', { name: 'Nothing’s missing' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
-    const refresh = await screen.findByRole('button', { name: 'Refresh statement' })
+    await act(async () => { mount() })
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' })) })
+    const refresh = screen.getByRole('button', { name: 'Refresh statement' })
     const newer = structuredClone(data)
     newer.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: 'something_missing', version_id: 910 }
     fetchReview.mockResolvedValue(newer)
-    fireEvent.click(refresh)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true'))
+    await act(async () => { fireEvent.click(refresh) })
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Nothing’s missing' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.queryByText('Coverage changed in another window.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh statement' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
-    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' })) })
+    expect(mutate).toHaveBeenCalledTimes(2)
     expect(mutate.mock.calls[1][3]).not.toHaveProperty('coverage_answer')
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
-    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(3))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' })) })
+    expect(mutate).toHaveBeenCalledTimes(3)
     expect(mutate.mock.calls[2][3]).toMatchObject({ coverage_answer: 'nothing_missing', expected_coverage_id: 910 })
   })
 

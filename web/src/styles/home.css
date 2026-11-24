@@ -22,6 +22,15 @@
 .home-month-answer .home-money-values > div:not(:first-child) dt::before { display: inline-block; content: ''; width: 7px; height: 7px; margin-inline-end: 6px; border-radius: 50%; background: var(--data-planned); }
 .home-month-answer .home-money-values > div:last-child dt::before { background: var(--data-remainder); }
 .home-month-answer .home-money-values > div:not(:first-child) dd, .home-month-answer .home-spent strong { font-size: clamp(13px, 4.5cqi, 16px); }
+.home-month-answer .actual-income-line {
+  grid-column: 1 / -1;
+  margin-block-start: var(--space-3);
+  color: var(--on-brand-deep-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+.home-month-answer .actual-income-line p { margin: 0; }
+.home-month-answer .actual-income-line p + p { margin-block-start: var(--space-1); }
 .home-plan-caveat { grid-column: 1 / -1; grid-row: 2; text-align: start; }
 .home-month-answer .ui-bar { grid-column: 1 / -1; grid-row: 3; margin-block: var(--space-5) var(--space-3); transform-origin: left; }
 .home-spent { grid-column: 1; grid-row: 4; min-width: 0; margin: 0; line-height: 1.45; }

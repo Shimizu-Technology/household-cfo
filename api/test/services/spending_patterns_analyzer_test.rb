@@ -358,13 +358,17 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   test "a real category named Discretionary survives method group naming" do
     travel_to Time.zone.local(2026, 11, 5, 12) do
       @category.update!(name: "Discretionary")
+      catch_all = @household.budget_categories.create!(name: "Flexible spending", stack_key: "discretionary", sort_order: 2)
+      dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 3)
+      purchase(Date.new(2026, 10, 3), "Talun Demo Market", 20_000, category: catch_all)
+      purchase(Date.new(2026, 10, 4), "Talun Demo Cafe", 15_000, category: dining)
       purchase(Date.new(2026, 10, 5), "Ross", 10_000)
       settings = CohortExperience::MethodSettings.for_household(@household).merge("group_names" => "method")
       CohortExperience::MethodSettings.use_viewer(@household.id) { { method: settings } }
       begin
         answer = SpendingPatterns::Answerer.new(household: @household, message: "What spending patterns do you see?",
           persona: Mia::Persona.neutral, history: [], approved_content: []).call
-        assert_includes answer, "largest Discretionary category was Discretionary"
+        assert_includes answer, "largest Discretionary categories were Dining Out and Discretionary"
       ensure
         CohortExperience::MethodSettings::Current.reset
       end
@@ -376,6 +380,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     packet = { fallback_response: reference, verified_facts: { group_phrase: "Discretionary", merchants: [ { label: "Ross", total_cents: 10_000 } ], choices: [] } }
     narrator = SpendingPatterns::Narrator.new(user_message: "What spending patterns do you see?", answer_packet: packet, persona: Mia::Persona.neutral)
     assert_includes narrator.send(:narrator_contract), "biggest Discretionary stops"
+    refute_match(/flexible (?:categories|spends|spending)/i, narrator.send(:narrator_contract).split("For this spending-patterns answer").last)
     assert_nil narrator.send(:patterns_rejection, reference)
     assert_equal :missing_pattern_group_phrase, narrator.send(:patterns_rejection, reference.sub("Discretionary", "flexible spending"))
     assert_equal :missing_pattern_group_phrase, narrator.send(:patterns_rejection, reference.sub("Discretionary stop", "flexible spending stop").sub("Look at what you bought", "Discretionary is your group"))

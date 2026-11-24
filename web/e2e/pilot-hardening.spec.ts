@@ -2224,6 +2224,16 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(answer).toContainText('Money out · planned$5,500')
   await expect(answer).toContainText('What’s left · planned$9,500')
   await expect(answer).toContainText('Spent so far this month: $3,475')
+  const incomeLine = answer.getByText(/Money in: Not known yet/).locator('..')
+  await expect(incomeLine).toBeVisible()
+  const layout = await incomeLine.evaluate(line => {
+    const note = line.parentElement!.querySelector('.home-plan-caveat')!
+    return {
+      fullWidth: Math.abs(line.getBoundingClientRect().width - note.getBoundingClientRect().width) < 1,
+      usesNoteColor: getComputedStyle(line).color === getComputedStyle(note).color,
+    }
+  })
+  expect(layout).toEqual({ fullWidth: true, usesNoteColor: true })
   await expect(home.getByRole('heading', { name: '0.5 months of breathing room' })).toBeVisible()
   await expect(home.locator('.year-outlook-months')).toContainText('Holiday travel')
   await expect(home.locator('.cash-flow-month')).toHaveCount(0)

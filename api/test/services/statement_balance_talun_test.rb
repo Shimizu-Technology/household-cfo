@@ -97,6 +97,23 @@ class StatementBalanceTalunTest < ActionDispatch::IntegrationTest
 end
 
 class StatementBalanceRulesTest < ActionDispatch::IntegrationTest
+  test "a manual balance edit supersedes an unapplied savings statement offer" do
+    checked = false
+    Scorecard::Runner.new(document_paths: %w[savings-2026-12.pdf], correct_proposals: false, after_review: lambda { |household, user|
+      savings = household.accounts.create!(label: "Talun Savings ····8642", account_type: "savings", balance_cents: 7_000_00,
+        balance_as_of_on: Date.new(2026, 11, 1), source_type: "setup")
+      offers = -> { HouseholdFinance::StatementBalanceOffers.new(household.reload).call }
+      assert_equal savings.id, offers.call.sole.dig(:target, :id)
+
+      HouseholdFinance::Operations::Runner.new(household, user: user).run(operation_key: "account.record.update",
+        input: { account_id: savings.id, balance: "7900.00" }, idempotency_key: "manual-before-statement-approval")
+      assert_empty offers.call
+      assert_equal 7_900_00, savings.reload.balance_cents
+      checked = true
+    }).call
+    assert checked
+  end
+
   test "never offers a statement older than the saved balance, and cards only when debts are tracked one by one" do
     checked = false
     Scorecard::Runner.new(document_paths: %w[savings-2026-12.pdf card-2026-12.pdf], correct_proposals: false, after_review: lambda { |household, _user|
