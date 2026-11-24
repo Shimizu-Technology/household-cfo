@@ -86,6 +86,8 @@ export type WorkspaceData = {
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean
+  // Owners and partners save changes; others only read. Absent in demo data.
+  can_edit_household?: boolean
   setup_status: WorkspaceSetupStatus
   setup_values: WorkspaceSetupValues
   income_sources: IncomeTimelineSource[]
@@ -885,6 +887,7 @@ export type AnnualBudgetPlan = {
   monthly_debt_minimums: number
   monthly_debt_minimums_known?: boolean
   income_sources: IncomeTimelineSource[]
+  year_forecast?: YearForecast
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
   pending_transaction_drafts_meta?: { total_count: number; returned_count: number; limit: number; truncated: boolean }
@@ -2565,7 +2568,7 @@ export function subscribeFinancialPictureChanges(listener: (generation: number) 
 class FinancialPictureChangedError extends Error {}
 function financialDataPath(path: string) {
   if (/^\/api\/v1\/setup_help(\/|\?|$)/.test(path)) return !path.startsWith('/api/v1/setup_help/restart/')
-  return /^\/api\/v1\/(cfo-filter|optionality|workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
+  return /^\/api\/v1\/(bills|cfo-filter|optionality|workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
 }
 function checkedFinancialReply(generation: number | null, expected: number | null) {
   if (generation === null || expected === null || generation === expected) return
@@ -5703,4 +5706,21 @@ export function fetchChallengeChatCards(signal?: AbortSignal): Promise<import('.
 }
 export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true } | { action: 'request_leave'; expected_lock_version: number; accepted: true; intent: 'leave' | 'pause' } | { action: 'approve_savings'; expected_lock_version: number; accepted: true; new_money_confirmed?: boolean }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; assistant_message?: MiaMessage | null; challenge?: SavingsChallenge | null }> {
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+}
+
+export type ScheduledBill = { id: number; name: string; amount_cents: number; due_on: string; repeat_months: number | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean; paid_on: string | null; was_this_paid: boolean; looks_like_debt: string | null }
+export type ForecastIncomeBasis = 'planned' | 'approved_so_far' | 'approved' | 'after_balance' | 'estimated_after_balance'
+export type ForecastMonth = { label: string; starts_on: string; from_on: string | null; opening_cents: number | null; income_cents: number | null; income_basis: ForecastIncomeBasis; approved_so_far_cents: number | null; outflow_cents: number | null; spending_plan_known: boolean; ending_cents: number | null; bills: ScheduledBill[]; reasons: string[]; includes_estimates: boolean; estimate_reasons?: string[]; higher_costs: boolean }
+export type YearForecast = { starting_cash_cents: number | null; starting_on: string | null; starting_note: string; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: 'short' | 'no_short_month' | 'unknown'; estimate_reasons?: string[]; missing: string[]; bills: ScheduledBill[]; debt_bills: { name: string; amount_cents: number | null }[] }
+export type BillInput = { name: string; amount: string; due_on: string; repeat_months: string | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean }
+// One key per new bill: a retried Save sends the same key, so the server returns the bill it already saved.
+export function newBillRequestKey() { return `bill-${clientRequestId()}` }
+export async function saveBill(id: number | null, bill: BillInput, idempotencyKey?: string) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (!id && idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+  return fetchJson(`/api/v1/bills${id ? `/${id}` : ''}`, { method: id ? 'PATCH' : 'POST', headers, body: JSON.stringify({ bill }) })
+}
+export async function removeBill(id: number) { return fetchJson(`/api/v1/bills/${id}`, { method: 'DELETE' }) }
+export async function markBillPaid(id: number, paid: boolean) {
+  return fetchJson(`/api/v1/bills/${id}/paid`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid }) })
 }

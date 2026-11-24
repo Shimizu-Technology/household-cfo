@@ -13,7 +13,7 @@ const countLabels: Record<string, string> = {
   mia_action_drafts: 'Mia review records', merchant_category_rules: 'Saved merchant categories',
   document_imports: 'Document reviews', plaid_items: 'Bank connections',
   bank_connections: 'Bank connections', transaction_splits: 'Transaction splits',
-  transaction_draft_splits: 'Unreviewed transaction splits',
+  transaction_draft_splits: 'Unreviewed transaction splits', bills: 'Saved bills',
 }
 
 export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApplied, setupHelp, onReturnToSetupHelp }: {

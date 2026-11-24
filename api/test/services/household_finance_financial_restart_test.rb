@@ -142,6 +142,20 @@ class HouseholdFinanceFinancialRestartTest < ActiveSupport::TestCase
     assert_equal 1, HouseholdFinance::MiaMemoryContextBuilder.new(@household, user: @user).call[:memories].length
   end
 
+  test "adding or editing a current bill after the review opens makes the review stale" do
+    preview = @flow.preview
+    bill = @household.bills.create!(name: "Talun power", amount_cents: 8_000, due_on: "2026-12-28", repeat_months: 1)
+    assert_raises(HouseholdFinance::FinancialRestart::Flow::StaleReview) { apply(preview) }
+    preview = @flow.preview
+    assert_equal 1, preview[:review][:counts]["bills"]
+    bill.update_columns(amount_cents: 9_500)
+    assert_raises(HouseholdFinance::FinancialRestart::Flow::StaleReview) { apply(preview) }
+    assert_equal 0, @household.reload.financial_generation
+    apply(@flow.preview)
+    assert_empty @household.reload.bills
+    assert_equal [ bill.id ], @household.historical_bills.pluck(:id)
+  end
+
   test "exact fingerprints reject SQL money changes even without updated timestamps" do
     debt = @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 5_000)
     preview = @flow.preview

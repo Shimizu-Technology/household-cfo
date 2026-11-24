@@ -75,6 +75,7 @@ module HouseholdFinance
         cohort: cohort_context,
         capabilities: participant_capabilities,
         home_view: home_view,
+        can_edit_household: can_edit_household?,
         brand: brand
       }
     end
@@ -421,6 +422,11 @@ module HouseholdFinance
           source_metadata: goal.source_metadata
         }
       end
+    end
+
+    # Owners and partners save changes; anyone else with access only reads.
+    def can_edit_household?
+      user.present? && household.household_memberships.find_by(user_id: user.id)&.role.in?(%w[owner partner])
     end
 
     def cohort_context

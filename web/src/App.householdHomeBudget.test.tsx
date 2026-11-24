@@ -7,7 +7,7 @@ import { AnnualBudgetPlanner, HomeWelcomePanel } from './App'
 import { YearOutlook } from './components/YearOutlook'
 import { HomeScreen, MonthPlanLine } from './components/HomeScreen'
 import { BudgetPlanStrip, ExpenseStackOverview, MonthPlanSummary } from './components/BudgetVisuals'
-import type { AnnualBudgetPlan, DashboardData, WorkspaceSetupStatus } from './api'
+import type { AnnualBudgetPlan, DashboardData, ForecastMonth, WorkspaceSetupStatus, YearForecast } from './api'
 
 const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const plan: AnnualBudgetPlan = {
@@ -52,7 +52,7 @@ it('leads Needs you with purchase review and keeps one Mia action available', ()
   const ask = vi.fn()
   const openBudget = vi.fn()
   const { container } = render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={ask} onReviewTransactions={review} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={1} onOpenBudget={openBudget} />)
-  expect(container.querySelectorAll('.year-outlook-months > li')).toHaveLength(2)
+  expect(within(screen.getByRole('region', { name: 'Year outlook' })).getByText('Add the remaining numbers to see your year ahead.')).toBeTruthy()
   expect(screen.getByText('2 months of breathing room')).toBeTruthy()
   expect(screen.getByText('$2,180')).toBeTruthy()
   expect(container.querySelector('.home-money-values')?.textContent).toContain('$4,020')
@@ -147,14 +147,43 @@ it('names monthly debt payments as the plan gap and links missing cushion balanc
  expect(screen.queryByText(/missing income or planned costs/)).toBeNull()
 })
 
-it('makes an irregular shortfall visible and withholds the year when an allocation is unknown', () => {
- const spikePlan = { ...plan, annual_outlook: { ...plan.annual_outlook, months: plan.annual_outlook.months.map((month, index) => index === 11 ? { ...month, baseline_surplus: -1320, planned_outflow: 7520, expected_contributors: [{ name: 'Holiday travel', amount: 3800 }] } : month) } }
- const view = render(<YearOutlook plan={spikePlan} />)
- expect(screen.getByText('$1,320 short')).toBeTruthy()
- expect(screen.getByText('Holiday travel: $3,800')).toBeTruthy()
- view.rerender(<YearOutlook plan={{ ...spikePlan, rows: [{ ...plan.rows[0], months: plan.rows[0].months.map((month, index) => index === 11 ? { ...month, allocation_missing: true } : month) }] }} />)
- expect(screen.queryByText('$1,320 short')).toBeNull()
- expect(screen.getByText('Add the remaining numbers to see your year ahead.')).toBeTruthy()
+
+const forecastMonth = (label: string, month: number, values: Partial<ForecastMonth> = {}): ForecastMonth => ({ label, starts_on: `2026-${String(month).padStart(2, '0')}-01`, from_on: null, opening_cents: 100_000, income_cents: 20_000, income_basis: 'planned', approved_so_far_cents: null, outflow_cents: 10_000, spending_plan_known: true, ending_cents: 110_000, bills: [], reasons: ['Everyday costs'], includes_estimates: false, higher_costs: false, ...values })
+const yearForecast = (values: Partial<YearForecast> = {}): YearForecast => ({ starting_cash_cents: 100_000, starting_on: '2026-10-31', starting_note: 'Starting from your cash balances on October 31.', months: [forecastMonth('November', 11), forecastMonth('December', 12, { opening_cents: 110_000, ending_cents: 120_000 })], first_short_month: null, status: 'no_short_month', missing: [], bills: [], debt_bills: [], ...values })
+
+it('Home names the first short month and why, with the bills in Budget', () => {
+  const short = forecastMonth('December', 12, { ending_cents: -78_000, reasons: ['Talun repair'], includes_estimates: true })
+  const open = vi.fn()
+  render(<YearOutlook plan={{ ...plan, year_forecast: yearForecast({ months: [forecastMonth('November', 11), short], first_short_month: short, status: 'short', estimate_reasons: ['estimated bill amounts'] }) }} onOpenBudget={open} />)
+  expect(screen.getByText('December may run short: cash would end about $780 below zero.')).toBeTruthy()
+  expect(screen.getByText('Costs that month: Talun repair.')).toBeTruthy()
+  expect(screen.getByText('This rests on estimates: estimated bill amounts.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'See every month and your bills' }))
+  expect(open).toHaveBeenCalledOnce()
+  expect(document.querySelector('.forecast-table')).toBeNull()
+})
+
+it('Home says when no month runs short, points out costly months, and keeps unknown honest', () => {
+  const costly = forecastMonth('December', 12, { opening_cents: 110_000, ending_cents: 60_000, outflow_cents: 70_000, higher_costs: true, reasons: ['Holiday travel'] })
+  const view = render(<YearOutlook plan={{ ...plan, year_forecast: yearForecast({ months: [forecastMonth('November', 11), costly] }) }} />)
+  expect(screen.getByText('No month runs short through December.')).toBeTruthy()
+  expect(screen.getByText('December would end with about $600.')).toBeTruthy()
+  expect(screen.getByText('Higher costs than usual: December (Holiday travel).')).toBeTruthy()
+  expect(screen.queryByText(/estimates/)).toBeNull()
+  // No month runs short, but from a midmonth balance it rests on estimated pay and debt payments that may already be paid.
+  const midmonth = forecastMonth('November', 11, { from_on: '2026-11-14', includes_estimates: true, estimate_reasons: ['estimated pay for the rest of this month', 'debt payments that may already be paid this month'] })
+  view.rerender(<YearOutlook plan={{ ...plan, year_forecast: yearForecast({ months: [midmonth, costly], estimate_reasons: midmonth.estimate_reasons }) }} />)
+  expect(screen.getByText('No month runs short through December.')).toBeTruthy()
+  expect(screen.getByText('This rests on estimates: estimated pay for the rest of this month and debt payments that may already be paid this month.')).toBeTruthy()
+  view.rerender(<YearOutlook plan={{ ...plan, year_forecast: yearForecast({ starting_cash_cents: null, status: 'unknown', missing: ['your monthly debt payments'], starting_note: 'Your cash balances are from September 30. Update them in My Money to see ending cash.', months: [forecastMonth('November', 11, { opening_cents: null, ending_cents: null })] }) }} />)
+  expect(screen.getByText('We can’t tell yet whether a month runs short.')).toBeTruthy()
+  expect(screen.getByText('Your cash balances are from September 30. Update them in My Money to see ending cash. Still needed: your monthly debt payments.')).toBeTruthy()
+  expect(screen.queryByText(/\$0|below zero/)).toBeNull()
+  view.rerender(<YearOutlook plan={{ ...plan, year_forecast: yearForecast() }} moneyKnown={false} />)
+  expect(screen.getByText('Add the remaining numbers to see your year ahead.')).toBeTruthy()
+  expect(screen.queryByText(/runs short/)).toBeNull()
+  view.rerender(<YearOutlook plan={plan} />)
+  expect(screen.getByText('Add the remaining numbers to see your year ahead.')).toBeTruthy()
 })
 
 it('keeps Home actions inside the enabled participant modules', () => {
@@ -174,13 +203,6 @@ it('recovers missing monthly debt payments from Home without inventing a zero ou
  expect(screen.getAllByText('Not entered')).toHaveLength(2)
  fireEvent.click(screen.getByRole('button', {name: 'Add monthly debt payments'}))
  expect(openDebt).toHaveBeenCalledOnce()
-})
-it('explains identical irregular costs once for grouped months', () => {
- const months = plan.annual_outlook.months.map((month,i) => i >= 10 ? {...month, income: 6200, planned_outflow: 7520, baseline_surplus: -1320, expected_irregular: 3800, expected_contributors: [{name: 'School costs', amount: 3800}]} : month)
- render(<YearOutlook plan={{...plan, annual_outlook: {...plan.annual_outlook, months}}} />)
- expect(screen.getByText('Nov–Dec')).toBeTruthy()
- expect(screen.getAllByText('School costs: $3,800')).toHaveLength(1)
- expect(screen.getByText('$1,320 short each month')).toBeTruthy()
 })
 it('distinguishes confirmed zero, missing category amounts, mixed subtotals and unknown monthly debt payments', () => {
  const position = {actual: 0, pending: 0, remaining: 0, active: true, stackLabel: 'Must-pay bills', stackKey: 'non_discretionary' as const}
@@ -228,18 +250,6 @@ it('uses the shared month answer in Budget and Wealth without treating unknown i
   view.rerender(<MonthPlanLine answer={{ ...dashboard.month_answer!, money_in_cents: null, plan_left_cents: null }} />)
   expect(screen.getByLabelText('Current month plan').textContent).toContain('Not entered money in')
   expect(screen.getByLabelText('Current month plan').textContent).not.toContain('$0')
-})
-it('shows the join month and never turns an unknown outlook into a shortfall or zero', () => {
- const months = plan.annual_outlook.months.slice(10).map(month => ({...month, income: null, baseline_surplus: null}))
- render(<YearOutlook plan={{...plan, plan_starts_on: '2026-11-01', annual_outlook: {...plan.annual_outlook, months}}} />)
- expect(screen.getByText('Your plan starts in November 2026.')).toBeTruthy()
- expect(screen.getAllByText('Income not known yet')).toHaveLength(2)
- expect(screen.queryByText(/short|\$0/)).toBeNull()
-})
-it('labels income on every known outlook group including a confirmed zero', () => {
- const months = plan.annual_outlook.months.slice(10).map(month => ({...month, income: 0, planned_outflow: 0, baseline_surplus: 0}))
- render(<YearOutlook plan={{...plan, annual_outlook: {...plan.annual_outlook, months}}} />)
- expect(screen.getByText('$0 planned out · $0 money in')).toBeTruthy()
 })
 
 it('asks for main income when an approved business amount is only a subtotal', () => {
@@ -306,25 +316,7 @@ it('uses category remainder plus monthly debt payments, with no pending spending
   expect(Number.parseFloat(bar.style.getPropertyValue('--planned'))).toBeCloseTo(38.8387)
 })
 
-it.each([2, 6, 12])('keeps the exact grouped list and decorates a %s month outlook', count => {
-  const months = plan.annual_outlook.months.slice(12 - count)
-  const sizedPlan = { ...plan, months: plan.months.slice(12 - count), rows: plan.rows.map(row => ({ ...row, months: row.months.slice(12 - count) })), annual_outlook: { ...plan.annual_outlook, months } }
-  const { container } = render(<YearOutlook plan={sizedPlan} currentMonth={11} />)
-  expect(container.querySelectorAll('.year-outlook-months > li')).toHaveLength(2)
-  expect(container.querySelectorAll('.year-outlook-months button')).toHaveLength(0)
-  expect(container.querySelectorAll('.year-outlook-months .home-outlook-track')).toHaveLength(2)
-  expect(container.querySelectorAll('.home-year-columns .ui-cols__column')).toHaveLength(count >= 4 ? count : 0)
-  expect(container.querySelector('.home-tight-month')?.textContent).toBe('December is your tight month: $680 left after $5,520 planned out.')
-})
 
-it('does not invent a tight month when the year is steady or unknown', () => {
-  const months = plan.annual_outlook.months.map(month => ({ ...month, baseline_surplus: 2180 }))
-  const view = render(<YearOutlook plan={{ ...plan, annual_outlook: { ...plan.annual_outlook, months } }} />)
-  expect(view.container.querySelector('.home-tight-month')).toBeNull()
-  view.rerender(<YearOutlook plan={plan} moneyKnown={false} />)
-  expect(view.container.querySelector('.home-tight-month')).toBeNull()
-  expect(view.container.querySelector('.home-year-columns')).toBeNull()
-})
 
 it('keeps the Mia row and starter prompts useful without adding a second Ask Mia link', () => {
   const ask = vi.fn(), choose = vi.fn()
