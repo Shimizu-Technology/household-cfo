@@ -4249,9 +4249,116 @@ export async function updateDebtTracking(values: { mode: 'summary' | 'individual
   return payload.debt_portfolio
 }
 
+export type MonthlyCloseStatus = 'future' | 'open' | 'partial' | 'complete' | 'no_actuals'
+
+export type MonthlyCloseIncome = {
+  planned_cents: number | null
+  actual_cents: number | null
+  difference_cents: number | null
+  prior_month_actual_cents: number | null
+  prior_month_complete: boolean
+  change_from_prior_cents: number | null
+  complete: boolean
+  partial: boolean
+  month_open: boolean
+  waiting_deposits: number
+  coverage_note: string
+}
+
+export type MonthlyCloseTotals = {
+  planned_spending_cents: number | null
+  actual_spending_cents: number | null
+  spending_difference_cents: number | null
+  prior_actual_spending_cents: number | null
+  spending_change_from_prior_cents: number | null
+  has_spending_activity: boolean
+  prior_month_has_activity: boolean
+  debt_minimums_cents: number | null
+  debt_minimums_known: boolean
+}
+
+export type MonthlyCloseNet = {
+  planned_net_before_debt_cents: number | null
+  actual_net_before_debt_cents: number | null
+  net_before_debt_difference_cents: number | null
+  planned_net_after_debt_cents: number | null
+  actual_net_after_debt_cents: number | null
+  net_after_debt_difference_cents: number | null
+}
+
+export type MonthlyCloseCategory = {
+  id: number
+  name: string
+  stack_key: BudgetStackKey
+  stack_label: string
+  active: boolean
+  planned_cents: number | null
+  actual_cents: number
+  difference_cents: number | null
+  prior_actual_cents: number | null
+  change_from_prior_cents: number | null
+  has_activity: boolean
+  prior_has_activity: boolean
+  refund_net_negative: boolean
+}
+
+export type MonthlyCloseMover = {
+  category_id: number
+  name: string
+  stack_key: BudgetStackKey
+  stack_label: string
+  active: boolean
+  actual_cents: number
+  prior_actual_cents: number | null
+  change_from_prior_cents: number
+}
+
+export type MonthlyCloseChanges = {
+  prior_month_has_activity: boolean
+  prior_period_label: string
+  increases: MonthlyCloseMover[]
+  decreases: MonthlyCloseMover[]
+  income_change: {
+    actual_cents: number
+    prior_actual_cents: number
+    change_from_prior_cents: number
+  } | null
+}
+
+export type MonthlyCloseData = {
+  year: number
+  month: number
+  period_id: number | string | null
+  period_label: string
+  starts_on: string
+  ends_on: string
+  prior_year: number
+  prior_month: number
+  prior_period_label: string
+  plan_available: boolean
+  plan_starts_on: string
+  before_plan_start: boolean
+  status: MonthlyCloseStatus
+  status_label: string
+  household_id: number
+  financial_generation: number
+  income: MonthlyCloseIncome
+  totals: MonthlyCloseTotals
+  net: MonthlyCloseNet
+  categories: MonthlyCloseCategory[]
+  changes: MonthlyCloseChanges
+  highlights: string[]
+}
+
 export async function fetchBudget(year?: number): Promise<BudgetData> {
   const query = year ? `?year=${encodeURIComponent(year)}` : ''
   return fetchJson<BudgetData>(`/api/v1/budget${query}`)
+}
+
+export async function fetchMonthlyClose(year: number, month: number, signal?: AbortSignal): Promise<MonthlyCloseData> {
+  const query = new URLSearchParams({ year: String(year), month: String(month) })
+  const payload = await fetchJson<{ monthly_close: MonthlyCloseData }>(`/api/v1/budget/monthly_close?${query}`, { signal })
+  return payload.monthly_close
 }
 
 export async function fetchSpendingReport(startOn: string, endOn: string): Promise<SpendingReport> {

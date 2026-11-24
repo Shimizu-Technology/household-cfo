@@ -106,6 +106,7 @@ import {
   BudgetPlanStrip,
   ExpenseStackOverview,
 } from './components/BudgetVisuals'
+import { MonthlyClosePanel } from './components/MonthlyClosePanel'
 import {
   budgetPositionsForMonth,
   budgetPositionTotals,
@@ -5069,6 +5070,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
               onReviewTransactions={() => switchSection('Review')}
               isRealWorkspace={Boolean(isRealWorkspace)}
+              showMonthlyClose={Boolean(isRealWorkspace)}
               action={budgetContextAction}
               error={budgetError}
               notice={budgetNotice}
@@ -9265,6 +9267,7 @@ export function AnnualBudgetPlanner({
   needsSetup = false,
   onReviewTransactions,
   isRealWorkspace,
+  showMonthlyClose = false,
   action,
   error,
   notice,
@@ -9297,6 +9300,7 @@ export function AnnualBudgetPlanner({
   needsSetup?: boolean
   onReviewTransactions: () => void
   isRealWorkspace: boolean
+  showMonthlyClose?: boolean
   action: string | null
   error: string | null
   notice?: string | null
@@ -9633,6 +9637,15 @@ export function AnnualBudgetPlanner({
         />
       </details>}
       </div>
+      {showMonthlyClose && (
+        <MonthlyClosePanel
+          year={plan.year}
+          month={currentMonthIndex + 1}
+          refreshKey={planSignature}
+          onAdjustCategory={openCategoryAmountEditor}
+          planningBlockedReason={planningBlockedReason}
+        />
+      )}
       {manualTool && (
         <section id="budget-manual-manager" className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
           <div className="budget-manual-manager-heading">

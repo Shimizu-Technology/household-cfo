@@ -17,6 +17,19 @@ module Api
         render json: budget_presenter.budget
       end
 
+      def monthly_close
+        year, month = monthly_close_period_params
+        close = HouseholdFinance::MonthlyClose.new(
+          current_household,
+          year: year,
+          month: month,
+          method: CohortExperience::MethodSettings.from_capabilities(current_experience_capabilities)
+        ).call
+        render json: { monthly_close: close }
+      rescue ArgumentError => error
+        render json: { errors: [ error.message ] }, status: :unprocessable_entity
+      end
+
       def wealth
         render json: presenter.wealth
       end
@@ -52,6 +65,27 @@ module Api
         year = params[:year].to_i.clamp(2000, 2100)
         annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: year).plan_data
         current_data_presenter(annual_plan: annual_plan)
+      end
+
+      def monthly_close_period_params
+        today = Time.current.in_time_zone("Pacific/Guam").to_date
+        year = parse_strict_integer(params[:year], default: today.year, label: "Year")
+        month = parse_strict_integer(params[:month], default: today.month, label: "Month")
+        unless HouseholdFinance::AnnualBudgetManager.supported_year?(year)
+          raise ArgumentError, "Year must be between #{HouseholdFinance::AnnualBudgetManager::SUPPORTED_YEARS.min} and #{HouseholdFinance::AnnualBudgetManager::SUPPORTED_YEARS.max}"
+        end
+        raise ArgumentError, "Month must be between 1 and 12" unless (1..12).cover?(month)
+
+        [ year, month ]
+      end
+
+      def parse_strict_integer(raw, default:, label:)
+        return default if raw.nil? || raw.to_s.strip.empty?
+
+        text = raw.to_s.strip
+        raise ArgumentError, "#{label} must be a whole number" unless text.match?(/\A-?\d+\z/)
+
+        text.to_i
       end
     end
   end
