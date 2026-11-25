@@ -4,7 +4,7 @@ Solid Queue worker polling changes from 100 to 500 ms. The dispatcher still poll
 
 ## Reproduce safely
 
-Use a dedicated local database, never `api_development`. The benchmark rejects other URLs and verifies Rails' resolved database before writing fixtures. No `.env` files or production credentials are needed.
+Use a dedicated local database, never `api_development`. The benchmark rejects URL query options and verifies Rails' live PostgreSQL endpoint and database before writing fixtures. No `.env` files or production credentials are needed.
 
 ```sh
 cd api
@@ -20,23 +20,23 @@ ruby script/benchmark_queue_polling.rb > after.json
 
 Run these sequentially without other task-owned tests/builds. Both runs use the same application code and database; the argument selects the baseline interval, while the second run reads `queue.yml`. Assert the Rails-resolved configuration immediately before any additional `db:` command. Use the named database only if you own it and remove it after your run.
 
-The script boots actual Solid Queue worker/dispatcher threads with production queue selection and concurrency, warms the authenticated workspace once, then counts uncached SQL statements (including transactions, excluding schema discovery) over 60 seconds. This is a local query-volume proxy, not measured compute hours or billing savings. Heartbeats and concurrency maintenance are included when they fall in the window. Production scheduler/supervisor and recurring business queries are excluded, so production totals will be higher. Thirty sequential arrivals sample varying poll phases. Scheduled latency is measured from the job's due time. Burst timing includes enqueue through completion of all 30 jobs. Request timing uses Rails' integration stack with local test authentication, excluding browser/network/provider latency.
+The script boots actual Solid Queue worker/dispatcher threads with production queue selection and concurrency, warms the authenticated workspace once, then counts uncached SQL statements (including transactions, excluding schema discovery) over 60 seconds. This is a local query-volume proxy, not measured compute hours or billing savings. Heartbeats and concurrency maintenance are included when they fall in the window. Production scheduler/supervisor and recurring business queries are excluded, so production totals will be higher. Thirty sequential arrivals sample varying poll phases. Scheduled latency is measured from the job's due time. Burst timing runs from enqueue until all 30 jobs have a persisted completion timestamp. Each pickup result is matched to its invocation and job, and unfinished jobs from earlier benchmark invocations are removed before workers start. Request timing uses Rails' integration stack with local test authentication, excluding browser/network/provider latency.
 
 ## November 26 rerun
 
 | Metric | Before: 100 ms | After: 500 ms |
 |---|---:|---:|
-| Idle SQL statements/minute | 1224.0 | 571.9 |
-| Immediate pickup p50 (ms) | 118.3 | 348.6 |
-| Immediate pickup p95 (ms) | 251.5 | 618.0 |
-| Immediate pickup max (ms) | 254.2 | 653.6 |
-| First workspace request after 60s idle (ms) | 93.4 | 51.9 |
-| Scheduled pickup lateness (ms) | 548.2 | 1538.3 |
-| 30-job burst completion (ms) | 267.2 | 84.7 |
-| Retry completion (ms) | 1844.3 | 3127.0 |
-| Restart pickup (ms) | 3.1 | 8.2 |
+| Idle SQL statements/minute | 1208.0 | 546.0 |
+| Immediate pickup p50 (ms) | 132.2 | 312.4 |
+| Immediate pickup p95 (ms) | 264.5 | 644.9 |
+| Immediate pickup max (ms) | 269.4 | 654.1 |
+| First workspace request after 60s idle (ms) | 96.5 | 93.6 |
+| Scheduled pickup lateness (ms) | 1008.4 | 918.4 |
+| 30-job burst completion (ms) | 299.7 | 137.3 |
+| Retry completion (ms) | 1839.9 | 1914.8 |
+| Restart pickup (ms) | 8.8 | 8.1 |
 
-On merged main `a04fbb25`, idle SQL volume fell 53.3% and immediate-job p95 rose 366.5 ms. Both runs completed 30 immediate arrivals, the scheduled job, the 30-job burst, the retry and restart recovery. The workspace request issued 70 SQL statements before and 70 after. One local run per interval does not establish a production latency distribution.
+The updated benchmark measured a 54.8% drop in idle SQL volume and a 380.4 ms rise in immediate-job p95. Both runs completed 30 immediate arrivals, the scheduled job, the 30-job burst, the retry and restart recovery. Solid Queue persisted all 30 burst jobs as finished before the timer stopped. Both workspace requests issued 70 SQL statements. Scheduled and retry timings include the dispatcher cadence. One local run per interval does not establish a production latency distribution.
 
 Raw samples: [before](queue-polling-before.json), [after](queue-polling-after.json).
 
