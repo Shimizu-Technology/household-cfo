@@ -1,12 +1,6 @@
 # VERA queue polling measurement
 
-## Scope and acceptance
-
-Baseline: `d9849f9f`, November 19, 2026. VERA serves household-finance participants and coaches. Document extraction, reminders, enterprise admission synchronization and recovery use durable background work. Sources: root README, `api/config/recurring.yml`, `api/config/queue.yml`, and installed Solid Queue 1.4.0 source.
-
-This draft reduces recurring queue queries while keeping foreground requests independent of queue polling. It does **not** enable Neon autosuspend. Worker polling moves from 100 to 500 ms using Solid Queue's supported configuration. Dispatcher polling remains 1 second; concurrency, thread count, retries, heartbeats and recurring schedules remain unchanged. The queue's pool completion callback wakes workers as busy threads finish, so a backlog need not wait 500 ms between batches.
-
-Agent-executed affected-flow acceptance: measure idle SQL volume; immediate and scheduled pickup; authenticated workspace after idle; a 30-job burst; retry after a synthetic transient failure; persisted work after worker restart. These use synthetic jobs and a test identity, with no provider calls. Production provider delivery, physical devices and browser journeys are outside this backend-only change's local evidence. Full frontend/browser CI remains a separate gate.
+Solid Queue worker polling changes from 100 to 500 ms. The dispatcher still polls every second. A worker can wake early when an occupied thread finishes.
 
 ## Reproduce safely
 
@@ -18,48 +12,44 @@ export RAILS_ENV=test
 export DATABASE_URL=postgresql://agent@localhost:5432/vera_polling_bench_20261119
 export DATABASE_TEST_NAME=vera_polling_bench_20261119
 ruby -ruri -e 'u=URI(ENV.fetch("DATABASE_URL")); abort "Unsafe DB" unless u.host == "localhost" && u.path == "/vera_polling_bench_20261119"'
-bin/rails db:prepare
+bundle exec ruby -r ./config/environment -e 'configs = ActiveRecord::Base.configurations.configs_for(env_name: "test"); abort "Unsafe DB" unless configs.size == 1 && configs.first.configuration_hash.values_at(:host, :port, :database, :username) == ["localhost", 5432, "vera_polling_bench_20261119", "agent"]' &&
+  bin/rails db:prepare
 ruby script/benchmark_queue_polling.rb 0.1 > before.json
 ruby script/benchmark_queue_polling.rb > after.json
 ```
 
-Run these sequentially without other task-owned tests/builds. Both runs use the same application code and database; the argument selects the baseline interval, while the second run reads `queue.yml`. The guard must immediately precede every additional `db:` command.
+Run these sequentially without other task-owned tests/builds. Both runs use the same application code and database; the argument selects the baseline interval, while the second run reads `queue.yml`. Assert the Rails-resolved configuration immediately before any additional `db:` command. Use the named database only if you own it and remove it after your run.
 
 The script boots actual Solid Queue worker/dispatcher threads with production queue selection and concurrency, warms the authenticated workspace once, then counts uncached SQL statements (including transactions, excluding schema discovery) over 60 seconds. This is a local query-volume proxy, not measured compute hours or billing savings. Heartbeats and concurrency maintenance are included when they fall in the window. Production scheduler/supervisor and recurring business queries are excluded, so production totals will be higher. Thirty sequential arrivals sample varying poll phases. Scheduled latency is measured from the job's due time. Burst timing includes enqueue through completion of all 30 jobs. Request timing uses Rails' integration stack with local test authentication, excluding browser/network/provider latency.
 
-## Results
+## November 26 rerun
 
 | Metric | Before: 100 ms | After: 500 ms |
 |---|---:|---:|
-| Idle SQL statements/minute | 1219.0 | 552.6 |
-| Immediate pickup p50 (ms) | 125.8 | 291.8 |
-| Immediate pickup p95 (ms) | 260.2 | 643.7 |
-| Immediate pickup max (ms) | 262.3 | 664.0 |
-| First workspace request after 60s idle (ms) | 158.1 | 163.6 |
-| Scheduled pickup lateness (ms) | 1176.3 | 865.9 |
-| 30-job burst completion (ms) | 353.7 | 70.4 |
-| Retry completion (ms) | 1922.9 | 1845.6 |
-| Restart pickup (ms) | 13.6 | 15.2 |
+| Idle SQL statements/minute | 1224.0 | 571.9 |
+| Immediate pickup p50 (ms) | 118.3 | 348.6 |
+| Immediate pickup p95 (ms) | 251.5 | 618.0 |
+| Immediate pickup max (ms) | 254.2 | 653.6 |
+| First workspace request after 60s idle (ms) | 93.4 | 51.9 |
+| Scheduled pickup lateness (ms) | 548.2 | 1538.3 |
+| 30-job burst completion (ms) | 267.2 | 84.7 |
+| Retry completion (ms) | 1844.3 | 3127.0 |
+| Restart pickup (ms) | 3.1 | 8.2 |
 
-Idle SQL volume fell 54.7% in these windows. Immediate-job p95 increased by 383.5 ms; the measured maximum was 664.0 ms. The first-request difference was 5.5 ms with 55 uncached SQL statements in each request. These single-window/single-request samples do not establish a statistical latency guarantee or improved burst performance. Thirty immediate jobs, the scheduled job, all 30 burst jobs, the two-attempt retry, and persisted work after restart completed in each run. Longer-tail production job latency remains unmeasured.
+On merged main `a04fbb25`, idle SQL volume fell 53.3% and immediate-job p95 rose 366.5 ms. Both runs completed 30 immediate arrivals, the scheduled job, the 30-job burst, the retry and restart recovery. The workspace request issued 70 SQL statements before and 70 after. One local run per interval does not establish a production latency distribution.
 
 Raw samples: [before](queue-polling-before.json), [after](queue-polling-after.json).
 
-## Availability and cold-start decision
+## User-facing latency
 
-Keep VERA compute always on. There is no local evidence that a Neon wake meets Leon's first-load requirement: the supplied wake estimate is 0.5–1 second. PostgreSQL stays running in this experiment, so this is a first request after **application inactivity**, not a simulated Neon suspend/resume. The 500 ms worker poll, 1 second dispatcher, process heartbeats and enterprise job every 30 seconds still prevent long query-free windows. Do not claim this saves compute hours or enables sleep.
+- **Document imports.** Upload returns the saved import while extraction runs in the queue. The Documents view checks status every 3.5 seconds. Extra pickup time can move a fast extraction past a status check.
+- **Mia.** Text replies are generated in the request. With attachments, the composer explicitly waits for extraction, checks every 1.8 seconds and allows up to five minutes. A fast extraction near a poll boundary can take one extra check to appear. This is the most latency-sensitive path found.
+- **Email.** Invitation and sign-in delivery requests call their providers inline. Challenge reminder emails run in background delivery on a five-minute recovery cadence, with no foreground completion wait.
+- **Enterprise.** Scheduled admission sync runs every 30 seconds. Manual WorkOS refresh returns HTTP 202 and asks the admin to refresh status later.
+- **Other background screens.** Bank sync, coach imports and persona evaluations expose asynchronous status. The extra idle pickup time can shift when a status poll observes completion.
 
-Fresh jobs on an idle worker may wait up to roughly 400 ms more than before (500 versus 100 ms polling, plus database/OS work). Scheduled work retains the dispatcher's existing up-to-1-second delay, plus worker pickup. User-visible jobs must tolerate this bound before promotion from draft. If immediate-job feedback requires 100 ms pickup, retain the original interval rather than weakening the responsiveness requirement. Event-driven cross-process pickup would require a separately designed durable notification/queue architecture; Solid Queue 1.4.0 has no built-in PostgreSQL LISTEN/NOTIFY worker mode. A long sleep or application-only enqueue wakeup would miss jobs from other processes and is not used here.
+These conclusions come from the controller, job and client paths. The local benchmark uses synthetic jobs and an authenticated Rails integration request. Provider timing and browser/device latency were not measured.
 
-No Neon/Render configuration, deployment, scheduler ownership or billing changes are included. No production frontend build is expected from this backend-only change; the existing separate frontend-ignore PR is #301. A host-configured deploy preview may still build on PR creation.
+## Production impact
 
-## Engineering gate and review handoff
-
-Local environment: Mac mini M4, Ruby 3.3.7, PostgreSQL 16, Rails test mode. The backend suite ran on separate `vera_polling_test_20261119`; measurement ran on `vera_polling_bench_20261119`, sequentially after this task's suites/builds ended. Other machine services remained borrowed and untouched.
-
-- Backend: 5,459 tests / 82,037 assertions, one failure, zero errors/skips. `MiaPersonaSetupProposalGuardTest#test_round_five_one_deadline_covers_every_candidate_and_salvage_retry` took 0.152407 s against a strict `< 0.15 s` assertion. An isolated rerun passed (1 test / 6 assertions). This does not convert the failed full run into a clean full gate. No unrelated test change is included.
-- Ruby lint, Brakeman, gem vulnerability audit, Zeitwerk and diff whitespace checks passed. The new benchmark script also passed lint after its final changes.
-- Frontend: design/privacy checks, lint, 226 files / 2,078 unit tests, build, production dependency audit and repository dependency audit passed. Existing large-chunk and unused audit-exception warnings remain. Build-generated sitemap date was restored. No frontend source changes are included.
-- Browser/device and synthetic-document tooling gates were not run locally; CI/provider checks and review are separately reported on the draft. No whole-app or production acceptance is claimed. Actual background-queue acceptance is covered by the instrumented worker/dispatcher run, not a browser mock.
-
-The PR must remain draft. Before promotion, review the measured idle-job pickup tradeoff against document-import and reminder UX, obtain current-head review, and resolve required CI gates (the ruleset still names a legacy `web` context). No merge/deploy is authorized by this queue item.
+This cuts idle database queries about in half. It does not let Neon sleep or cut compute hours. Workers, heartbeats and the enterprise sync scheduled every 30 seconds keep VERA's compute always on by design for fast first load. The production scheduler and enterprise sync were outside the local query count. No hosting configuration changes are needed.
