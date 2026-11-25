@@ -40,6 +40,8 @@ module HouseholdFinance
         category_context: [ raw_input, command[:resolved_message] ].compact.join(" ")
       )
       input[:budget_category_id] = input.delete(:category_id) if input[:category_id].present?
+      # She told Mia she paid in cash ("paid $40 cash for lunch"). Only her own words for this one purchase.
+      input[:paid_with_cash] = true if CashPayment.said?(purchase_source)
       result = Operations::Runner.new(household, user: user).run(
         operation_key: "transaction.draft.create",
         input: input,

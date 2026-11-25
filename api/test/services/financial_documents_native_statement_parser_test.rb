@@ -121,19 +121,65 @@ class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
     financial = source[:events].reject { |event| event[:row_kind] == "informational" }
     assert_equal 4, financial.size
     assert_equal [ -1000, -1000, 5000, -1000 ], financial.pluck(:signed_amount_cents)
-    assert_equal 2, financial.count { |event| event[:event_type] == "unknown" && event[:row_kind] == "unresolved" }
+    purchases = financial.first(2)
+    assert_equal [ "purchase" ] * 2, purchases.pluck(:event_type)
+    assert_equal [ "posted" ] * 2, purchases.pluck(:row_kind)
+    assert_equal [ 1000 ] * 2, purchases.pluck(:expense_amount_cents)
+    assert_equal [ "Tasi Demo Coffee" ] * 2, purchases.map { |event| event.dig(:evidence, :merchant) }
+    assert_equal [ "Tasi Demo Coffee Hagatna, GU" ] * 2, purchases.map { |event| event.dig(:evidence, :raw_description) }
+    assert_equal 2, financial.pluck(:row_identity).first(2).uniq.size, "Two identical purchases stay two rows"
     assert_equal 2, financial.count { |event| event[:event_type] == "transfer" }
+    assert_equal [ "Added to Balance", "Payment to Example Person" ], financial.last(2).map { |event| event.dig(:evidence, :merchant).first(25) }, "Only purchases drop the lines under the name"
     split = financial.last
     assert_nil split[:expense_amount_cents]
     assert_equal [ 1000, 2000 ], split[:funding_components].pluck(:amount_cents)
     assert_equal source[:accounts].sole[:source_key], split[:funding_components].first[:source_key]
     assert_equal 1, source[:accounts].size, "An outside funding component is not a fabricated bank account statement"
+    assert_equal "Apple Cash", source[:accounts].sole.dig(:evidence, :label)
+    assert_includes source[:accounts].sole.dig(:evidence, :header_evidence), "January 2026"
     assert_equal 2, source[:events].count { |event| event[:row_kind] == "informational" }
     assert_equal 10_000, source[:accounts].sole[:opening_balance_cents]
     assert_equal 12_000, source[:accounts].sole[:closing_balance_cents]
     assert result.metadata[:printed_arithmetic_verified]
     assert_empty result.data[:items]
     assert_empty result.data[:transaction_drafts]
+  end
+
+  test "Apple Cash money out with only a merchant and its place is a purchase; everything else keeps its type or stays a question" do
+    parser = FinancialDocuments::NativeStatementParser.allocate
+    split = [ { account_key: "apple", amount_cents: 1_000 }, { account_key: "bank", amount_cents: 2_000 } ]
+    [ "Tasi Demo Coffee Hagatna, GU", "Talun Demo Books 671-555-0142, GU", "Demo Cloud talun.example, CA", "Talun Demo Credit Monitor talun.example, CA", "Tasi Demo Market" ].each do |description|
+      assert_equal "purchase", parser.send(:apple_type, description, -1_250, []), description
+    end
+    { "Demo Bank (•••• 4321) Added to Balance 1a2b3c4d5e6f" => [ 5_000, [] ], "Payment to +****0142 Total Payment $30.00" => [ -1_000, split ],
+      "Received from Neri Talun 9f8e7d6c5b4a" => [ 2_500, [] ] }.each do |description, (amount, funding)|
+      assert_equal "transfer", parser.send(:apple_type, description, amount, funding), description
+    end
+    assert_equal "adjustment", parser.send(:apple_type, "Daily Cash from Apple Card 0a1b2c3d4e5f", 285, [])
+    # A merchant paying money back, a split payment, and anything naming a transfer, person, refund, fee or card stays a question.
+    [ [ "Tasi Demo Coffee Hagatna, GU", 650, [] ], [ "Tasi Demo Market Hagatna, GU", -1_000, split ], [ "", -1_000, [] ],
+      [ "Transfer to Demo Bank (•••• 4321)", -2_500, [] ], [ "Instant Transfer to Demo Debit Card", -2_500, [] ], [ "Sent to Neri Talun", -2_000, [] ],
+      [ "Neri Talun neri.talun@example.com", -2_000, [] ], [ "Apple Card Payment", -5_000, [] ], [ "Refund Tasi Demo Market", -500, [] ],
+      [ "Instant Transfer Fee", -75, [] ], [ "Demo Bank withdrawal", -2_000, [] ], [ "Cash Back Tasi Demo Market", -2_000, [] ] ].each do |description, amount, funding|
+      assert_equal "unknown", parser.send(:apple_type, description, amount, funding), description
+    end
+  end
+
+  test "Apple Cash merchant purchases reach review asking for her category, not as unclear lines" do
+    user = User.create!(clerk_id: "native-apple-#{SecureRandom.hex(8)}", email: "native-apple-#{SecureRandom.hex(8)}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Talun native Apple Cash")
+    household.household_memberships.create!(user: user, role: "owner")
+    household.budget_categories.create!(name: "Synthetic groceries", stack_key: "non_discretionary", sort_order: 0)
+    import = FinancialDocumentImport.create!(household: household, uploaded_by_user: user, document_kind: "statement", status: "needs_review", filename: "talun-apple.pdf", content_type: "application/pdf", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.pdf", checksum_sha256: SecureRandom.hex(32))
+    attempt = import.attempts.create!(provider: "native_pdf", model: FinancialDocuments::NativeStatementParser::VERSION, prompt_version: FinancialDocuments::NativeStatementParser::VERSION, schema_version: 2, status: "processing", started_at: Time.current)
+    revision = FinancialDocuments::SourceAccountingPersister.new(import, attempt: attempt, accounting: parse(apple_pages).data[:source_accounting]).call[:revision]
+    lines = FinancialDocuments::SourceReview::ParticipantPlan.new(household, revision).lines.reject { |line| line.event.row_kind == "informational" }
+    purchases = lines.select { |line| line.event.event_type == "purchase" }
+    assert_equal 2, purchases.size
+    assert_equal [ "Tasi Demo Coffee" ] * 2, purchases.map(&:merchant)
+    assert purchases.all? { |line| line.kind.in?(%i[no_category suggested_category]) }, purchases.map(&:kind).inspect
+    assert_equal %i[transfer person_payment], lines.select { |line| line.event.event_type == "transfer" }.map(&:kind)
+    refute lines.any? { |line| line.kind == :unclear }
   end
 
   test "unrecognized scanned incomplete reordered and coordinate drift templates reject without partial accounting" do
@@ -251,8 +297,8 @@ class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
       glyph("Ending Balance", 38.75, 490), money("$120.00", 490, 573.25),
       glyph("DATE", 38.75, 435.15), glyph("DESCRIPTION", 90.86, 435.15), glyph("ACCOUNT FEE", 430.79, 435.15), glyph("AMOUNT", 498.17, 435.15), glyph("BALANCE", 552.76, 435.15),
       glyph("Starting Balance", 90.86, 415), money("$100.00", 415, 573.25),
-      glyph("01/02/2026", 38.75, 399), glyph("Sample merchant", 90.86, 399), money("-$10.00", 388, 517.83), money("$90.00", 388, 573.25),
-      glyph("01/02/2026", 38.75, 374), glyph("Sample merchant", 90.86, 374), money("-$10.00", 363, 517.83), money("$80.00", 363, 573.25),
+      glyph("01/02/2026", 38.75, 399), glyph("Tasi Demo Coffee", 90.86, 399), glyph("Hagatna, GU", 90.86, 388), money("-$10.00", 388, 517.83), money("$90.00", 388, 573.25),
+      glyph("01/02/2026", 38.75, 374), glyph("Tasi Demo Coffee", 90.86, 374), glyph("Hagatna, GU", 90.86, 363), money("-$10.00", 363, 517.83), money("$80.00", 363, 573.25),
       glyph("01/03/2026", 38.75, 349), glyph("Added to Balance", 90.86, 349), money("+$50.00", 338, 517.83), money("$130.00", 338, 573.25),
       glyph("01/04/2026", 38.75, 324), glyph("Payment to Example Person", 90.86, 324),
       glyph("Total Payment", 241.73, 324), money("$30.00", 324, 395.61),

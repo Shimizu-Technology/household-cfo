@@ -861,9 +861,9 @@ module Api
         cohort = current_cohort_membership.cohort
         offer = enrollment ? nil : SavingsChallenge::EnrollmentOffer.call(cohort: cohort, user: current_user, membership: current_cohort_membership)
         reply = if enrollment
-          "You're already in. Your 90 days run #{SavingsChallenge::JoinRequest.range_text(enrollment.starts_on, enrollment.ends_on)}. Nothing else to do to join."
+          "You're already in. Your #{enrollment.challenge_length_days} days run #{SavingsChallenge::JoinRequest.range_text(enrollment.starts_on, enrollment.ends_on)}. Nothing else to do to join."
         elsif offer[:accepting_enrollments]
-          dates = offer[:personal_starts_on] && offer[:personal_ends_on] ? " Your 90 days would run #{SavingsChallenge::JoinRequest.range_text(offer[:personal_starts_on], offer[:personal_ends_on])}." : ""
+          dates = offer[:personal_starts_on] && offer[:personal_ends_on] ? " Your #{offer[:challenge_length_days]} days would run #{SavingsChallenge::JoinRequest.range_text(offer[:personal_starts_on], offer[:personal_ends_on])}." : ""
           "Happy to help you join.#{dates} The card below has the terms. Nothing happens until you check the box and tap Accept and join."
         else
           "This group isn't taking new members right now, so I can't add you yet. Your program team can tell you more. Nothing was changed."
@@ -2163,6 +2163,7 @@ module Api
         read_only_result = if read_only_plan
           HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
             current_household,
+            experience_capabilities: current_experience_capabilities, user: current_user,
             plan: read_only_plan,
             annual_budget_manager: annual_budget_manager,
             annual_plan: annual_plan,
@@ -2262,7 +2263,7 @@ module Api
               annual_plan: annual_plan,
               reference_month: budget_month_param,
               conversation_messages: @mia_conversation_messages,
-              user: current_user
+              experience_capabilities: current_experience_capabilities, user: current_user
             )
             coach_answer = coach_answerer.call
             @mia_month_answer ||= coach_answerer.prepared_month_answer
@@ -2338,7 +2339,7 @@ module Api
               annual_plan: annual_plan,
               reference_month: budget_month_param,
               conversation_messages: @mia_conversation_messages,
-              user: current_user
+              experience_capabilities: current_experience_capabilities, user: current_user
             )
             coach_answer = coach_answerer.call
             @mia_month_answer ||= coach_answerer.prepared_month_answer
@@ -2438,7 +2439,7 @@ module Api
           annual_plan: annual_plan,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages,
-          user: current_user
+          experience_capabilities: current_experience_capabilities, user: current_user
         )
         answer = answerer.support_answer
         @mia_month_answer ||= answerer.prepared_month_answer
@@ -2452,7 +2453,7 @@ module Api
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages,
-          user: current_user
+          experience_capabilities: current_experience_capabilities, user: current_user
         ).guardrail_answer
       end
 
@@ -2504,7 +2505,7 @@ module Api
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages,
-          user: current_user
+          experience_capabilities: current_experience_capabilities, user: current_user
         )
         coach_answer = support_answer || ((pending_draft_answer || transaction_lookup_answer || action_result) ? nil : followup.direct_answer || coach_answerer.call)
         transaction_lookup_answer ||= (coach_answer || pending_draft_answer || action_result) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
@@ -3073,7 +3074,9 @@ module Api
           end,
           matches: [],
           matched_transaction_id: draft.matched_transaction_id,
-          summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 2)}"
+          summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 2)}",
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft),
+          cash_payment: HouseholdFinance::CashPayment.presentation(draft)
         }
       end
 

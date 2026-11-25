@@ -1,6 +1,11 @@
+import { CfoScenarios, OptionalityScenario } from './components/FinanceScenarios'
+import { useHomeView } from './lib/useHomeView'
+import { localTestAuth } from './lib/localTestAuth'
+import { cashCoverage } from './lib/cashCoverage'
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import { plannedOutForMonth } from './lib/plannedOutForMonth'
 import { ReviewConfirmedCard } from './components/ReviewConfirmedCard'
+import { CashPurchaseQuestions } from './components/CashPurchaseQuestions'
 import { MiaReviewError } from './components/MiaReviewError'
 import { useLiveMiaResult } from './lib/useLiveMiaResult'
 import { miaReviewResult } from './lib/miaReviewResult'
@@ -22,6 +27,7 @@ import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
 import { formatRunway } from './lib/runway'
 import { YearOutlook } from './components/YearOutlook'
+import { BillsForecast } from './components/BillsForecast'
 import { formatReviewMoney } from './lib/reviewMoney'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { restoreAccountFocus } from './lib/accountFocus'
@@ -42,6 +48,7 @@ import { confirmAction } from './lib/confirmAction'
 import { useDialogViewport } from './lib/useDialogViewport'
 import { StatementSourceReview } from './components/StatementSourceReview'
 import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
+import type { StatementProgress } from './lib/statementReview'
 import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
 import { categoryDisplayName } from './lib/categoryDisplayName'
@@ -84,8 +91,11 @@ import { Metric } from './components/Metric'
 import { PurchaseReviewSummary } from './components/PurchaseReviewSummary'
 import { PlaidConnections } from './components/PlaidConnections'
 import { IgnoredTransactionList, ReviewedTransactionsPanel, TransactionReopenButton } from './components/ReviewedTransactions'
-import { bulkConfirmPhraseMismatchMessage, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
+import { confirmAfterCreate, isConfirmQuestionRefusal, reloadReviewData } from './lib/confirmRefusal'
+import { bulkConfirmPhraseMismatchMessage, CASH_WITHDRAWAL_NOTICE, POSSIBLE_DUPLICATE_NOTICE, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
+import { StatementBalanceOffers } from './components/StatementBalanceOffers'
+import { announceStatementBalanceChange } from './lib/statementBalanceOffer'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
 import { PilotFeedbackDialog } from './components/PilotFeedbackDialog'
 import { AdminApp } from './admin/AdminApp'
@@ -97,6 +107,7 @@ import {
   BudgetPlanStrip,
   ExpenseStackOverview,
 } from './components/BudgetVisuals'
+import { MonthlyClosePanel } from './components/MonthlyClosePanel'
 import {
   budgetPositionsForMonth,
   budgetPositionTotals,
@@ -113,8 +124,9 @@ import { formatHouseholdDay, formatHouseholdMonth, guamTodayIso } from './lib/ho
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { budgetViewForWorkspace, isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
-import { documentNeedsReview, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
+import { documentNeedsReview, importIdsForRevisions, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage, withStatementProgress } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
+import { changedDebtFields, ordinalDay, parseDueDay, parseOptionalAmount, pastDueStatus } from './lib/debtArrears'
 import {
   captureApiOperation,
   applyDocumentImport,
@@ -129,6 +141,7 @@ import {
   chooseMiaPurchase,
   clearMiaMessages,
   confirmTransactionDraft,
+  answerCashPurchaseQuestion,
   createBudgetCategory,
   createDebt,
   createIncomeSource,
@@ -176,6 +189,7 @@ import {
 import type {
   AnnualBudgetPlan,
   AppData,
+  HomeViewChoice,
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
@@ -202,8 +216,12 @@ import type {
   PilotFeedbackWorkflow,
   RecentTransaction,
   SpendingReport,
+  SpendingReportRefund,
   TransactionDraft,
   TransactionDraftCreateInput,
+  ConfirmTransactionOptions,
+  CashPurchaseAnswer,
+  CashPurchaseQuestion,
   TransactionDraftSplit,
   TransactionDraftUpdateInput,
   WealthData,
@@ -216,6 +234,7 @@ import { fetchParticipantPrograms } from './participantProgramsApi'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
+import { ExpenseGroupNamesContext, expenseGroupOrder, useExpenseGroupLabels } from './lib/expenseGroups'
 import { NEUTRAL_BRAND, useBrand } from './contexts/brandContextValue'
 import { brandHeaderByline } from './lib/brandByline'
 import { shortAssistantName } from './lib/assistantName'
@@ -792,6 +811,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [debtFocusRequest, setDebtFocusRequest] = useState<DebtFocusRequest | null>(null)
   const budgetFocusSequenceRef = useRef(0)
   const [budgetFocusRequest, setBudgetFocusRequest] = useState<BudgetFocusRequest | null>(null)
+  // Home's year card opens Budget with the forecast already expanded.
+  const [forecastOpenRequest, setForecastOpenRequest] = useState(0)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
   const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -923,7 +944,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const miaCharactersRemaining = MIA_MESSAGE_MAX_LENGTH - question.length
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
-  const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
+  const e2eRealWorkspace = localTestAuth() && Boolean(auth.currentUser)
   const shouldUseRealWorkspace = auth.isAuthEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const isSavingsExperience = data?.workspace.experience_mode === 'savings_challenge'
@@ -1010,7 +1031,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     const participantSections = data
       ? participantSectionsForModules(data.workspace.capabilities.modules.filter((module) => module.enabled).map((module) => module.id), {
         moduleOrder: data.workspace.capabilities.module_order,
-        independentStatements: data.workspace.capabilities.schema_version === 4,
+        independentStatements: data.workspace.capabilities.schema_version >= 4,
         statementsAvailable: !data.workspace.capabilities.modules.some((module) => module.id === 'statements' && !module.enabled),
       })
       : []
@@ -1060,6 +1081,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     () => documentImports.filter((documentImport) => !documentImport.context_paused_by_restart && PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
+  // The cached plans a failed bill refresh left behind: their forecasts are hidden until fresh plans replace them.
+  const [staleForecastPlans, setStaleForecastPlans] = useState<BudgetData[]>([])
   const budgetForView = budgetView
     ? budgets[budgetView.year] ?? (!dataBudgetStale && data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
     : dataBudgetStale ? null : data?.budget
@@ -1196,6 +1219,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       if (!quiet) setDocumentsLoading(false)
     }
   }, [firstSessionUploadOpen, isRealWorkspace])
+
+  // One store answer can save lines in other statements too. Read back only those statements' progress, so their uploads'
+  // status moves without reloading the list (which would reload the review she has open).
+  function refreshStatementProgress(revisionIds: number[]) {
+    const ids = importIdsForRevisions(documentImports, revisionIds)
+    if (ids.length === 0) return
+    // A statement that can't be read back keeps its status until the list next loads.
+    void Promise.all(ids.map(id => fetchDocumentImport(id).then(row => row.statement_review ? [[id, row.statement_review] as const] : [], () => [])))
+      .then(rows => setDocumentImports(current => withStatementProgress(current, new Map(rows.flat()))))
+  }
 
   const replaceMiaHistory = useCallback((mia: MiaMessagesData) => {
     const retainLocalReplies = challengeNotOpen && messagesStorageKey === chatStorageKey
@@ -2047,6 +2080,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     prepareMiaUpdate(`Please draft a fresh version of this change: ${draft.title}`)
   }
 
+  const applyHomeViewChoice = useCallback((choice: HomeViewChoice) => setData(current => current ? { ...current, workspace: { ...current.workspace, home_view: choice } } : current), [setData])
+  const { changeHomeView, homeViewSaving, homeViewError } = useHomeView({
+    choice: data?.workspace.home_view,
+    onChoice: applyHomeViewChoice,
+    announce: setRouteAnnouncement,
+  })
+
   function prepareMiaUpdate(prompt: string) {
     if (question.trim() || pendingMiaAttachments.length > 0) {
       setMiaError('Your message and files are waiting here. Send or clear them before choosing another prompt.')
@@ -2654,18 +2694,21 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
-  async function restoreSelectedBudgetPlan(returnedBudget: BudgetData) {
-    if (!budgetView || returnedBudget.annual_plan?.year === budgetView.year) return
+  // True when the selected budget year is current. afterRefusal: nothing was saved, so never say it was.
+  async function restoreSelectedBudgetPlan(returnedBudget: BudgetData, { afterRefusal = false } = {}): Promise<boolean> {
+    if (!budgetView || returnedBudget.annual_plan?.year === budgetView.year) return true
     const generation = financialMutationGenerationRef.current
     try {
       const selected = await fetchBudget(budgetView.year)
-      if (generation !== financialMutationGenerationRef.current) return
+      if (generation !== financialMutationGenerationRef.current) return false
       if (selected.annual_plan?.year !== budgetView.year) throw new Error('The selected budget year could not be refreshed.')
       setData((current) => current ? { ...current, budget: selected } : current)
       setWorkspaceRefreshNotice(current => current?.kind === 'selected' ? null : current)
+      return true
     } catch {
-      if (generation !== financialMutationGenerationRef.current) return
-      setWorkspaceRefreshNotice({ kind: 'selected', message: 'Your change was saved, but the selected budget year could not refresh. Reopen that year before using its totals.' })
+      if (generation !== financialMutationGenerationRef.current) return false
+      if (!afterRefusal) setWorkspaceRefreshNotice({ kind: 'selected', message: 'Your change was saved, but the selected budget year could not refresh. Reopen that year before using its totals.' })
+      return false
     }
   }
 
@@ -2961,6 +3004,34 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
+  // A saved, paid or removed bill only changes the forecast: refetch the plan in place, keeping her place on the page.
+  // Budget holds navigation until this finishes (the bill form reports it as pending), so no other screen shows the
+  // old forecast meanwhile. If the refetch fails, Budget stays open with a Reload control, the warning stays on every
+  // screen, and Home and Budget hide the old forecast totals until a fresh plan arrives.
+  async function handleBillsChanged() {
+    const generation = financialMutationGenerationRef.current
+    let budget: BudgetData
+    try {
+      budget = await fetchBudget(selectedBudgetYear)
+    } catch (caught) {
+      setStaleForecastPlans([data?.budget, homeBudget, ...Object.values(budgets)].filter((plan): plan is BudgetData => plan != null))
+      setWorkspaceRefreshNotice({ kind: 'home', message: 'Your bill change was saved, but the forecast could not refresh. Reload before using those totals.' })
+      throw caught
+    }
+    if (generation !== financialMutationGenerationRef.current) return
+    setStaleForecastPlans([])
+    setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
+    await refreshCurrentHouseholdView(budget)
+  }
+
+  // Home opens Budget's forecast for the year Home shows, keeping Budget's own navigation guards.
+  async function openHomeYearForecast() {
+    const year = (homeBudget ?? data?.budget)?.annual_plan?.year
+    if (!switchSection('Budget', { focusHeading: false })) return
+    if (year != null && budgetView?.year !== year && !(await handleBudgetViewChange(year, currentBudgetMonthIndex))) return
+    setForecastOpenRequest(request => request + 1)
+  }
+
   async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
@@ -3174,38 +3245,38 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       let response = await createTransactionDraft(values, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       let confirmationFailed = false
-      const possibleDuplicate = response.transaction_draft.matches?.some(match => match.status === 'proposed')
-      if (confirm && !possibleDuplicate) {
-        try {
-          const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
-          response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
+      let possibleDuplicate = response.transaction_draft.matches?.some(match => match.status === 'proposed') ?? false
+      // Paid with cash she may have taken out: the card asks which withdrawal before it can count.
+      let asksCash = !possibleDuplicate && (response.transaction_draft.cash_payment?.candidates?.length ?? 0) > 0
+      if (confirm && !possibleDuplicate && !asksCash) {
+        const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
+        const draftId = response.transaction_draft.id
+        // Both attempts use the same key, so a retried confirmation is never counted twice.
+        const outcome = await confirmAfterCreate(() => confirmTransactionDraft(draftId, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)))
+        if (outcome.kind === 'confirmed') {
           transactionOperationKeysRef.current.complete(confirmSignature)
+          response = { ...response, workspace: outcome.workspace }
           rememberPurchase(response.transaction_draft, 'confirmed')
-        } catch (caught) {
+        } else if (outcome.kind === 'asking') {
+          // It looks like a purchase she already has, or cash she took out paid for it. It stays in Review, which asks.
+          possibleDuplicate = true
+          try {
+            response = { ...response, workspace: await fetchAppData(true) }
+          } catch { /* The created purchase is still in Review; its card asks once the workspace loads. */ }
+        } else {
+          // Still unknown: the purchase stays in Review, where Confirm uses the same key again.
           confirmationFailed = true
-          // A lost response can hide a confirmation that went through. Ask once more with the same key:
-          // the server replays a finished confirmation and never counts the purchase twice.
-          if (!(caught instanceof ApiRequestError) || caught.status >= 500) {
-            try {
-              const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
-              response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
-              transactionOperationKeysRef.current.complete(confirmSignature)
-              rememberPurchase(response.transaction_draft, 'confirmed')
-              confirmationFailed = false
-            } catch {
-              // Still unknown: the purchase stays in Review, where Confirm uses the same key again.
-            }
-          }
         }
       }
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
       // A new category changes every plan year, so cached years must be read again.
-      setData({ type: confirm && !possibleDuplicate && !confirmationFailed && values.splits?.some(split => split.category_name) ? 'shared_financial_mutation' : 'financial_mutation', update: response.workspace })
+      if (asksCash && !confirm) asksCash = false
+      setData({ type: confirm && !possibleDuplicate && !asksCash && !confirmationFailed && values.splits?.some(split => split.category_name) ? 'shared_financial_mutation' : 'financial_mutation', update: response.workspace })
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       replaceMiaHistory(response.workspace.mia)
       captureAnalyticsEvent('transaction_draft_created', { source_type: 'manual_ui' })
-      return confirm && possibleDuplicate ? 'Possible duplicate. Your purchase is in Review. Check the existing purchase before confirming.' : confirmationFailed ? 'Your purchase is in Review. Confirmation did not finish. Check it there before trying again.' : undefined
+      return confirm && possibleDuplicate ? POSSIBLE_DUPLICATE_NOTICE : asksCash ? CASH_WITHDRAWAL_NOTICE : confirmationFailed ? 'Your purchase is in Review. Confirmation did not finish. Check it there before trying again.' : undefined
     } catch (caught) {
       const message = participantErrorMessage(caught, 'Transaction review could not be created.')
       throw new Error(message, { cause: caught })
@@ -3233,7 +3304,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
     } catch (caught) {
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be updated.')
       // This failure belongs to the review card.
       // The editor announces the returned failure beside Save draft.
@@ -3287,22 +3358,37 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }))
   }
 
-  async function refreshStaleTransactionReview(caught: unknown) {
-    if (caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere'].includes(caught.code ?? '')) {
-      const isCurrent = captureWorkspaceReloadGuard()
-      try {
-        const latest = await fetchAppData(true)
-        if (isCurrent()) {
-          setData(latest)
-          replaceMiaHistory(latest.mia)
-          await restoreSelectedBudgetPlan(latest.budget)
-          void refreshDocumentImports({ quiet: true })
+  // drafts: the purchases whose cards showed the refused action. A card from a receipt or statement
+  // reads its file's details, which a summary reload keeps as they were, so those are fetched again.
+  async function refreshStaleTransactionReview(caught: unknown, drafts: TransactionDraft[] = []) {
+    if (!(caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere', 'possible_duplicate', 'cash_withdrawal_question'].includes(caught.code ?? ''))) return false
+    // The action was refused, so nothing was saved. False keeps its message visible: offline, overtaken,
+    // a selected budget year that didn't reload, or a file whose purchases didn't reload.
+    const isCurrent = captureWorkspaceReloadGuard()
+    const importIds = [...new Set(drafts.flatMap(draft => draft.financial_document_import_id ? [draft.financial_document_import_id] : []))]
+    return reloadReviewData({
+      fetchLatest: () => fetchAppData(true),
+      isCurrent,
+      apply: latest => {
+        setData(latest)
+        replaceMiaHistory(latest.mia)
+        void refreshDocumentImports({ quiet: true })
+      },
+      restoreSelectedYear: latest => restoreSelectedBudgetPlan(latest.budget, { afterRefusal: true }),
+      refreshDocuments: async () => {
+        try {
+          const documentImports = await Promise.all(importIds.map(id => fetchDocumentImport(id)))
+          if (!isCurrent()) return false
+          setDocumentImports(current => documentImports.reduce(replaceImport, current))
+          return true
+        } catch {
+          return false
         }
-      } catch { /* Keep the conflict message visible if the refresh is offline. */ }
-    }
+      },
+    })
   }
 
-  async function handleConfirmTransactionDraft(draft: TransactionDraft) {
+  async function handleConfirmTransactionDraft(draft: TransactionDraft, options: ConfirmTransactionOptions = {}) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
@@ -3312,8 +3398,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     setDocumentsError(null)
     let actionFailed = false
     try {
-      const signature = `transaction:confirm:${draft.id}`
-      const workspace = await confirmTransactionDraft(draft.id, {}, transactionOperationKeysRef.current.keyFor(signature))
+      const signature = `transaction:confirm:${draft.id}${options.differentPurchase ? ':different-purchase' : ''}${options.cashWithdrawalEventId ? `:cash-${options.cashWithdrawalEventId}` : ''}${options.cashFromElsewhere ? ':cash-elsewhere' : ''}`
+      const workspace = await confirmTransactionDraft(draft.id, {}, transactionOperationKeysRef.current.keyFor(signature), options)
       transactionOperationKeysRef.current.complete(signature)
       rememberPurchase(draft, 'confirmed')
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
@@ -3331,8 +3417,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
       actionFailed = true
+      // It looks like a purchase she already has, or she paid with cash she may have taken out. Nothing
+      // changed; the refreshed card now asks "Same purchase as …?" or "Paid with the $100 you took out …?".
+      const current = await refreshStaleTransactionReview(caught, [draft])
+      if (current && isConfirmQuestionRefusal(caught)) return
       trackPilotWorkflowFailure('transaction_review', 'confirm')
-      await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       // The card keeps the error next to the action that failed.
@@ -3340,6 +3429,36 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } finally {
       endBudgetAction()
       recoverReviewFocus(draft.id, undefined, actionFailed)
+    }
+  }
+
+  // Her answer about the cash she took out, on a cash purchase she already confirmed. The purchase stays confirmed.
+  async function handleCashPurchaseAnswer(question: CashPurchaseQuestion, answer: CashPurchaseAnswer) {
+    if (budgetYearLoading || !isRealWorkspace) return
+    const errorKey = `cash:${question.transaction_draft_id}`
+    if (!beginBudgetAction(`cash-answer:${question.transaction_draft_id}`)) throw budgetActionBusyError()
+    setReviewErrors(current => ({ ...current, [errorKey]: '' }))
+    setBudgetError(null)
+    try {
+      const signature = `transaction:cash-answer:${question.transaction_draft_id}:${'cashWithdrawalEventId' in answer ? answer.cashWithdrawalEventId : 'elsewhere'}`
+      const { message, workspace } = await answerCashPurchaseQuestion(question.transaction_draft_id, answer, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
+      setData({ type: 'shared_financial_mutation', update: workspace })
+      // The answer's plan is for the purchase's year; Home, Review and Mia read the current year's.
+      await refreshCurrentHouseholdView(workspace.budget, workspace)
+      await restoreSelectedBudgetPlan(workspace.budget)
+      void refreshSpendingReport(selectedBudgetPeriodRef.current)
+      replaceMiaHistory(workspace.mia)
+      setTransactionNotice(message)
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'cash_purchase', resolution: 'cashWithdrawalEventId' in answer ? 'withdrawal' : 'elsewhere' })
+    } catch (caught) {
+      // Answered elsewhere or the cash changed: the refreshed list shows what is still asked.
+      await refreshStaleTransactionReview(caught)
+      const message = participantErrorMessage(caught, 'Your answer could not be saved.')
+      setReviewErrors(current => ({ ...current, [errorKey]: message }))
+      throw new Error(message, { cause: caught })
+    } finally {
+      endBudgetAction()
     }
   }
 
@@ -3370,7 +3489,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       actionFailed = true
       trackPilotWorkflowFailure('transaction_review', 'ignore')
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be ignored.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       // The card keeps the error next to the action that failed.
@@ -3420,7 +3539,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft_bulk', resolution, draft_count: ids.length })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', `bulk_${resolution}`)
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, drafts)
       const message = participantErrorMessage(caught, `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`)
       if (activeSectionRef.current === 'Statements') setDocumentsError(message)
       else if (activeSectionRef.current === 'Ask Mia') setMiaError(message)
@@ -3456,7 +3575,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       })
     } catch (caught) {
       actionFailed = true
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be matched.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       // The card keeps the error next to the action that failed.
@@ -3495,7 +3614,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be reopened.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       // The card keeps the error next to the action that failed.
@@ -3542,7 +3661,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const documentImport = await uploadDocumentImport(preparedFile, kind, origin)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
-      setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. ${assistantName} is extracting draft values for review.`)
+      setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately.`)
       trackDocumentUpload(kind, 'succeeded', uploadFile)
       captureAnalyticsEvent('document_import_created', {
         document_kind: kind,
@@ -3798,7 +3917,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     try {
       const reprocessedImport = await reprocessDocumentImport(documentImport.id)
       setDocumentImports((current) => replaceImport(current, reprocessedImport))
-      setDocumentsNotice(`Reprocessing started. The review panel will update when ${assistantName} finishes reading the document.`)
+      setDocumentsNotice('Your request to try again was received.')
       return true
     } catch (caught) {
       setDocumentsError(participantErrorMessage(caught, 'Document could not be reprocessed.'))
@@ -3986,6 +4105,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }
 
   async function refreshWorkspaceAfterDebtChange() {
+    // Balances offered from statements depend on these records; let every offer list reload.
+    announceStatementBalanceChange()
     // The record write committed before this callback. Older plans can no longer
     // be treated as current, even if either reload fails.
     setData({ type: 'shared_financial_commit' })
@@ -4019,6 +4140,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
     setWorkspaceRefreshNotice(null)
   }
+  // One offer list for Home, My Money and the finished statement. It changes nothing until she approves an offer.
+  const offerBlockedReason = hasUnsavedMoneyChanges ? 'Save or cancel your open edit in My Money first.' : null
+  const statementBalanceOffers = isRealWorkspace ? <StatementBalanceOffers onChanged={refreshWorkspaceAfterDebtChange} blockedReason={offerBlockedReason} /> : null
+  // A finished statement shows only its own accounts' balances.
+  const statementBalanceOffersFor = isRealWorkspace ? (trackedAccountIds: number[]) => <StatementBalanceOffers onChanged={refreshWorkspaceAfterDebtChange} blockedReason={offerBlockedReason} trackedAccountIds={trackedAccountIds} /> : undefined
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
     if (!isProfileEditing && !isFirstSessionSetup) return
@@ -4289,10 +4415,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onOpenProfile={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('income') : undefined}
               onOpenAccounts={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('assets') : undefined}
               onOpenBudget={visibleSections.includes('Budget') ? () => switchSection('Budget') : undefined}
+              onOpenYearForecast={visibleSections.includes('Budget') ? () => void openHomeYearForecast() : undefined}
+              forecastStale={staleForecastPlans.includes(homeBudget ?? data.budget)}
               canAskMia={visibleSections.includes('Ask Mia')}
               canReviewTransactions={visibleSections.includes('Review')}
               incomeKnown={(!isRealWorkspace || data.dashboard.month_answer?.money_in_cents != null) && (!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0)}
               planKnown={!isRealWorkspace || householdPlanKnown(data)}
+              homeView={data.workspace.home_view?.effective ?? 'month'}
+              onChangeHomeView={isRealWorkspace && data.workspace.home_view ? view => void changeHomeView(view) : undefined}
+              homeViewSaving={homeViewSaving}
+              homeViewError={homeViewError}
+              balanceOffers={statementBalanceOffers}
             />
           )}
         </>
@@ -4585,6 +4718,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           {isRealWorkspace && auth.currentUser ? (
             <>
               <article className="panel activity-review-panel ui-card">
+                <CashPurchaseQuestions questions={activeBudgetPlan?.cash_purchase_questions ?? []} totalCount={activeBudgetPlan?.cash_purchase_questions_meta?.total_count} disabled={budgetYearLoading || Boolean(chatDraftAction)} errors={reviewErrors} onAnswer={handleCashPurchaseAnswer} />
                 {(
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
@@ -4600,7 +4734,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
                     title="Purchases to review"
-                    emptyTitle={pendingMiaActionDrafts.length > 0 || (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
+                    emptyTitle={(activeBudgetPlan?.cash_purchase_questions?.length ?? 0) > 0 ? 'No other purchases to review' : pendingMiaActionDrafts.length > 0 || (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
                     description="Check the date, amount and category before confirming."
                     onPlanCategory={(categoryId, monthNumber, year) => void openBudgetMoneyTool('monthly', categoryId, monthNumber, 'amount', year)}
                     onUpdate={handleUpdateTransactionDraft}
@@ -4790,6 +4924,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     onUnsavedChangesChange={handleDebtDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your household debt.</p></article>}
               </>
             )}
+            {(moneyTopic === 'accounts' || moneyTopic === 'debt') && statementBalanceOffers}
             {moneyTopic === 'accounts' && (isRealWorkspace ? <AccountManager
                       sectionRef={accountManagerRef}
                       accounts={data.workspace.accounts}
@@ -4866,7 +5001,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
-            onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            statementBalanceOffers={statementBalanceOffersFor}
+            onStatementProgress={(importId, progress) => setDocumentImports(current => withStatementProgress(current, new Map([[importId, progress]])))}
+            onOtherStatementsSaved={refreshStatementProgress}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -4911,7 +5049,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
-            onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            onStatementSaved={() => { setSelectedImportId(current => current ?? selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+            statementBalanceOffers={statementBalanceOffersFor}
+            onStatementProgress={(importId, progress) => setDocumentImports(current => withStatementProgress(current, new Map([[importId, progress]])))}
+            onOtherStatementsSaved={refreshStatementProgress}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -4965,6 +5106,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
               onReviewTransactions={() => switchSection('Review')}
               isRealWorkspace={Boolean(isRealWorkspace)}
+              showMonthlyClose={Boolean(isRealWorkspace)}
+              financialGeneration={budgetForView.financial_generation ?? data.workspace.financial_generation}
               action={budgetContextAction}
               error={budgetError}
               notice={budgetNotice}
@@ -4993,6 +5136,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               reviewErrors={reviewErrors}
               focusRequest={budgetFocusRequest}
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
+              canEditBills={!isRealWorkspace || data.workspace.can_edit_household !== false}
+              onBillsChanged={isRealWorkspace ? handleBillsChanged : undefined}
+              forecastStale={staleForecastPlans.includes(budgetForView)}
+              forecastOpenRequest={forecastOpenRequest}
             />
             </fieldset>
           ) : (
@@ -5050,6 +5197,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             copy={data.cfoFilter.prompt}
           />
 
+          {data.cfoFilter.calculator && <CfoScenarios key={`${data.workspace.household_id}:${data.workspace.financial_generation}`} initial={data.cfoFilter.calculator} onAsk={visibleSections.includes('Ask Mia') ? prompt => { if (switchSection('Ask Mia', { focusHeading: false })) prepareMiaUpdate(prompt) } : undefined} />}
           <div className="decision-list ui-card ui-rows">
             {data.cfoFilter.decisions.map((decision) => (
               <article className={`decision-card ui-row ${decision.recommendation.toLowerCase()}`} key={decision.item}>
@@ -5058,7 +5206,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   <h3>{decision.item}</h3>
                 </div>
                 {!debtMinimumsKnown || decision.amount_known === false ? <strong className="decision-amount-unknown">Not available</strong> : <strong>{formatReviewMoney(Math.round((decision.amount) * 100))}</strong>}
-                <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
+                <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && !(data.cfoFilter?.calculator?.debt_records_conflict?.length) && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
               </article>
             ))}
           </div>
@@ -5068,6 +5216,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             <ol>
               {data.cfoFilter.priority_stack.map((item) => <li key={item}>{item}</li>)}
             </ol>
+            {data.cfoFilter.windfall_steps?.length ? <><h3>One-time money</h3><ol>{data.cfoFilter.windfall_steps.map((item) => <li key={item}>{item}</li>)}</ol></> : null}
+            {data.cfoFilter.income_split?.length ? <><h3>New monthly income</h3><p>{data.cfoFilter.income_split.join(' · ')}</p></> : null}
           </article>
         </section>
       )}
@@ -5077,9 +5227,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           <ScreenHeading
             eyebrow="Optionality"
             title={data.optionality.question}
-            copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
+            copy={data.optionality.calculator ? (data.optionality.available === false ? data.optionality.unavailable_reason ?? data.optionality.calculator.label : 'Explore how savings could cover the gap while your business grows.') : data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
           />
 
+          {data.optionality.calculator && <OptionalityScenario key={`${data.workspace.household_id}:${data.workspace.financial_generation}`} initial={data.optionality.calculator} />}
           {data.optionality.levers.length > 0 && <div className="lever-row ui-card wealth-figures">
             {data.optionality.levers.map((lever) => (
               <Metric key={lever.label} label={lever.label} value={formatReviewMoney(Math.round((lever.amount) * 100))} />
@@ -5143,7 +5294,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         <LocalAttachmentPreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
       )}
 
-      {optionalDebtOpen && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && data.workspace.cohort?.id && <OptionalDebtReview key={challengeIntakeScope} actorScope={challengeParticipantScope} cohortId={data.workspace.cohort.id} onClose={() => setOptionalDebtOpen(false)} />}
+      {optionalDebtOpen && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && data.workspace.cohort?.id && <OptionalDebtReview key={challengeIntakeScope} actorScope={challengeParticipantScope} cohortId={data.workspace.cohort.id} debtOrder={data.workspace.capabilities.method?.debt_order} onClose={() => setOptionalDebtOpen(false)} />}
       {evidenceReview?.scope === challengeIntakeScope && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && <SavingsEvidenceDialog key={`${challengeIntakeScope}:${evidenceReview.entryVersionId}`} actorScope={challengeParticipantScope} entryVersionId={evidenceReview.entryVersionId} onClose={() => setEvidenceReview(null)} onChanged={() => setEvidenceRefreshToken(value => value + 1)} />}
       {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && data.workspace.household_id && <ChallengeToday initialDate={challengeDay} initialSection={challengeDailySection} key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} cardHandoff={dailyIntake?.scope===challengeIntakeScope?dailyIntake.handoff:undefined} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setChallengeDay(undefined);setChallengeDailySection('today');setDailyIntake(null);setDailyRefreshKey((value) => value + 1)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
       {baselineOpen && isRealWorkspace && auth.currentUser && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
@@ -5183,7 +5334,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   return (
     <BrandRuntimeProvider runtime={runtimeBrand} assistantName={assistantName}>
       <BrandDocument />
-      {runtimeBrand.available ? workspace : (
+      {runtimeBrand.available ? <ExpenseGroupNamesContext.Provider value={data?.workspace.capabilities.method?.group_names ?? 'plain'}>{workspace}</ExpenseGroupNamesContext.Provider> : (
         <main className="brand-bootstrap-state">
           <section className="brand-bootstrap-panel">
             {/* The unverified release brand must not render; show the neutral consumer name. */}
@@ -5465,15 +5616,15 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
       <section ref={dialogRef} data-dialog-panel="true" className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
         <header>
           <div>
-            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
+            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your savings challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={requestClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
           {savingsChallenge ? <>
-            <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
-            <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>
+            <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested goal for the whole challenge is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
+            <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for each checkpoint on your challenge calendar. Feelings are optional.</p></div></li>
             <li><span>3</span><div><strong>Report money you actually set aside.</strong><p>On Home, choose Report savings, check its date and funding source, then approve your reviewed record. A plan or pending proposal does not count as savings. Ask {assistantName} for a comfortable next step.</p></div></li>
           </> : <><li><span>1</span><div><strong>Log your purchases.</strong><p>Add a transaction in Review or tell {assistantName} what you spent.</p></div></li>
           <li><span>2</span><div><strong>Check your month.</strong><p>Confirm the date, amount and category in Review. Budget shows your confirmed spending against the plan.</p></div></li>
@@ -5512,12 +5663,15 @@ function milestoneSummary(milestone: WealthData['milestones'][number]) {
 }
 
 function DocumentImportWorkspace({
+  statementBalanceOffers,
   uploadBlocked,
   uploadScope,
   onReviewBaseline,
   onAskMia,
   onReturnToStart,
   onStatementSaved,
+  onStatementProgress,
+  onOtherStatementsSaved,
   sectionRef,
   isRealWorkspace,
   imports,
@@ -5555,6 +5709,10 @@ function DocumentImportWorkspace({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
+  statementBalanceOffers?: (trackedAccountIds: number[]) => ReactNode
+  /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
+  onStatementProgress?: (importId: number, progress: StatementProgress) => void
+  onOtherStatementsSaved?: (revisionIds: number[]) => void
   onReturnToStart?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
@@ -5577,7 +5735,7 @@ function DocumentImportWorkspace({
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
-  onConfirmDraft: (draft: TransactionDraft) => void
+  onConfirmDraft: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
   onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
@@ -5657,6 +5815,9 @@ function DocumentImportWorkspace({
           onReviewBaseline={onReviewBaseline}
           onAskMia={onAskMia}
           onStatementSaved={onStatementSaved}
+          statementBalanceOffers={statementBalanceOffers}
+          onStatementProgress={onStatementProgress}
+          onOtherStatementsSaved={onOtherStatementsSaved}
         />}
       </div>
 
@@ -5903,6 +6064,9 @@ export function DocumentReviewPanel({
   onReviewBaseline,
   onAskMia,
   onStatementSaved,
+  onStatementProgress,
+  onOtherStatementsSaved,
+  statementBalanceOffers,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -5915,7 +6079,7 @@ export function DocumentReviewPanel({
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
-  onConfirmDraft: (draft: TransactionDraft) => void
+  onConfirmDraft: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
   onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
@@ -5930,6 +6094,10 @@ export function DocumentReviewPanel({
   onReviewBaseline?: () => void
   onAskMia?: () => void
   onStatementSaved?: () => void
+  statementBalanceOffers?: (trackedAccountIds: number[]) => ReactNode
+  /** The review read back its progress after a save: the upload's status in the list moves with it, with no refetch. */
+  onStatementProgress?: (importId: number, progress: StatementProgress) => void
+  onOtherStatementsSaved?: (revisionIds: number[]) => void
 }) {
   const { assistantName } = useBrand()
   const [signFocus, setSignFocus] = useState<{ importId: number; revisionId: number } | null>(null)
@@ -5987,7 +6155,7 @@ export function DocumentReviewPanel({
                 <span className="document-action-hint">Upload a screenshot or JPEG</span>
               ) : (
                 <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
-                  {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+                  {actionForImport('reprocess') ? 'Starting' : 'Try again'}
                 </button>
               )}
               <button type="button" className="subtle" aria-describedby={retentionHelpId} onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
@@ -6039,11 +6207,15 @@ export function DocumentReviewPanel({
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           onSaved={onStatementSaved}
+          onChanged={onStatementSaved}
+          onProgress={progress => onStatementProgress?.(documentImport.id, progress)}
+          onOtherStatementsSaved={onOtherStatementsSaved}
           onSignAnswered={revisionId => setSignFocus({ importId: documentImport.id, revisionId })}
           focusAfterSign={signFocus?.importId === documentImport.id && signFocus.revisionId === documentImport.metadata.source_accounting_revision_id}
           onSignFocusDone={() => setSignFocus(null)}
           refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
           next={[...(onAskMia ? [{ label: `See what ${assistantName} notices`, run: onAskMia }] : []), ...(onReviewBaseline ? [{ label: 'Open your spending snapshot', run: onReviewBaseline }] : [])]}
+          doneExtra={statementBalanceOffers}
         />
       )}
       {sourceMode === 'typed' && fileHeader}
@@ -6271,6 +6443,7 @@ export function DocumentImportItemEditor({
   saving: boolean
   onUpdate: (values: DocumentImportItemInput) => Promise<void> | void
 }) {
+  const groupLabels = useExpenseGroupLabels()
   const applied = Boolean(item.applied_at)
   const canEditDraft = !applied && REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const canCorrectApplied = applied && documentImport.status !== 'source_deleted'
@@ -6389,7 +6562,7 @@ export function DocumentImportItemEditor({
           <label className="document-field">
             <span>Stack</span>
             <select value={draft.stack_key} disabled={fieldsDisabled} onChange={(event) => updateDraft({ stack_key: event.currentTarget.value })}>
-              {stackKeyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {expenseGroupOrder.map((key) => <option key={key} value={key}>{groupLabels[key]}</option>)}
             </select>
           </label>
         )}
@@ -6442,12 +6615,6 @@ const cadenceOptions = ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual
 const sourceTypeOptions = ['job', 'business', 'rental', 'passive', 'bonus', 'other']
 const accountTypeOptions = ['checking', 'savings', 'emergency_fund', 'retirement', 'investment', 'property', 'other']
 const debtTypeOptions = ['credit_card', 'student_loan', 'auto_loan', 'mortgage', 'personal_loan', 'medical', 'other']
-const stackKeyOptions = [
-  { value: 'non_discretionary', label: 'Non-discretionary' },
-  { value: 'discretionary', label: 'Discretionary' },
-  { value: 'sinking_expected', label: 'Sinking Fund — Expected' },
-  { value: 'sinking_unexpected', label: 'Sinking Fund — Unexpected' },
-]
 
 function attachmentDisplayName(attachment: PendingMiaAttachment) {
   if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
@@ -7161,6 +7328,8 @@ type DebtDraft = {
   balance: string
   minimum_payment: string
   interest_rate_percent: string
+  due_day: string
+  past_due: string
 }
 
 type DebtFocusRequest = {
@@ -7171,7 +7340,7 @@ type DebtFocusRequest = {
 }
 
 const emptyDebtDraft: DebtDraft = {
-  label: '', debt_type: 'credit_card', balance: '', minimum_payment: '', interest_rate_percent: '',
+  label: '', debt_type: 'credit_card', balance: '', minimum_payment: '', interest_rate_percent: '', due_day: '', past_due: '',
 }
 
 function debtDraftFor(debt: DebtRecord): DebtDraft {
@@ -7181,6 +7350,19 @@ function debtDraftFor(debt: DebtRecord): DebtDraft {
     balance: debt.balance === null ? '' : String(debt.balance),
     minimum_payment: debt.minimum_payment === null ? '' : String(debt.minimum_payment),
     interest_rate_percent: debt.interest_rate_percent === null ? '' : String(debt.interest_rate_percent),
+    due_day: debt.due_day == null ? '' : String(debt.due_day),
+    past_due: debt.past_due == null ? '' : String(debt.past_due),
+  }
+}
+
+/** The saved values a debt form opened with, in the shape the API sends. */
+function debtInputFromDraft(draft: DebtDraft): DebtInput {
+  const number = (text: string) => (text.trim() === '' ? null : Number(text))
+  const dueDay = parseDueDay(draft.due_day)
+  const pastDue = parseOptionalAmount(draft.past_due)
+  return {
+    label: draft.label.trim(), debt_type: draft.debt_type, balance: number(draft.balance), minimum_payment: number(draft.minimum_payment),
+    interest_rate_percent: number(draft.interest_rate_percent), due_day: dueDay === 'invalid' ? null : dueDay, past_due: pastDue === 'invalid' ? null : pastDue,
   }
 }
 
@@ -7191,6 +7373,8 @@ function debtDraftWithProposal(base: DebtDraft, payload: MiaActionItem['payload'
     balance: proposedMoney(payload, 'balance_cents', base.balance, 'balance_known'),
     minimum_payment: proposedMoney(payload, 'minimum_payment_cents', base.minimum_payment, 'minimum_payment_known'),
     interest_rate_percent: proposedText(payload, 'interest_rate_percent', base.interest_rate_percent),
+    due_day: proposedText(payload, 'due_day', base.due_day),
+    past_due: proposedMoney(payload, 'past_due_cents', base.past_due),
   }
 }
 
@@ -7198,7 +7382,7 @@ function debtSourceLabel(source: DebtRecord['source_type'], assistantName: strin
   return { manual_ui: 'Added manually', mia: `Prepared by ${assistantName}`, document_import: 'Approved import', setup: 'Household setup' }[source]
 }
 
-function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirmed, focusRequest, onFocusRequestHandled, onUnsavedChangesChange }: {
+export function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirmed, focusRequest, onFocusRequestHandled, onUnsavedChangesChange }: {
   sectionRef?: Ref<HTMLElement>
   debts: DebtRecord[]
   portfolio: DebtPortfolio
@@ -7288,22 +7472,39 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
     const balance = draft.balance.trim() === '' ? null : Number(draft.balance)
     const minimumPayment = draft.minimum_payment.trim() === '' ? null : Number(draft.minimum_payment)
     const apr = draft.interest_rate_percent.trim() === '' ? null : Number(draft.interest_rate_percent)
+    const dueDay = parseDueDay(draft.due_day)
+    const pastDue = parseOptionalAmount(draft.past_due)
     if (!label) return setError('Give this debt a short name, such as Visa or Auto loan.')
+    if (dueDay === 'invalid') return setError('Use a day of the month from 1 to 31 for the due day, or leave it blank.')
+    if (pastDue === 'invalid') return setError('Use a past-due amount of 0 or more, or leave it blank if you are not sure.')
     if ((balance !== null && (!Number.isFinite(balance) || balance < 0)) || (minimumPayment !== null && (!Number.isFinite(minimumPayment) || minimumPayment < 0)) || (apr !== null && (!Number.isFinite(apr) || apr < 0 || apr > 999.99))) {
       return setError('Use non-negative numbers, or leave a field blank when it is not known yet.')
     }
-    const values: DebtInput = { label, debt_type: draft.debt_type, balance, minimum_payment: minimumPayment, interest_rate_percent: apr }
-    const signature = `${editingId === 'new' ? 'create' : `update:${editingId}`}:${JSON.stringify(values)}`
+    const values: DebtInput = { label, debt_type: draft.debt_type, balance, minimum_payment: minimumPayment, interest_rate_percent: apr, due_day: dueDay, past_due: pastDue }
+    // An edit sends only what she changed, so fields saved since this form opened (a
+    // past-due amount applied from Mia in another tab) are never overwritten.
+    const { changes, expected } = editingId === 'new' ? { changes: values, expected: {} } : changedDebtFields(values, debtInputFromDraft(draftBaseline))
+    if (editingId !== 'new' && Object.keys(changes).length === 0) { setEditingId(null); setError(null); return }
+    const signature = `${editingId === 'new' ? 'create' : `update:${editingId}`}:${JSON.stringify(changes)}:${JSON.stringify(expected)}`
     const key = operationKeys.current.keyFor(signature)
     setSaving(true); setError(null)
     try {
       if (editingId === 'new') await createDebt(values, key)
-      else if (typeof editingId === 'number') await updateDebt(editingId, values, key)
+      else if (typeof editingId === 'number') await updateDebt(editingId, changes, key, expected)
       await onChanged()
       operationKeys.current.complete(signature)
       setEditingId(null)
     } catch (caught) {
-      setError(participantErrorMessage(caught, 'This debt could not be saved. Try again.'))
+      if (caught instanceof ApiRequestError && caught.code === 'changed_elsewhere') {
+        operationKeys.current.complete(signature)
+        const reloaded = await onChanged().then(() => true, () => false)
+        setEditingId(null)
+        setError(reloaded
+          ? 'This debt changed in another tab or on another device. The latest details are showing now; open it and make your change again.'
+          : 'This debt changed in another tab or on another device, and the latest details could not load. Refresh the page before trying again.')
+      } else {
+        setError(participantErrorMessage(caught, 'This debt could not be saved. Try again.'))
+      }
     } finally {
       setSaving(false)
     }
@@ -7405,7 +7606,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
       {noDebtQuestion && editingId === null && <div className="debt-empty"><strong>{debts.length > 0 ? 'No active debts.' : 'No debts added yet.'}</strong><p>{debts.length > 0 ? 'Add a debt or restore an archived one, or explicitly confirm that the household has no debt.' : 'Add the first debt, or explicitly confirm that the household has no debt.'} Blank details stay marked as unknown.</p></div>}
       {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
-<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum</span></span>
+<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className={`ui-dot ${pastDueStatus(debt.past_due) === 'behind' ? 'ui-dot--red' : 'ui-dot--neutral'}`} aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum{debt.due_day != null ? ` · due on the ${ordinalDay(debt.due_day)}` : ''}</span>{pastDueStatus(debt.past_due) === 'behind' && <span className="debt-past-due">{recordMoney(debt.past_due ?? null)} past due</span>}{pastDueStatus(debt.past_due) === 'caught_up' && <span className="debt-caught-up">Caught up</span>}</span>
           <span id={`debt-${debt.id}-amount`}><strong>{recordMoney(debt.balance)}</strong></span>
     <span className="money-edit-label">Edit</span></button>
       <div className="debt-row-actions"><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} aria-label={`${archiveId === debt.id ? 'Confirm archive' : 'Archive'} ${debt.label}`} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>
@@ -7423,6 +7624,8 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
           <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
           <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
           <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input className="ui-field" type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Unknown" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
+          <label className="setup-field"><span>Past due</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.past_due} onChange={(event) => setDraft((current) => ({ ...current, past_due: event.target.value }))} placeholder="Not sure" /></span><small>How far behind you are. Enter 0 if you are caught up; leave blank if you are not sure.</small></label>
+          <label className="setup-field"><span>Payment due day</span><input className="ui-field" type="number" inputMode="numeric" min="1" max="31" step="1" value={draft.due_day} onChange={(event) => setDraft((current) => ({ ...current, due_day: event.target.value }))} placeholder="Not entered" /><small>The day of the month the payment is due, such as 15.</small></label>
         </fieldset>
         {error && <p className="setup-error" role="alert">{error}</p>}
         <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>
@@ -7468,6 +7671,41 @@ function annualBudgetPlanSignature(plan: AnnualBudgetPlan) {
   return plan.rows.map((row) => (
     `${row.id}:${row.name}:${row.stack_key}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}`).join(',')}`
   )).join('|')
+}
+
+function monthlyCloseRefreshSignature(plan: AnnualBudgetPlan, financialGeneration?: number) {
+  const rowsPart = plan.rows.map((row) => (
+    `${row.id}:${row.active === false ? '0' : '1'}:${row.name}:${row.stack_key}:${row.planned_total}:${row.actual_total}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}-${month.actual}`).join(',')}`
+  )).join('|')
+  const plannedIncomePart = Object.entries(plan.monthly_income ?? {})
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([periodId, amount]) => `${periodId}:${amount ?? 'null'}`)
+    .join(',')
+  const actualIncomePart = Object.entries(plan.actual_income ?? {})
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([monthNumber, entry]) => `${monthNumber}:${entry.actual_cents ?? 'null'}:${entry.partial ? 1 : 0}:${entry.month_open ? 1 : 0}:${entry.coverage_note}`)
+    .join(',')
+  const archivedPart = (plan.archived_categories ?? []).map((cat) => `${cat.id}:${cat.name}`).join(',')
+  const pendingCount = Math.max(plan.pending_transaction_drafts_meta?.total_count ?? 0, plan.pending_transaction_drafts.length)
+  const cashQuestionCount = plan.cash_purchase_questions_meta?.total_count ?? (plan.cash_purchase_questions?.length ?? 0)
+  const recentTxPart = (plan.recent_transactions ?? [])
+    .map((tx) => `${tx.id}:${tx.amount}:${tx.occurred_on}:${tx.categories.join('/')}`)
+    .join(',')
+
+  return [
+    financialGeneration ?? '',
+    plan.year,
+    plan.plan_available === false ? '0' : '1',
+    plan.plan_starts_on ?? '',
+    plan.monthly_debt_minimums_known === false ? 'unknown' : plan.monthly_debt_minimums,
+    plannedIncomePart,
+    actualIncomePart,
+    rowsPart,
+    archivedPart,
+    pendingCount,
+    cashQuestionCount,
+    recentTxPart,
+  ].join('::')
 }
 
 function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Record<string, string>): BudgetAllocationChange[] {
@@ -7879,6 +8117,7 @@ export function ManualTransactionCapture({
   const [amount, setAmount] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [categoryName, setCategoryName] = useState('')
+  const [paidWithCash, setPaidWithCash] = useState(false)
   const [categoryError, setCategoryError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const submittingRef = useRef(false)
@@ -7916,6 +8155,7 @@ export function ManualTransactionCapture({
     setAmount('')
     setCategoryId('')
     setCategoryName('')
+    setPaidWithCash(false)
     setCategoryError(null)
     setFormError(null)
   }
@@ -7938,6 +8178,7 @@ export function ManualTransactionCapture({
         occurred_on: occurredOn, merchant: addedMerchant, amount,
         budget_category_id: categoryId && categoryId !== 'new' ? Number(categoryId) : null,
         ...(categoryId === 'new' && categoryName.trim() ? { splits: [{ amount, category_name: categoryName.trim(), stack_key: 'discretionary' as const }] } : {}),
+        ...(paidWithCash ? { paid_with_cash: true } : {}),
       }, confirm)
       focusCreatedResultRef.current = true
       reset()
@@ -7955,7 +8196,7 @@ export function ManualTransactionCapture({
     }
   }
   const latestNotice = onNotice ? resolutionNotice : resolutionNotice || added
-  const latestWarning = onNotice ? resolutionWarning : !resolutionNotice && Boolean(added && /Confirmation did not finish|Possible duplicate/.test(added))
+  const latestWarning = onNotice ? resolutionWarning : !resolutionNotice && Boolean(added && (added.includes('Confirmation did not finish') || added === POSSIBLE_DUPLICATE_NOTICE || added === CASH_WITHDRAWAL_NOTICE))
   useLayoutEffect(() => {
     if (open || !latestNotice || !focusCreatedResultRef.current || !resultRef.current) return
     focusCreatedResultRef.current = false
@@ -7974,6 +8215,7 @@ export function ManualTransactionCapture({
         <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={event => setAmount(event.currentTarget.value)} /></label>
         <label><span>Category</span><select ref={categoryRef} aria-invalid={Boolean(categoryError) && categoryId !== 'new'} aria-describedby={categoryError && categoryId !== 'new' ? 'manual-category-error' : undefined} value={categoryId} onChange={event => { setCategoryId(event.currentTarget.value); setCategoryError(null) }}><option value="">Choose a category</option><option value="new">New category</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{categoryDisplayName(category.name, category.stack_key, categories)}</option>)}</select></label>
         {categoryId === 'new' && <label><span>New category name</span><input ref={newCategoryRef} aria-label="New category name" aria-invalid={Boolean(categoryError)} aria-describedby={categoryError ? 'manual-category-error' : undefined} className="ui-field" maxLength={80} value={categoryName} onChange={event => { setCategoryName(event.currentTarget.value); if (event.currentTarget.value.trim()) setCategoryError(null) }} /><small>Added to flexible spending when you confirm.</small></label>}
+        <label className="manual-transaction-cash"><input type="checkbox" checked={paidWithCash} onChange={event => setPaidWithCash(event.currentTarget.checked)} /><span>Paid with cash</span></label>
         {categoryError && <p id="manual-category-error" className="manual-transaction-error" role="alert">{categoryError}</p>}
         {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
         <div className="manual-transaction-actions">
@@ -8031,7 +8273,7 @@ export function TransactionDraftReviewStack({
   queueMeta?: AnnualBudgetPlan['pending_transaction_drafts_meta']
   onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
-  onConfirm: (draft: TransactionDraft) => void
+  onConfirm: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
   onBulkConfirm?: (drafts: TransactionDraft[]) => void
@@ -8095,7 +8337,9 @@ export function TransactionDraftReviewStack({
     : visibleDrafts
   const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
   const selectedDraftsNeedingCategory = selectedDrafts.filter(transactionDraftNeedsCategory)
-  const confirmableDrafts = filteredPendingDrafts.filter((draft) => !transactionDraftNeedsCategory(draft))
+  // A purchase that may be one she already has is answered on its own card, never in a group.
+  const selectedPossibleDuplicates = selectedDrafts.filter(transactionDraftHasPossibleDuplicate)
+  const confirmableDrafts = filteredPendingDrafts.filter((draft) => !transactionDraftNeedsCategory(draft) && !transactionDraftHasPossibleDuplicate(draft))
   const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
   const anyActionBusy = Boolean(action)
   const bulkBusy = action?.startsWith('bulk-') ?? false
@@ -8194,9 +8438,10 @@ export function TransactionDraftReviewStack({
             <span>Select this page</span>
           </label>
           {editingIds.size > 0 && <p>Save or cancel your purchase edits before confirming a group.</p>}
+          {selectedPossibleDuplicates.length > 0 && <p>{selectedPossibleDuplicates.length === 1 ? 'One selected purchase asks' : `${selectedPossibleDuplicates.length} selected purchases ask`} “Same purchase?” Answer on {selectedPossibleDuplicates.length === 1 ? 'its card' : 'their cards'} first.</p>}
           {selectedDrafts.length > 0 && <>
           <span>{selectedDrafts.length} selected</span>
-          <button type="button" className="secondary-button" title={selectedDraftsNeedingCategory.length > 0 ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || editingIds.size > 0 || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
+          <button type="button" className="secondary-button" title={selectedDraftsNeedingCategory.length > 0 ? 'Choose a category for every selected transaction first.' : selectedPossibleDuplicates.length > 0 ? 'Answer “Same purchase?” on each purchase that asks first.' : undefined} disabled={anyActionBusy || editingIds.size > 0 || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0 || selectedPossibleDuplicates.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
             Confirm selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
@@ -8269,6 +8514,10 @@ export function TransactionDraftReviewStack({
   )
 }
 
+function transactionDraftHasPossibleDuplicate(draft: TransactionDraft) {
+  return draft.status === 'pending' && (draft.matches ?? []).some((match) => match.status === 'proposed')
+}
+
 type EditableDraftSplit = {
   id?: number
   amount: string
@@ -8314,7 +8563,7 @@ function TransactionDraftReviewCard({
   plan?: AnnualBudgetPlan
   onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
-  onConfirm: (draft: TransactionDraft) => void
+  onConfirm: (draft: TransactionDraft, options?: ConfirmTransactionOptions) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
   selectionEnabled: boolean
@@ -8338,6 +8587,7 @@ function TransactionDraftReviewCard({
   const [amount, setAmount] = useState(editableAmountForDraft(draft))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [removedSplitIds, setRemovedSplitIds] = useState<number[]>([])
+  const [paidWithCash, setPaidWithCash] = useState(Boolean(draft.cash_payment))
   const [actionError, setActionError] = useState<string | null>(null)
   async function runAction(perform: () => void, trigger?: HTMLButtonElement) {
     // Safari pointer activation does not always focus its button.
@@ -8348,12 +8598,17 @@ function TransactionDraftReviewCard({
   }
   const [editError, setEditError] = useState<string | null>(null)
   const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
+  const receiptSectionRef = useRef<HTMLElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
   const allowsNewCategory = ['manual_chat', 'manual_ui'].includes(draft.source_type ?? '') && !draft.financial_document_import_id
   const isPending = draft.status === 'pending'
   if (!isPending && editing) setEditing(false)
   const liveResult = useLiveMiaResult(!isPending)
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
+  // Confirm would add a second purchase, so the card asks "Same purchase as …?" instead.
+  const askSamePurchase = proposedMatches.length > 0
+  const matching = action === `match-draft:${draft.id}`
+  const confirming = action === `confirm-draft:${draft.id}`
   const splitTotal = sumMoney(splits.map((split) => Number(split.amount || 0)))
   const targetAmount = Number(amount || 0)
   const splitMismatch = moneyCents(splitTotal) !== moneyCents(targetAmount)
@@ -8365,6 +8620,37 @@ function TransactionDraftReviewCard({
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
   const categoryWarningCopy = transactionCategoryWarningCopy(draft, assistantName)
   const itemName = transactionItemName(draft)
+  const differentPurchaseButton = (
+    <button type="button" className="ui-btn ui-btn--tonal" aria-label={`${confirming ? 'Adding' : 'Different purchase'}: add ${itemName} as its own purchase`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || confirming} onClick={event => void runAction(() => onConfirm(draft, { differentPurchase: true }), event.currentTarget)}>
+      {confirming ? 'Adding' : 'Different purchase'}
+    </button>
+  )
+  const receiptPayment = isPending ? draft.receipt_payment : null
+  // Paid with cash. Cash counts when she takes it out, so ask which withdrawal paid for it before it can count.
+  const cashPayment = isPending ? draft.cash_payment : null
+  const cashCandidates = cashPayment?.candidates ?? []
+  const askCash = !askSamePurchase && cashCandidates.length > 0
+  const cashAnswerButtons = askCash && (
+    <div className="transaction-duplicate-question__actions">
+      {cashCandidates.map((candidate) => {
+        const text = cashCandidates.length === 1 ? 'Yes' : `${candidate.label.charAt(0).toUpperCase()}${candidate.label.slice(1)}`
+        return (
+          <button key={candidate.financial_source_event_id} type="button" className="ui-btn ui-btn--primary" aria-label={`${confirming ? 'Saving' : 'Yes'}: ${itemName} was paid with ${candidate.label}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || confirming} onClick={event => void runAction(() => onConfirm(draft, { cashWithdrawalEventId: candidate.financial_source_event_id }), event.currentTarget)}>
+            {confirming ? 'Saving' : text}
+          </button>
+        )
+      })}
+      <button type="button" className="ui-btn ui-btn--tonal" aria-label={`${confirming ? 'Saving' : 'No, other cash'}: count ${itemName} as its own purchase`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || confirming} onClick={event => void runAction(() => onConfirm(draft, { cashFromElsewhere: true }), event.currentTarget)}>
+        {confirming ? 'Saving' : 'No, other cash'}
+      </button>
+    </div>
+  )
+  // Count all of the receipt, or only its new money. Splits go back to what
+  // the receipt said; without that split detail only a draft with no splits can change its amount.
+  const receiptChoices = receiptPayment && onUpdate ? [
+    receiptPayment.count_new_money_label ? { label: receiptPayment.count_new_money_label, amount: receiptPayment.new_money, splits: receiptPayment.count_new_money_splits } : null,
+    receiptPayment.count_all_label ? { label: receiptPayment.count_all_label, amount: receiptPayment.receipt_total, splits: receiptPayment.count_all_splits } : null,
+  ].filter((choice): choice is { label: string; amount: number; splits: Array<{ id: number; amount: number }> | undefined } => Boolean(choice && (choice.splits || (draft.splits ?? []).length === 0))) : []
   const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id || placeholderCategoryName(split.category_name))
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending || Boolean(action)
   const impactDraft = editing ? {
@@ -8402,6 +8688,7 @@ function TransactionDraftReviewCard({
     setAmount(editableAmountForDraft(draft))
     setSplits(editableSplitsForDraft(draft))
     setRemovedSplitIds([])
+    setPaidWithCash(Boolean(draft.cash_payment))
     setEditError(null)
   }
 
@@ -8456,6 +8743,7 @@ function TransactionDraftReviewCard({
         occurred_on: occurredOn,
         merchant,
         amount,
+        ...(paidWithCash !== Boolean(draft.cash_payment) ? { paid_with_cash: paidWithCash } : {}),
         removed_split_ids: removedSplitIds,
         splits: cleanedSplits.map((split) => ({
           id: split.id,
@@ -8484,6 +8772,27 @@ function TransactionDraftReviewCard({
       {isPending && <div className="transaction-draft-main">
         <PurchaseReviewSummary categoryRows={categories} draft={draft} date={formatShortDate(draft.occurred_on)} needsCategory={needsCategoryReview} effect={effect} />
 
+        {receiptPayment && (
+          // A gift card, voucher or store credit is not new money, so only what
+          // she paid by card or cash counts unless she chooses to count it all.
+          <section className="transaction-receipt-payment" aria-label={`How ${itemName} was paid`} ref={receiptSectionRef} tabIndex={-1}>
+            <p>{receiptPayment.message}</p>
+            {receiptChoices.length > 0 && (
+              <div className="transaction-duplicate-question__actions">
+                {receiptChoices.map((choice) => (
+                  <button key={choice.label} type="button" className="ui-btn ui-btn--tonal" disabled={actionsDisabled || editing || saving} onClick={event => void runAction(async () => {
+                    await onUpdate?.(draft, { amount: choice.amount, ...(choice.splits ? { splits: choice.splits } : {}) })
+                    // The chosen button is replaced by the other choice; keep her place on the payment note.
+                    receiptSectionRef.current?.focus({ preventScroll: true })
+                  }, event.currentTarget)}>
+                    {saving ? 'Saving' : choice.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {isPending && needsCategoryReview && (
           <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">
             <div>
@@ -8496,19 +8805,42 @@ function TransactionDraftReviewCard({
             }}>Review categories</button>}
           </section>
         )}
-        {proposedMatches.length > 0 && (
-          <div className="transaction-match-suggestions">
-            {proposedMatches.slice(0, 2).map((match) => (
-              <div key={match.id}>
-                <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {formatReviewMoney(Math.round((match.transaction.amount) * 100))}</span>
-                {onMatch && (
-                  <button type="button" className="secondary-button" aria-label={`${action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'} ${itemName} to ${match.transaction.merchant}`} disabled={actionsDisabled || editing || action === `match-draft:${draft.id}`} onClick={event => void runAction(() => onMatch(draft, match.id), event.currentTarget)}>
-                    {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
-                  </button>
-                )}
+        {askSamePurchase && (
+          // It looks like a purchase she already has. Ask before it can count twice:
+          // "Same purchase" keeps one purchase; "Different purchase" adds this one on purpose.
+          <section className="transaction-duplicate-question" aria-label={`Is ${itemName} a purchase you already have?`}>
+            {proposedMatches.map((match) => {
+              const label = `${match.transaction.store_name || match.transaction.merchant} on ${formatShortDate(match.transaction.occurred_on)} (${formatReviewMoney(Math.round(match.transaction.amount * 100))})`
+              const sameButton = onMatch && (
+                <button type="button" className="ui-btn ui-btn--primary" aria-label={`${matching ? 'Saving' : 'Same purchase'}: ${itemName} is ${label}`} disabled={actionsDisabled || editing || matching} onClick={event => void runAction(() => onMatch(draft, match.id), event.currentTarget)}>
+                  {matching ? 'Saving' : 'Same purchase'}
+                </button>
+              )
+              return (
+                <div className="transaction-duplicate-question__row" key={match.id}>
+                  <p>Same purchase as {label}?</p>
+                  <div className="transaction-duplicate-question__actions">
+                    {sameButton}
+                    {proposedMatches.length === 1 && differentPurchaseButton}
+                  </div>
+                </div>
+              )
+            })}
+            {proposedMatches.length > 1 && <div className="transaction-duplicate-question__actions">{differentPurchaseButton}</div>}
+          </section>
+        )}
+        {cashPayment && (!askSamePurchase || cashPayment.chosen_event_id != null) && (
+          // Yes: the cash already counted when she took it out, so this moves part of it into this purchase's
+          // category and adds nothing. No: the cash came from somewhere else and this counts on its own.
+          <section className="transaction-duplicate-question transaction-cash-question" aria-label={`Which cash paid for ${itemName}`}>
+            {askCash ? (
+              <div className="transaction-duplicate-question__row">
+                <p>{cashPayment.question}</p>
+                <small>{cashCoverage(cashPayment.cash_cents, cashCandidates)}</small>
+                {cashAnswerButtons}
               </div>
-            ))}
-          </div>
+            ) : cashPayment.message && <p className="transaction-cash-question__note">{cashPayment.message}</p>}
+          </section>
         )}
       </div>}
 
@@ -8525,6 +8857,10 @@ function TransactionDraftReviewCard({
           <label>
             <span>Total</span>
             <input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} />
+          </label>
+          <label className="transaction-draft-cash-choice">
+            <input type="checkbox" checked={paidWithCash} onChange={(event) => setPaidWithCash(event.currentTarget.checked)} />
+            <span>Paid with cash</span>
           </label>
           <div className="transaction-split-editor-list">
             {splits.map((split, index) => (
@@ -8586,9 +8922,9 @@ function TransactionDraftReviewCard({
           <MiaReviewError message={error || actionError} />
           {editing && <p className="transaction-draft-disabled-reason">Save or cancel your edit before confirming this purchase.</p>}
           {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this purchase.</span>}
-          <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={event => void runAction(() => onConfirm(draft), event.currentTarget)}>
+          {!askSamePurchase && !askCash && <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={event => void runAction(() => onConfirm(draft), event.currentTarget)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
-          </button>
+          </button>}
           {onUpdate && <button type="button" className="secondary-button ui-btn ui-btn--tonal" aria-label={`${editing ? 'Close edit' : 'Change'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Change'}</button>}
           <button type="button" className="secondary-button ui-btn ui-btn--text" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={event => void runAction(() => onIgnore(draft), event.currentTarget)}>
             {action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'}
@@ -8598,6 +8934,7 @@ function TransactionDraftReviewCard({
         <div className="transaction-draft-actions terminal" style={!compactFinished && resultTop ? { paddingTop: resultTop } : undefined}>
           <MiaReviewError message={error || actionError} />
           <span data-review-result tabIndex={-1}><strong title={draft.merchant}>{draft.merchant}</strong>{formatReviewMoney(moneyCents(exactMoneyNumber(draft.amount, draft.amount_cents)))} · {formatShortDate(draft.occurred_on)} · {transactionDraftTerminalCopy(draft.status)}</span>
+          {draft.cash_payment?.linked && draft.cash_payment.message && <p className="transaction-cash-question__note">{draft.cash_payment.message}</p>}
           <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={event => void runAction(() => onReopen(draft), event.currentTarget)}>
             {reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)}
           </button>
@@ -8826,7 +9163,7 @@ function SpendingReportLedger({ report, reopen, planKnown = true, categories = [
     <div className="spending-report-ledger">
       <div className="spending-report-summary">
         <span>{report.period_label}</span>
-        <strong>{planKnown || report.totals.actual > 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
+        <strong>{planKnown || report.actual_known || report.totals.actual !== 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
         {planKnown && <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>}
         <span>{formatReviewMoney(Math.round((report.totals.pending) * 100))} pending</span>
       </div>
@@ -8838,6 +9175,7 @@ function SpendingReportLedger({ report, reopen, planKnown = true, categories = [
         pageSize={8}
         reopen={reopen}
       />
+      {(report.refunds?.length ?? 0) > 0 && <RefundLedger categories={categories} refunds={report.refunds ?? []} />}
     </div>
   )
 }
@@ -8952,6 +9290,23 @@ function TransactionLedger({
   )
 }
 
+/** Money that came back. Each counted refund lowers the category of what was bought, in the month it came back. */
+function RefundLedger({ refunds, categories }: { refunds: SpendingReportRefund[]; categories: BudgetCategoryRow[] }) {
+  return (
+    <div className="recent-transaction-list transaction-ledger-list refund-ledger">
+      <div className="transaction-ledger-heading"><div><p className="group-label">Refunds</p><span>Each one lowers the category of what you bought, in the month the money came back.</span></div></div>
+      {refunds.map((refund) => (
+        <div className="recent-transaction-row" key={refund.id}>
+          <span>{formatShortDate(refund.occurred_on)}</span>
+          <strong>{refund.merchant}</strong>
+          <span>{refund.counted ? `Back to ${refund.categories.map(name => categoryDisplayName(name, categories.find(row => row.name === name)?.stack_key, categories)).join(', ')}` : 'Not counted yet. Choose its category in Statements.'}</span>
+          <b>{refund.counted ? formatReviewMoney(-Math.round(refund.amount * 100)) : formatReviewMoney(Math.round(refund.amount * 100))}</b>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function sortTransactions(left: RecentTransaction, right: RecentTransaction, sortOrder: 'newest' | 'oldest' | 'amount_desc' | 'amount_asc' | 'merchant') {
   switch (sortOrder) {
     case 'oldest':
@@ -8985,6 +9340,7 @@ export function CategoryEditCell({
   onChange: (value: { name?: string; stack_key?: BudgetStackKey }) => void
   onArchive: () => void
 }) {
+  const groupLabels = useExpenseGroupLabels()
   return (
     <div className="annual-category-cell-editor">
       <label>
@@ -8995,10 +9351,7 @@ export function CategoryEditCell({
       <label>
         <span className="sr-only">Expense stack</span>
         <select disabled={Boolean(action)} value={draft.stack_key} onChange={(event) => onChange({ stack_key: event.currentTarget.value as BudgetStackKey })}>
-          <option value="non_discretionary">Non-discretionary</option>
-          <option value="discretionary">Discretionary</option>
-          <option value="sinking_expected">Sinking Fund — Expected</option>
-          <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+          {expenseGroupOrder.map(key => <option key={key} value={key}>{groupLabels[key]}</option>)}
         </select>
       </label>
       <button
@@ -9026,6 +9379,8 @@ export function AnnualBudgetPlanner({
   needsSetup = false,
   onReviewTransactions,
   isRealWorkspace,
+  showMonthlyClose = false,
+  financialGeneration,
   action,
   error,
   notice,
@@ -9050,6 +9405,10 @@ export function AnnualBudgetPlanner({
   reviewErrors = {},
   focusRequest,
   onFocusRequestHandled,
+  canEditBills = true,
+  onBillsChanged,
+  forecastStale = false,
+  forecastOpenRequest = 0,
 }: {
   plan: AnnualBudgetPlan
   monthAnswer?: DashboardData['month_answer']
@@ -9058,6 +9417,8 @@ export function AnnualBudgetPlanner({
   needsSetup?: boolean
   onReviewTransactions: () => void
   isRealWorkspace: boolean
+  showMonthlyClose?: boolean
+  financialGeneration?: number
   action: string | null
   error: string | null
   notice?: string | null
@@ -9082,7 +9443,26 @@ export function AnnualBudgetPlanner({
   reviewErrors?: Record<string, string>
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
+  canEditBills?: boolean
+  onBillsChanged?: () => Promise<void>
+  forecastStale?: boolean
+  forecastOpenRequest?: number
 }) {
+  const groupLabels = useExpenseGroupLabels()
+  const forecastRef = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!forecastOpenRequest || !forecastRef.current) return
+    forecastRef.current.open = true
+    // After the section's own scroll restore, so the forecast stays in view with focus on it.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        const summary = forecastRef.current?.querySelector<HTMLElement>('summary')
+        summary?.focus({ preventScroll: true })
+        summary?.scrollIntoView({ block: 'start' })
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [forecastOpenRequest])
   const { assistantName } = useBrand()
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentPositions = useMemo(
@@ -9093,6 +9473,10 @@ export function AnnualBudgetPlanner({
   const approvedSpending = budgetPositionTotals(currentPositions).actual
   const calendarMonth = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
   const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
+  const monthlyCloseRefreshKey = useMemo(
+    () => monthlyCloseRefreshSignature(plan, financialGeneration),
+    [plan, financialGeneration],
+  )
   const [budgetEditState, setBudgetEditState] = useState<{
     signature: string
     isEditing: boolean
@@ -9125,7 +9509,9 @@ export function AnnualBudgetPlanner({
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
-  const hasUnsavedBudgetChanges = isEditingBudget && totalBudgetChanges > 0
+  // A changed bill form, or a bill save still refreshing the plan, holds Budget like an unsaved budget edit.
+  const [billsPending, setBillsPending] = useState(false)
+  const hasUnsavedBudgetChanges = (isEditingBudget && totalBudgetChanges > 0) || billsPending
   const archivedCategories = plan.archived_categories ?? []
   const today = guamTodayIso()
   const currentCalendarYear = Number(today.slice(0, 4))
@@ -9336,9 +9722,6 @@ export function AnnualBudgetPlanner({
           <p>Choose the month, review your plan, or make a change.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>‹</button>
-            {!isViewingCurrentYear && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
-            )}
             <label className="ui-period">
               <span className="sr-only">Report month</span>
               <select aria-label="Report month" value={currentMonthIndex} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
@@ -9346,14 +9729,16 @@ export function AnnualBudgetPlanner({
               </select>
               <strong className="budget-year-label">{plan.year}</strong>
             </label>
-            {isViewingCurrentYear && !isViewingCurrentMonth && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
-            )}
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Next year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>›</button>
+            {/* After the arrows in the markup too, so keyboard focus follows what she sees at every width. */}
+            {!isViewingCurrentMonth && (
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>{isViewingCurrentYear ? 'This month' : 'This year'}</button>
+            )}
           </div>
         </div>
       </div>
 
+      {plan.year_forecast && <details ref={forecastRef} className="budget-year-forecast"><summary>Year ahead and bills</summary>{billsPending && error && <p className="setup-error" role="alert">{error}</p>}<BillsForecast plan={plan} canEdit={canEditBills && Boolean(onBillsChanged)} stale={forecastStale} onChanged={onBillsChanged} onPendingChange={setBillsPending} /></details>}
       <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={!beforePlanStart} confirmedFields={confirmedFields} answer={monthAnswer} />
 
 
@@ -9395,6 +9780,15 @@ export function AnnualBudgetPlanner({
         />
       </details>}
       </div>
+      {showMonthlyClose && (
+        <MonthlyClosePanel
+          year={plan.year}
+          month={currentMonthIndex + 1}
+          refreshKey={monthlyCloseRefreshKey}
+          onAdjustCategory={openCategoryAmountEditor}
+          planningBlockedReason={planningBlockedReason}
+        />
+      )}
       {manualTool && (
         <section id="budget-manual-manager" className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
           <div className="budget-manual-manager-heading">
@@ -9429,10 +9823,7 @@ export function AnnualBudgetPlanner({
                 <label>
                   <span>Spending group</span>
                   <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={action === 'create-category'}>
-                    <option value="non_discretionary">Must-pay bills</option>
-                    <option value="discretionary">Flexible spending</option>
-                    <option value="sinking_expected">Planned yearly costs</option>
-                    <option value="sinking_unexpected">Surprise fund</option>
+                    {expenseGroupOrder.map(key => <option key={key} value={key}>{groupLabels[key]}</option>)}
                   </select>
                 </label>
                 <label>
@@ -9530,7 +9921,7 @@ export function AnnualBudgetPlanner({
                   const editedGroup = activeRows.filter(row => categoryDraftValue(row, categoryDrafts).stack_key === stack)
                   const affected = activeRows.some(row => (row.stack_key === stack || categoryDraftValue(row, categoryDrafts).stack_key === stack) && (categoryDraftValue(row, categoryDrafts).stack_key !== row.stack_key || (row.months[monthIndex] && Number(allocationDraftValue(row.months[monthIndex], allocationDrafts)) !== row.months[monthIndex].planned)))
                   if (!affected) return null
-                  const label = { non_discretionary: 'Must-pay bills', discretionary: 'Flexible spending', sinking_expected: 'Planned yearly costs', sinking_unexpected: 'Surprise fund' }[stack]
+                  const label = groupLabels[stack]
                   const prefix = `${month.label} · ${label} group total:`
                   if ([...savedGroup, ...editedGroup].some(row => !row.months[monthIndex] || row.months[monthIndex].allocation_missing)) return <p key={`${stack}:${month.id}`} className="group-edit-total annual-edit-hint">{prefix} Planned amount needs repair</p>
                   const before = savedGroup.reduce((total, row) => total + moneyCents(row.months[monthIndex].planned), 0)

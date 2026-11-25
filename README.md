@@ -32,6 +32,8 @@ The app is now moving from polished preview toward real cohort MVP. It includes:
 
 ## Local setup
 
+To check a change in a browser against the real API, with fictional sign-ins and no way to reach production, run `bin/local-stack up`. See [docs/testing/local-stack.md](docs/testing/local-stack.md). The steps below run each half on its own.
+
 ### API
 
 ```bash

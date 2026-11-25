@@ -32,19 +32,25 @@ module PlaidIntegration
       return if draft.transaction_draft_matches.where(status: "proposed").exists?
       return unless amount_is_familiar?(draft)
 
-      result = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
-      return unless result.success?
+      # The household lock the operation runner takes for a manual confirm
+      # (household, then draft), so this can't race her confirming the same
+      # purchase: both would pass the duplicate check before either saved.
+      ApplicationRecord.transaction do
+        plaid_item.household.lock!
+        result = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
+        next unless result.success?
 
-      plaid_item.household.household_audit_events.create!(
-        user: plaid_item.connected_by_user,
-        actor_type: "system",
-        event_type: "plaid_transaction.auto_confirmed",
-        auditable_type: "HouseholdTransaction",
-        auditable_id: result.transaction.id,
-        occurred_at: Time.current,
-        metadata: { transaction_draft_id: draft.id, merchant_rule_id: rule.id }
-      )
-      result.transaction
+        plaid_item.household.household_audit_events.create!(
+          user: plaid_item.connected_by_user,
+          actor_type: "system",
+          event_type: "plaid_transaction.auto_confirmed",
+          auditable_type: "HouseholdTransaction",
+          auditable_id: result.transaction.id,
+          occurred_at: Time.current,
+          metadata: { transaction_draft_id: draft.id, merchant_rule_id: rule.id }
+        )
+        result.transaction
+      end
     end
 
     def trusted_rule(draft)

@@ -50,7 +50,16 @@ module Scorecard
             kind = classify.bind_call(self, *args, **options)
             kind == :duplicate ? nil : kind
           end
-          failures = Ratchet.regressions(run.call, baseline)
+          # With the flag off, the approval guard may refuse the overlapping rows before
+          # anything is counted. That refusal is a catch, not an escape.
+          failures = begin
+            Ratchet.regressions(run.call, baseline)
+          rescue ArgumentError, FinancialDocuments::SourceReview::Domain::StaleReview => error
+            # The approver reports the guard's refusal as a stale review; its cause is the overlap.
+            refusal = [ error, error.cause ].compact.find { |raised| raised.message.start_with?("These rows may overlap.") }
+            raise unless refusal
+            [ "approval refused overlapping rows: #{refusal.message}" ]
+          end
           raise "Duplicate flag injection escaped the ratchet" if failures.empty?
           results["duplicate_flag_off"] = failures
         ensure

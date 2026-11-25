@@ -1,5 +1,3 @@
-require "set"
-
 module HouseholdFinance
   class TransactionDraftMatcher
     SEARCH_WINDOW_DAYS = 3
@@ -13,6 +11,11 @@ module HouseholdFinance
     end
 
     def call
+      # Keep only suggestions that still fit: a purchase that stopped counting
+      # (ignored after its own entry was reopened), moved out of the date or
+      # amount window, or was taken by another line of the same file is no
+      # longer a possible duplicate. Rejected answers stay as she gave them.
+      draft.transaction_draft_matches.proposed.where.not(household_transaction_id: candidates.map(&:id)).destroy_all
       candidate_results.first(5).each do |result|
         next if result.confidence < MIN_CONFIDENCE
 
@@ -45,12 +48,33 @@ module HouseholdFinance
         .where(status: %w[confirmed reconciled])
         .where(occurred_on: (draft.occurred_on - SEARCH_WINDOW_DAYS)..(draft.occurred_on + SEARCH_WINDOW_DAYS))
         .where(total_amount_cents: amount_range)
+        .where.not(id: claimed_transaction_ids)
         .to_a
     end
 
+    # Purchases another line of the same receipt or statement file is already
+    # matched to. TransactionDraftMatchAccepter refuses a second line of one
+    # file, so never offer it. Typed-in purchases have no file and can match.
+    def claimed_transaction_ids
+      return [] if draft.financial_document_import_id.nil?
+
+      @claimed_transaction_ids ||= begin
+        others = household.transaction_drafts.where(financial_document_import_id: draft.financial_document_import_id).where.not(id: draft.id)
+        matched = others.where(status: "matched").where.not(matched_transaction_id: nil).pluck(:matched_transaction_id)
+        accepted = TransactionDraftMatch.accepted.where(transaction_draft_id: others.select(:id)).pluck(:household_transaction_id)
+        (matched + accepted).uniq
+      end
+    end
+
+    # A receipt partly paid with a gift card or voucher is compared by its new
+    # money: that is what reached the bank, even when she counts all of it.
+    def match_amount_cents
+      @match_amount_cents ||= ReceiptTenders.match_amount_cents(draft)
+    end
+
     def amount_range
-      drift = [ (draft.total_amount_cents * 0.02).round, 100 ].max
-      (draft.total_amount_cents - drift)..(draft.total_amount_cents + drift)
+      drift = [ (match_amount_cents * 0.02).round, 100 ].max
+      (match_amount_cents - drift)..(match_amount_cents + drift)
     end
 
     def confidence_for(transaction)
@@ -63,10 +87,10 @@ module HouseholdFinance
     end
 
     def amount_score(transaction)
-      delta = (transaction.total_amount_cents - draft.total_amount_cents).abs
+      delta = (transaction.total_amount_cents - match_amount_cents).abs
       return 1.0 if delta.zero?
 
-      [ 0.0, 1.0 - (delta.to_f / [ draft.total_amount_cents, 1 ].max) ].max
+      [ 0.0, 1.0 - (delta.to_f / [ match_amount_cents, 1 ].max) ].max
     end
 
     def date_score(transaction)
@@ -77,14 +101,7 @@ module HouseholdFinance
     end
 
     def merchant_score(transaction)
-      left = normalized(transaction.merchant)
-      right = normalized(draft.merchant)
-      return 0.4 if left.blank? || right.blank?
-      return 1.0 if left == right
-      return 0.88 if left.include?(right) || right.include?(left)
-
-      overlap = token_overlap(left, right)
-      overlap >= 0.5 ? overlap : 0.2
+      MerchantMatchScore.call(transaction.merchant, draft.merchant)
     end
 
     def category_score(transaction)
@@ -98,25 +115,13 @@ module HouseholdFinance
       @draft_category_ids ||= draft.transaction_draft_splits.map(&:budget_category_id).compact
     end
 
-    def token_overlap(left, right)
-      left_tokens = left.split.to_set
-      right_tokens = right.split.to_set
-      return 0.0 if left_tokens.empty? || right_tokens.empty?
-
-      (left_tokens & right_tokens).length.to_f / [ left_tokens.length, right_tokens.length ].max
-    end
-
     def reason_for(transaction, confidence)
       parts = []
-      parts << "same amount" if transaction.total_amount_cents == draft.total_amount_cents
+      parts << "same amount" if transaction.total_amount_cents == match_amount_cents
       parts << "same date" if transaction.occurred_on == draft.occurred_on
       parts << "similar merchant" if merchant_score(transaction) >= 0.8
       parts << "same category" if category_score(transaction) >= 1.0
       parts.presence&.to_sentence || "#{(confidence * 100).round}% match on amount, date, and merchant"
-    end
-
-    def normalized(value)
-      value.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
     end
   end
 end

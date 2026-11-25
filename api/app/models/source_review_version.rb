@@ -5,6 +5,8 @@ class SourceReviewVersion < SourceReviewImmutableRecord
   belongs_to :approved_by_user, class_name: "User"
   belongs_to :supersedes, class_name: "SourceReviewVersion", optional: true
   belongs_to :matched_version, class_name: "SourceReviewVersion", optional: true
+  # "Same purchase" as one she already confirmed (a receipt, chat, form or Plaid purchase): that purchase counts, this line doesn't.
+  belongs_to :matched_transaction, class_name: "HouseholdTransaction", optional: true
   has_one :source_projection_revision
   validates :disposition, inclusion: { in: %w[include match exclude informational] }
   validates :event_type, inclusion: { in: FinancialSourceEvent::TYPES }
@@ -29,5 +31,6 @@ class SourceReviewVersion < SourceReviewImmutableRecord
   def reviewed_facts
     attributes.symbolize_keys.slice(:source_account_identity_version_id, :disposition, :event_type, :signed_amount_cents, :purchase_amount_cents, :merchant, :budget_category_id, :matched_version_id, :external_reference, :overlap_disposition)
       .merge(posted_on: posted_on&.iso8601, authorized_on: authorized_on&.iso8601)
+      .merge(matched_transaction_id ? { matched_transaction_id: matched_transaction_id } : {})
   end
 end

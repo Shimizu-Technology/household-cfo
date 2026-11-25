@@ -9,6 +9,7 @@ import './MiaDailyCheckIn.css'
 
 export function MiaChallengeGoal({ card, onDone, onChangeAmount }: { card: ChallengeChatCard; onDone: () => void; onChangeAmount: (amount: string) => void }) {
   const target = 'target_cents' in card.input ? card.input.target_cents : 0
+  const days = card.challenge_length_days ?? 90
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const liveResult = useLiveMiaResult(saved)
@@ -30,10 +31,10 @@ export function MiaChallengeGoal({ card, onDone, onChangeAmount }: { card: Chall
     catch (failure) { setError(participantErrorMessage(failure, 'We couldn’t confirm your choice. Try again; it won’t save twice.')) }
     finally { setBusy(false) }
   }
-  if (saved) return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Your challenge goal"><MiaCardResult title={`Goal saved: ${savingsTargetDollars(target)}`} live={Boolean(liveResult)} status="This is now your goal for the whole 90 days. You can see it in Savings." onDone={onDone} /></section>
+  if (saved) return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Your challenge goal"><MiaCardResult title={`Goal saved: ${savingsTargetDollars(target)}`} live={Boolean(liveResult)} status={`This is now your goal for the whole ${days} days. You can see it in Savings.`} onDone={onDone} /></section>
   return <section className="mia-daily-card ui-card" aria-label="Your challenge goal" aria-busy={busy}>
-    <h3>{savingsTargetDollars(target)} over your 90 days?</h3>
-    {'weekly_cents' in card.input && card.input.weekly_cents != null && <p>{savingsTargetDollars(card.input.weekly_cents)} a week × 90 days ÷ 7 = {savingsTargetDollars(target)}, rounded to the nearest cent. Confirm this total or change it below.</p>}
+    <h3>{savingsTargetDollars(target)} over your {days} days?</h3>
+    {'weekly_cents' in card.input && card.input.weekly_cents != null && <p>{savingsTargetDollars(card.input.weekly_cents)} a week × {days} days ÷ 7 = {savingsTargetDollars(target)}, rounded to the nearest cent. Confirm this total or change it below.</p>}
     <p>A cushion to keep surprises off the card. Choose an amount that leaves room for essentials and required payments.</p>
     {editing && <form onSubmit={event => {
       event.preventDefault()

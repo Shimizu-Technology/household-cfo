@@ -12,6 +12,7 @@
     "test:browser": "npm run test:browser:chromium && npm run test:browser:webkit",
     "test:browser:chromium": "playwright test --project=desktop-chrome --project=tablet-768-chrome --project=tablet-1024-chrome --project=mobile-chrome --project=compact-mobile-chrome",
     "test:browser:webkit": "playwright test --project=mobile-webkit",
+    "test:local-stack": "playwright test -c playwright.local-stack.config.ts",
     "preview": "vite preview"
   },
   "engines": {

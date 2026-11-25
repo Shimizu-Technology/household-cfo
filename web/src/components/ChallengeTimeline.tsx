@@ -5,7 +5,9 @@ import './ChallengeTimeline.css'
 import { SavingsRowButton } from './SavingsRow'
 export function ChallengeTimeline({ timeline, onDay, onCheckpoint, today, showCheckpoint = true }: { today?: string; showCheckpoint?: boolean; timeline: Timeline; onDay?: (date: string) => void; onCheckpoint?: () => void }) {
   const due = timeline.checkpoints_due[0]
-  return <section className="challenge-timeline" aria-label="Your 90 days">
+  // One entry per challenge day, so the last day is the challenge's length.
+  const length = timeline.days[timeline.days.length - 1]?.day ?? timeline.days.length
+  return <section className="challenge-timeline" aria-label={`Your ${length} days`}>
     {showCheckpoint && due && <SavingsRowButton label={`Day ${due} ready to review`} description="" onClick={() => onCheckpoint?.()} />}
     <ul className="challenge-days" aria-label="Day-by-day challenge record">
       {timeline.days.map(day => {
@@ -17,6 +19,6 @@ export function ChallengeTimeline({ timeline, onDay, onCheckpoint, today, showCh
     <ul className="challenge-days-legend" role="list" aria-label="Day symbols">
       <li>✓ Checked in</li><li>○ No spending</li><li>+ Set aside</li><li>− Taken out</li><li>· Not checked in</li>
     </ul>
-    <p className="savings-caption challenge-days-swipe">Swipe for all 90 days</p>
+    <p className="savings-caption challenge-days-swipe">Swipe for all {length} days</p>
   </section>
 }

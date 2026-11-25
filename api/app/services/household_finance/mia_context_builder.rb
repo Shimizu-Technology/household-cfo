@@ -10,10 +10,12 @@ module HouseholdFinance
       @reference_month = reference_month.to_i.clamp(1, 12)
       @conversation_context = conversation_context
       @experience_capabilities = experience_capabilities
+      @method_settings = experience_capabilities ? CohortExperience::MethodSettings.from_capabilities(experience_capabilities) : CohortExperience::MethodSettings.for_household(household)
       @snapshot = SnapshotBuilder.new(
         household,
         annual_budget_manager: snapshot_budget_manager,
-        reference_date: snapshot_reference_date
+        reference_date: snapshot_reference_date,
+        method: @method_settings
       ).call
     end
 
@@ -76,8 +78,14 @@ module HouseholdFinance
           debt_balance_known: debt_balance_known,
           debt_minimums_known: debt_minimums_known,
           liquid_assets: liquid_assets_known ? money(snapshot.fetch(:liquid_assets_cents)) : nil,
-          liquid_assets_known: liquid_assets_known
+          liquid_assets_known: liquid_assets_known,
+          emergency_fund_target_months: snapshot.fetch(:target_runway_months),
+          emergency_fund_target_set_by: snapshot.fetch(:target_runway_source) == "household" ? "household" : "program",
+          emergency_fund_gap: guidance_available ? money(snapshot.fetch(:emergency_fund_gap_cents)) : nil,
+          months_to_emergency_fund_target: guidance_available ? snapshot.fetch(:months_to_target) : nil,
+          monthly_surplus_status: surplus_known ? snapshot.fetch(:surplus_label) : nil
         },
+        coaching_method: coaching_method,
         financial_accounts: financial_accounts_context,
         income_sources: income_context,
         debts: debt_context,
@@ -113,6 +121,36 @@ module HouseholdFinance
       }
     end
 
+    # The program's method as Rails facts; Mia words them, never invents them.
+    def coaching_method
+      status = @method_settings.fetch("status")
+      label = ->(key) { CohortExperience::MethodSettings.label(key) }
+      {
+        status_colours: "A target is Green when the monthly surplus reaches it within #{status.fetch('target_green_months')} months, Yellow within #{status.fetch('target_yellow_months')} months, Red beyond. Monthly surplus is Green at #{Money.plain(status.fetch('surplus_green_cents'))} or more, Yellow at #{Money.plain(status.fetch('surplus_yellow_cents'))} or more.",
+        emergency_fund_default_months: @method_settings.fetch("emergency_fund_months"),
+        protected_categories: @method_settings.fetch("protected").map(&label),
+        protected_rule: "Never suggest cutting these; they always still count in spending.",
+        priority_order: @method_settings.fetch("priorities").map(&label),
+        windfall_order: @method_settings.fetch("windfall").map(&label),
+        new_monthly_income_split: @method_settings.fetch("income_split").to_h { |key, percent| [ label.call(key), "#{percent}%" ] },
+        new_monthly_income_split_rule: "Dollar amounts for a raise or new job come from Rails in a ready answer. Never work them out; without them, ask how much more lands each month.",
+        expense_group_names: ExpenseGroups.labels(@method_settings).values,
+        expense_group_rule: "Call the four spending groups only by these names.",
+        home_program_default: HOME_VIEW_FACTS.fetch(@method_settings.fetch("home_view")),
+        debt_payoff_order: DEBT_ORDER_FACTS.fetch(@method_settings.fetch("debt_order"))
+      }
+    end
+
+    HOME_VIEW_FACTS = {
+      "month" => "Home leads with this month; the year outlook is just below it. Each person can switch Home to year first.",
+      "year" => "Home leads with the year outlook; this month is just below it. Each person can switch Home to month first."
+    }.freeze
+    DEBT_ORDER_FACTS = {
+      "both" => "Show snowball (smallest balance first) and avalanche (highest APR first) side by side and let her choose.",
+      "snowball" => "Lead with snowball (smallest balance first); mention avalanche as the other choice.",
+      "avalanche" => "Lead with avalanche (highest APR first); mention snowball as the other choice."
+    }.freeze
+
     def monthly_surplus_rate_percent
       income = snapshot.fetch(:monthly_income_cents)
       return 0 unless income.positive?
@@ -127,7 +165,7 @@ module HouseholdFinance
     def expense_stack_totals
       snapshot.fetch(:stack_totals_cents).each_with_object({}) do |(stack_key, cents), totals|
         entered = household.expense_items.where(stack_key: stack_key).exists? || household.budget_categories.where(stack_key: stack_key).exists?
-        totals[SnapshotBuilder::STACK_LABELS.fetch(stack_key)] = entered ? money(cents) : nil
+        totals[ExpenseGroups.label(stack_key, @method_settings)] = entered ? money(cents) : nil
       end
     end
 
@@ -136,6 +174,7 @@ module HouseholdFinance
       reference_month = reference_month_for(plan)
       {
         year: plan.fetch(:year),
+        year_forecast: plan[:year_forecast],
         reference_month: {
           label: reference_month.fetch(:label),
           starts_on: reference_month.fetch(:starts_on),
@@ -252,25 +291,46 @@ module HouseholdFinance
         preserved_individual_records_excluded: portfolio.mode == "summary" ? debts.count : 0,
         coverage: total_count > MAX_FINANCIAL_RECORDS ? "first_50_approved_records" : "all_approved_records",
         unavailable_fields: debt_unavailable_fields(canonical_debts),
+        # Owed now and paid before any extra principal, in either tracking mode.
+        past_due: debt_arrears_context,
         records: canonical_debts.limit(MAX_FINANCIAL_RECORDS).map do |debt|
           {
             label: sanitized_text(debt.label, max_length: 120),
             debt_type: debt.debt_type,
             balance: debt.balance_known? ? money(debt.balance_cents) : nil,
+            # Set only while the balance is still an approved statement's amount.
+            balance_as_of_on: StatementBalanceOffers.statement_balance_on(debt)&.iso8601,
             minimum_payment: debt.minimum_payment_known? ? money(debt.minimum_payment_cents) : nil,
             apr_percent: debt.interest_rate_percent&.to_f,
+            due_day: debt.due_day,
+            # nil is not entered (unknown), never $0 behind.
+            past_due: debt.past_due_cents && money(debt.past_due_cents),
             updated_at: debt.updated_at.iso8601
           }
         end
       }
     end
 
+    # due_date (an exact next payment date) is never recorded; due_day is the recurring day
+    # of the month she may enter. With no canonical rows (summary mode) neither is known.
     def debt_unavailable_fields(debts)
       fields = %w[due_date fees exact_payoff_amount]
+      fields.unshift("due_day") if !debts.exists? || debts.where(due_day: nil).exists?
       fields.unshift("apr") if debts.where(interest_rate_percent: nil).exists?
       fields.unshift("balance") if debts.where(balance_known: false).exists?
       fields.unshift("minimum_payment") if debts.where(minimum_payment_known: false).exists?
       fields
+    end
+
+    def debt_arrears_context
+      arrears = DebtArrears.new(household)
+      return { total: nil, debts: [], rule: nil } unless arrears.any?
+
+      {
+        total: money(arrears.total_cents),
+        debts: arrears.debts.first(MAX_FINANCIAL_RECORDS).map { |debt| { label: sanitized_text(debt.label, max_length: 120), past_due: money(debt.past_due_cents), due_day: debt.due_day } },
+        rule: "Catching up past-due amounts comes first, before any extra principal; the payoff order applies after that. A past-due amount is part of the balance, owed now."
+      }
     end
 
     def document_context

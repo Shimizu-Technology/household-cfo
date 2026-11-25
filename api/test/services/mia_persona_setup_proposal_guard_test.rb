@@ -253,14 +253,26 @@ class MiaPersonaSetupProposalGuardTest < ActiveSupport::TestCase
     assert_equal Mia::PersonaSetup::ProposalGuard::UNAVAILABLE_NOTE, error.public_message
   end
 
+  # Ruby's Timeout thread can deliver its interrupt 100ms+ late on a loaded
+  # host, so these tests never put a tight wall-clock ceiling on the deadline.
+  # The slow guard would block far longer than any scheduling delay; the tests
+  # prove the deadline cut it short by observing the interruption itself.
+  SLOW_GUARD_SECONDS = 5
+
   test "round five one deadline covers every candidate and salvage retry" do
     setup_persona
     calls = 0
+    interrupted = 0
+    finished = 0
     guard = Class.new do
       define_singleton_method(:call) do |**_|
         calls += 1
-        sleep 0.2
+        sleep SLOW_GUARD_SECONDS
+        finished += 1
         Mia::PersonaSetup::ProposalGuard::Result.new([])
+      rescue Mia::PersonaSetup::ProposalGuard::DeadlineExceeded
+        interrupted += 1
+        raise
       end
     end
     message = "Call the assistant Lina. Be patient."
@@ -268,8 +280,10 @@ class MiaPersonaSetupProposalGuardTest < ActiveSupport::TestCase
     result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard, guard_timeout: 0.03)
       .build_partial([ operation("identity.assistant_name", "Lina", "Lina"), operation("description", "Be patient.", "Be patient.") ])
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
-    assert_operator elapsed, :<, 0.15
-    assert_equal 1, calls
+    # The deadline interrupted the only provider call mid-flight...
+    assert_equal [ 1, 1, 0 ], [ calls, interrupted, finished ]
+    # ...promptly rather than after the call ran out on its own.
+    assert_operator elapsed, :<, SLOW_GUARD_SECONDS / 2.0
     assert_empty result[:operations]
     assert_equal [ "persona_setup_guard_unavailable" ], result[:dropped].pluck(:code).uniq
   end
@@ -277,18 +291,23 @@ class MiaPersonaSetupProposalGuardTest < ActiveSupport::TestCase
   test "round five the deadline preserves an already checked safe sibling" do
     setup_persona
     calls = 0
+    interrupted = 0
     guard = Class.new do
       define_singleton_method(:call) do |**_|
         calls += 1
-        sleep 0.2 if calls > 1
+        sleep SLOW_GUARD_SECONDS if calls > 1
         Mia::PersonaSetup::ProposalGuard::Result.new([])
+      rescue Mia::PersonaSetup::ProposalGuard::DeadlineExceeded
+        interrupted += 1
+        raise
       end
     end
     message = "Call the assistant Lina. Be patient. Coach mothers."
-    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard, guard_timeout: 0.03)
+    # The budget leaves the instant first check ample room under load.
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard, guard_timeout: 0.25)
       .build_partial([ operation("identity.assistant_name", "Lina", "Lina"), operation("description", "Be patient.", "Be patient."),
         operation("identity.audience", "Mothers", "Coach mothers.") ])
-    assert_equal 2, calls
+    assert_equal [ 2, 1 ], [ calls, interrupted ]
     assert_equal [ "identity.assistant_name" ], result[:operations].pluck("path")
     assert_equal 2, result[:dropped].length
     assert_equal [ "persona_setup_guard_unavailable" ], result[:dropped].pluck(:code).uniq

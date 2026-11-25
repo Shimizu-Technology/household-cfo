@@ -1,10 +1,10 @@
 import { StatementSignQuestion } from './StatementSignQuestion'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
-  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
-  type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine,
+  answerInput, APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, accountMatchNote, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
+  type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementProgress,
 } from '../lib/statementReview'
 import { useStatementReview } from '../lib/useStatementReview'
 import { Button } from './Button'
@@ -14,24 +14,43 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
+/** A line saved as the same purchase as one she confirmed counts through that purchase, not as a second one. */
+function matchedPurchaseLabel(purchase?: { source_type: string }) {
+  return purchase && ['receipt', 'screenshot'].includes(purchase.source_type) ? 'Counted with your receipt' : 'Already counted'
+}
+
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, doneExtra, onSaved, onChanged, onProgress, onOtherStatementsSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
   onSignAnswered?: (revisionId: number) => void
   focusAfterSign?: boolean
   onSignFocusDone?: () => void
   onSaved?: () => void
+  onChanged?: () => void
+  /** The statement's progress as last read back, so the upload's status in the list doesn't go stale after a save. */
+  onProgress?: (progress: StatementProgress) => void
+  /** One store answer also saved lines in these other statements (by revision), so their uploads' status has moved too. */
+  onOtherStatementsSaved?: (revisionIds: number[]) => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
+  // Shown under the next steps once every line is saved, e.g. a balance offered from this statement.
+  doneExtra?: ReactNode | ((trackedAccountIds: number[]) => ReactNode)
 }) {
   const [page, setPage] = useState(1)
   const [sheet, setSheet] = useState<Sheet>(null)
+  const [reviewRepeats, setReviewRepeats] = useState(false)
   const [listOpen, setListOpen] = useState(false)
   const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
-  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
-  const { data, error, review, plan, categories, names, needBasis, counts, mutation, busy, coverage, savingLines, unsavedAnswer, focusAfterRef, save } = state
+  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onChanged, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
+  const { data, error, review, plan, categories, names, needBasis, needsAccountChoice, needsAccount, counts, mutation, busy, coverage, savingLines, unsavedAnswer, focusAfterRef, save } = state
   const pageData = data && data.pagination.page === page ? data : undefined
+  const progressCallback = useRef(onProgress)
+  useEffect(() => { progressCallback.current = onProgress }, [onProgress])
+  // Declared after useStatementReview, so on a finishing save its onSaved (which keeps this statement open) runs first.
+  useEffect(() => {
+    if (plan) progressCallback.current?.({ total: plan.total, done: plan.done, without_category: plan.without_category, spending: plan.spending, coverage: plan.coverage })
+  }, [plan])
 
   // After an answer is saved the row disappears; keyboard focus moves to the next question, or back to the summary.
   useEffect(() => {
@@ -39,11 +58,12 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     const index = focusAfterRef.current
     focusAfterRef.current = undefined
     const next = index == null ? null : exceptions.current?.children[index]?.querySelector<HTMLElement>('.statement-question')
-    ;(next ?? heading.current)?.focus()
+    // A multi-account file's next account question comes before the summary.
+    ;(next ?? heading.current?.closest('section')?.querySelector<HTMLElement>('[data-sign-next]') ?? heading.current)?.focus()
   }, [data, focusAfterRef])
 
   useEffect(() => {
-    if (data && focusAfterSign) { (heading.current?.closest('section')?.querySelector<HTMLElement>('.statement-sign-result') ?? heading.current)?.focus(); onSignFocusDone?.() }
+    if (data && focusAfterSign) { (heading.current?.closest('section')?.querySelector<HTMLElement>('[data-sign-next], .statement-sign-result') ?? heading.current)?.focus(); onSignFocusDone?.() }
   }, [data, focusAfterSign, onSignFocusDone])
 
   const pendingRequest = mutation.pendingRequest
@@ -52,12 +72,34 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (!sheet && pendingRequest && !pendingRequest.working) recoveryControls.current?.querySelector<HTMLButtonElement>('button')?.focus()
   }, [sheet, pendingRequest])
 
+  const suggested = review?.accounts.some(account => account.suggested) ?? false
+  const matchNote = review ? accountMatchNote(review.accounts) : ''
+  const storeGroups = plan?.store_groups ?? []
+  const crossGroupedIds = new Set(storeGroups.flatMap(group => group.slice(1).map(line => line.event_id)))
+  const groupedIds = new Set((plan?.category_groups ?? []).flatMap(group => group.slice(1)))
+  const repeats = plan?.repeated_line_ids ?? []
+  const repeatQuestion = !reviewRepeats && repeats.length > 1
+  const questions = plan?.attention.filter(item => !groupedIds.has(item.event_id) && !crossGroupedIds.has(item.event_id) && !(repeatQuestion && repeats.includes(item.event_id))) ?? []
+  const attentionById = new Map((plan?.attention ?? []).map(line => [line.event_id, line]))
+  const groupsByLeader = new Map((plan?.category_groups ?? []).map(ids => [ids[0], ids.flatMap(id => attentionById.get(id) ?? [])]))
+  for (const group of storeGroups) if (group[0]) groupsByLeader.set(group[0].event_id, group)
+  const groupFor = (item: PlanAttention) => groupsByLeader.get(item.event_id) ?? [item]
   const readyById = new Map((plan?.ready ?? []).map((line) => [line.event_id, line]))
 
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
     if (id === 'money_out' || id === 'money_in') return setSheet({ kind: 'line', line: lineSheetWithDirection(item, id === 'money_out' ? 'out' : 'in') })
     if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: lineSheetForAnswer(item) })
-    state.answer(item, index, id, categoryId)
+    const group = groupFor(item)
+    if (group.length > 1 && (id === 'keep' || (id === 'edit' && categoryId != null))) {
+      const store = storeGroups.find(rows => rows.some(line => line.event_id === item.event_id))
+      if (store && categoryId != null) {
+        const others = [...new Set(store.map(line => line.revision_id).filter(id => id !== revisionId))]
+        void save({ lines: [], store_lines: store.map(line => ({ event_id: line.event_id, revision_id: line.revision_id, expected_head: line.expected_head, decision: 'edited', edit: { category_id: categoryId } as LineEdit })) }, index)
+          .then(saved => { if (saved && others.length) onOtherStatementsSaved?.(others) })
+        return
+      }
+      void save({ lines: group.flatMap(line => answerInput(line, id, categoryId).lines) }, index)
+    } else state.answer(item, index, id, categoryId)
   }
   async function saveSheet(entry: LineDecision) {
     if (sheet?.kind === 'line') entry.expected_head = sheet.line.expectedHead
@@ -69,6 +111,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   const money = (cents: number | null) => (cents == null ? 'Unknown' : sourceMoney(Math.abs(cents)))
   function sheetFromEvent(event: SourceEvent): SheetLine {
+    const correction = plan?.attention.find(item => item.event_id === event.id && item.kind === 'correction')
+    if (correction) return lineSheetFromAttention(correction)
     const row = review?.rows[event.id]
     const facts = row?.approved && row.approved.current !== false ? row.approved.facts : null
     // A line that is not saved yet opens on the kind and category the list shows for it (the plan's), not the reader's first guess.
@@ -76,15 +120,16 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (planned) return lineSheetFromAttention(planned)
     const ready = !facts ? readyById.get(event.id) : undefined
     if (ready) {
-      return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
+      return { rawDescription: event.evidence?.raw_description, directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: ready.editable_merchant ?? ready.merchant ?? sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
         kind: lineKindFor(ready.event_type, event.signed_amount_cents), categoryId: ready.category_id, leftOut: false }
     }
     const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
-    return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
+    return { rawDescription: event.evidence?.raw_description, directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
       amountCents: signed == null ? null : Math.abs(signed), kind: lineKindFor(facts?.event_type ?? event.event_type, signed),
       categoryId: facts ? facts.budget_category_id : event.transaction_draft?.category_id ?? null, leftOut: facts?.disposition === 'exclude' }
   }
 
+  const done = !!plan && !!counts && !needsAccount && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!coverage.ask || coverage.recorded)
   if (!mutation.accessDenied && !data && !error) return <section className="statement-source-review" aria-label="Statement review"><p role="status">Opening your statement…</p></section>
   return (
     <section className="statement-source-review" aria-label="Statement review">
@@ -106,13 +151,14 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
         <header className="statement-summary">
           <div className="statement-summary-line">
             <h5 ref={heading} tabIndex={-1}>{statementHeadline(data.accounts, names, plan)}</h5>
-            <Button variant="secondary" size="compact" disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Change</Button>
+            <Button variant="secondary" size="compact" disabled={busy} onClick={() => setSheet({ kind: 'account' })}>{needsAccountChoice ? "Choose account" : suggested ? "Different account" : "Change"}</Button>
           </div>
+          {matchNote && <p className="statement-account-note">{matchNote}</p>}
           <p role="status">{counts.sentence}</p>
           {savingLines >= APPROVE_PAGE && busy && <p className="statement-muted" role="status">Saving {savingLines} lines. This can take a minute.</p>}
           {asBeforeNote(plan) && <p className="statement-muted">{asBeforeNote(plan)}</p>}
-          {!plan.signed_amount_question && coverage.ask && <div className="statement-question-row">
-            <p className="statement-question" id="statement-coverage-question">{plan.coverage.question}</p>
+          {!needsAccount && !plan.signed_amount_question && coverage.ask && <div className="statement-question-row">
+            <p className="statement-question" id="statement-coverage-question">{coverageQuestionText(plan)}</p>
             <div className="statement-answers" role="group" aria-labelledby="statement-coverage-question">
               <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
               <Button variant={coverage.said === 'something_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'something_missing'} disabled={busy} onClick={() => coverage.answer('something_missing')}>Something’s missing</Button>
@@ -121,7 +167,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
               <div className="statement-answers"><Button variant="secondary" disabled={busy} onClick={coverage.answerAgain}>Try again</Button></div></div>}
             {coverage.recorded === 'something_missing' && <p className="statement-muted" role="status">{coverageMissingNote()}</p>}
           </div>}
-          {needBasis.length === 1 && <div className="statement-question-row">
+          {!needsAccountChoice && needBasis.length === 1 && <div className="statement-question-row">
             <p className="statement-question">Is {accountSentence(names[needBasis[0].id]) || 'this'} a bank account or a credit card?</p>
             <div className="statement-answers">
               <Button variant="secondary" aria-pressed={unsavedAnswer?.accountId === needBasis[0].id && unsavedAnswer.basis === 'asset'} disabled={busy} onClick={() => state.chooseBasis(needBasis[0].id, 'asset')}>Bank account</Button>
@@ -129,8 +175,16 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             </div>
           </div>}
           <StatementSignQuestion state={state} />
-          {needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
-          {needBasis.length === 0 && !plan.signed_amount_question && counts.action && <>
+          {!needsAccount && !plan.signed_amount_question && repeatQuestion && <div className="statement-question-row">
+            <p className="statement-question">{repeats.length} lines in this file repeat statements you already approved. Leave them all out?</p>
+            <div className="statement-answers">
+              <Button disabled={busy} onClick={() => { void save({ leave_repeats_out: true, lines: plan.attention.filter(line => repeats.includes(line.event_id)).flatMap(line => answerInput(line, 'leave_out').lines) }) }}>Leave them out</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => setReviewRepeats(true)}>Review them one by one</Button>
+            </div>
+            <p className="statement-muted">They won’t count again. You can reopen any line below to change your answer.</p>
+          </div>}
+          {!needsAccountChoice && needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
+          {!needsAccount && !plan.signed_amount_question && counts.action && <>
             <ul className="statement-ready" aria-label="Lines to approve together">
               {plan.ready.slice(0, APPROVE_PAGE).map(line => <li key={line.event_id}>
                 <span>{line.merchant || 'Statement line'}</span>
@@ -139,18 +193,25 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             </ul>
             <Button disabled={busy} onClick={() => { void state.approveRest() }}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>
           </>}
-          {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!coverage.ask || coverage.recorded) && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
+          {done && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
         </header>
+        {done && (typeof doneExtra === 'function' ? doneExtra(review?.accounts.flatMap((account) => account.approved ? [account.approved.tracked_account.id] : []) ?? []) : doneExtra)}
 
         {!plan.signed_amount_question && plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
-          {plan.attention.map((item, index) => <li key={item.event_id} className="statement-exception">
-            <button type="button" className="statement-line" disabled={busy} aria-label={`Edit ${item.merchant ?? 'this line'}`} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(item) })}>
+          {questions.map((item, index) => <li key={item.event_id} className="statement-exception">
+            <button type="button" className="statement-line" disabled={busy || needsAccount} aria-label={`Edit ${item.merchant ?? 'this line'}`} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(item) })}>
               <span className="statement-line-name">{item.merchant ?? 'Unreadable line'}</span>
-              <span className="statement-line-amount">{money(item.signed_amount_cents ?? item.amount_cents ?? null)}</span>
-              <span className="statement-line-meta">{[formatMonthDay(item.posted_on) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
+              <span className="statement-line-amount">{groupFor(item).length > 1 ? `${groupFor(item).length} lines` : money(item.signed_amount_cents ?? item.amount_cents ?? null)}</span>
+              <span className="statement-line-meta">{[formatMonthDay(item.posted_on, { year: spansYears(plan) }) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
             </button>
-            <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
-            <StatementAnswers item={item} categories={categories} disabled={busy || needBasis.length > 0} unsaved={unsavedAnswer} onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
+            <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{groupFor(item).length > 1 ? `${groupFor(item).length} lines${storeGroups.find(group => group.some(line => line.event_id === item.event_id))?.some(line => line.revision_id !== revisionId) ? " across your statements" : ""}. What are these for?` : item.question}</p>
+            {groupFor(item).length > 1 && <details><summary>Review these lines separately</summary>
+              {groupFor(item).map(line => <div key={line.event_id}>
+                <p>{"statement_name" in line ? String(line.statement_name) + " · " : ""}{formatMonthDay(line.posted_on)} · <span className="statement-num">{money(line.signed_amount_cents)}</span></p>
+                {plan.attention.some(local => local.event_id === line.event_id) ? <Button variant="secondary" disabled={busy || needsAccount} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(line) })}>Change this line</Button> : <p>Open this statement to change this line separately.</p>}
+              </div>)}
+            </details>}
+            <StatementAnswers item={groupFor(item).length > 1 ? { ...item, kind: 'no_category', category_id: null, answers: [{ id: 'edit', label: 'Choose one' }] } : item} categories={categories} disabled={busy || needsAccount} unsaved={unsavedAnswer} onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
           </li>)}
         </ul>}
 
@@ -172,10 +233,10 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
                 const ready = readyById.get(event.id)
                 // A line that looks right shows the category the server will save for it, not only the reader's guess.
                 const category = facts ? categories.find((entry) => entry.id === facts.budget_category_id)?.name : ready ? readyCategoryLabel(ready) ?? undefined : event.transaction_draft?.category_name
-                const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : (kind === 'spending' || kind === 'cash') ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
+                const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : facts?.matched_transaction_id ? matchedPurchaseLabel(row?.approved?.matched_purchase) : (kind === 'spending' || kind === 'cash') ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
                 return <tr key={event.id} data-needs-look={attention || undefined}>
-                  <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</span></td>
-                  <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</td>
+                  <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? plan.attention.find(item => item.event_id === event.id)?.merchant ?? ready?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</span></td>
+                  <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on, { year: spansYears(plan) }) || '—'}</td>
                   <td className="statement-num">{signed == null ? 'Unknown' : sourceMoney(signed, true)}</td>
                   <td>{label}</td>
                 </tr>
@@ -190,11 +251,15 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
         </details>
       </>}
 
+      {review?.transfer_pairs?.map(pair => <div key={pair.event_id} className="statement-question-row">
+        <p>Moved between {pair.accounts.join(' and ')} — not spending or income.</p>
+        <Button variant="secondary" disabled={busy} onClick={() => { void save({ lines: [{ event_id: pair.event_id, decision: 'unpair_transfer', expected_head: { approved_version_id: pair.expected_head.approved_version_id, lock_version: pair.expected_head.lock_version, account_version_id: review.rows[pair.event_id]?.approved?.facts.source_account_identity_version_id } }] }) }}>Unpair these lines</Button>
+      </div>)}
       {sheet?.kind === 'line' && <StatementLineSheet key={sheet.line.eventId} line={sheet.line} categories={categories} busy={busy} canClose={!mutation.pendingRequest?.working} error={mutation.error}
         onClose={() => setSheet(null)}
         onSave={(edit: LineEdit) => { void saveSheet({ event_id: sheet.line.eventId, decision: 'edited', edit }) }}
         onLeaveOut={() => { void saveSheet({ event_id: sheet.line.eventId, decision: 'leave_out' }) }} />}
-      {sheet?.kind === 'account' && data && review && <StatementAccountSheet accounts={needBasis.length > 1 ? needBasis : data.accounts} reviewed={review.accounts} names={names} busy={busy} canClose={!mutation.pendingRequest?.working} error={mutation.error}
+      {sheet?.kind === 'account' && data && review && <StatementAccountSheet accounts={!needsAccountChoice && needBasis.length > 1 ? needBasis : data.accounts} reviewed={review.accounts} names={names} busy={busy} canClose={!mutation.pendingRequest?.working} error={mutation.error}
         onClose={() => setSheet(null)} onSave={(changes) => { void saveAccounts(changes) }} />}
     </section>
   )

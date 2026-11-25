@@ -25,6 +25,34 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     assert_equal 0, SourceEconomicGroupVersion.where(household: @savings_household).count
   end
 
+  test "a returned one-off takes its refund with it, so her usual visits still give the monthly figure" do
+    purchase("Seabreeze Snack Bar", 6_000, on: Date.new(2026, 8, 6))
+    purchase("Seabreeze Snack Bar", 7_000, on: Date.new(2026, 9, 6))
+    purchase("Seabreeze Snack Bar", 69_000)
+    reviewed("Seabreeze Snack Bar", 69_000)
+    result = analyze
+    assert_equal 13_000, result[:discretionary_merchants].sole[:total_cents]
+    # Half of the $65 regular months; never a negative figure from the $690 refund left on them.
+    assert_equal 3_250, result[:candidate_changes].sole[:monthly_impact_cents]
+  end
+
+  test "where the money went says when refunds bring a month's purchases to nothing" do
+    purchase("Seabreeze Snack Bar", 10_000)
+    reviewed("Seabreeze Snack Bar", 10_000)
+    _patterns, reply = SpendingPatterns::WhereMoneyGoes.reply(@savings_household, "Where did my money go in October?", today: Date.new(2026, 11, 4))
+    assert_equal "Your reviewed purchases for October 2026 come to $0 after the refunds you approved, so no category has money going to it. This counts only purchases you’ve reviewed or confirmed.", reply
+  end
+
+  test "a month with only a refund is not set against its plan" do
+    @savings_household.update_column(:created_at, Time.zone.local(2026, 1, 5))
+    planned = HouseholdFinance::AnnualBudgetManager.new(@savings_household, year: 2026).create_category!(name: "Snacks", stack_key: "discretionary", monthly_amount: 300)
+    purchase("Seabreeze Snack Bar", 5_000, on: Date.new(2026, 9, 14)).transaction_splits.sole.update!(budget_category: planned)
+    reviewed("Seabreeze Snack Bar", 2_000)
+    _patterns, reply = SpendingPatterns::WhereMoneyGoes.reply(@savings_household, "Where is my money going?", today: Date.new(2026, 11, 4))
+    assert_includes reply, "Against your plan for September: Snacks $30 of $300."
+    assert_includes reply, "In all, $30 went out against $300 planned for spending."
+  end
+
   test "a linked refund is deducted only once even when more purchases share its merchant" do
     original = reviewed("Amazon Marketplace", -3899, type: "purchase")
     purchase("Amazon Marketplace", 1000)
@@ -44,10 +72,11 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     reviewed("Ross", 1000, on: Date.new(2026, 7, 4))
     reviewed("Rosslyn Cafe", 1000)
     assert_equal 5525, analyze[:discretionary_merchants].sole[:total_cents]
-    # Refunds are capped by matching observed spending; an excess never becomes savings or negative spending.
+    # A refund larger than what she spent there is shown as it is (Budget shows the same negative month), but a store
+    # refunded below zero is not somewhere she is spending, and it is never called savings.
     reviewed("Ross", 10_000)
     assert_empty analyze[:discretionary_merchants]
-    assert_nil analyze[:observed_spending_cents]
+    assert_equal(-4475, analyze[:observed_spending_cents])
     refute analyze[:savings_inferred]
   end
 
@@ -87,21 +116,33 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     assert_equal 1000, analyze[:discretionary_merchants].find { |row| row[:label] == "Island Table Cafe" }[:total_cents]
   end
 
-  test "rounding cannot overdraw a tiny final split" do
-    row = { amount_cents: 10, splits: [ { amount_cents: 3 }, { amount_cents: 3 }, { amount_cents: 3 }, { amount_cents: 1 } ] }
-    assert_equal 9, SpendingPatterns::RefundNetting.send(:deduct!, row, 9)
-    assert row[:splits].all? { |split| split[:amount_cents] >= 0 }
-    assert_equal 1, row[:splits].sum { |split| split[:amount_cents] }
+  test "proportional refund shares keep exact cents and give rounding to the largest remainders, not a tiny split" do
+    parts = [ 3, 3, 3, 1 ].each_with_index.map { |cents, index| { category_id: index, amount_cents: cents } }
+    shares = HouseholdFinance::RefundCredits.proportional(parts, 9)
+    assert_equal 9, shares.sum { |share| share[:amount_cents] }
+    assert shares.all? { |share| share[:amount_cents].positive? }
+    assert_equal [ [ 0, 2 ], [ 1, 3 ], [ 2, 3 ], [ 3, 1 ] ], shares.map(&:values)
+    assert_equal [ 1500, 1000 ], HouseholdFinance::RefundCredits.proportional([ { category_id: 1, amount_cents: 6000 }, { category_id: 2, amount_cents: 4000 } ], 2500).pluck(:amount_cents)
+  end
+
+  test "a refund in a later month nets that month, not the month of the purchase" do
+    purchase("Ross", 5525)
+    reviewed("Ross", 1525, on: Date.new(2026, 11, 2))
+    october = SpendingPatterns::Analyzer.new(@savings_household, today: Date.new(2026, 11, 4), from: "2026-10-01", to: "2026-10-31").call
+    november = SpendingPatterns::Analyzer.new(@savings_household, today: Date.new(2026, 11, 4), from: "2026-11-01", to: "2026-11-04").call
+    assert_equal 5525, october[:observed_spending_cents]
+    assert_equal(-1525, november[:observed_spending_cents])
+    assert_equal 0, november[:purchase_count]
   end
 
   private
 
   def analyze = SpendingPatterns::Analyzer.new(@savings_household, today: Date.new(2026, 11, 4)).call
 
-  def purchase(merchant, cents)
-    year = @savings_household.budget_years.find_or_create_by!(year: 2026)
-    period = year.budget_periods.find_or_create_by!(starts_on: Date.new(2026, 10, 1)) { |row| row.ends_on = Date.new(2026, 10, 31) }
-    row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 10, 14), merchant: merchant, total_amount_cents: cents, source_type: "manual_ui", status: "confirmed")
+  def purchase(merchant, cents, on: Date.new(2026, 10, 14))
+    year = @savings_household.budget_years.find_or_create_by!(year: on.year)
+    period = year.budget_periods.find_or_create_by!(starts_on: on.beginning_of_month) { |row| row.ends_on = on.end_of_month }
+    row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: on, merchant: merchant, total_amount_cents: cents, source_type: "manual_ui", status: "confirmed")
     row.transaction_splits.create!(budget_category: @category, amount_cents: cents)
     row
   end

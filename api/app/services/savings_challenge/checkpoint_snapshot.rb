@@ -39,7 +39,7 @@ module SavingsChallenge
       daily_summary = new(enrollment, milestone_day: day).send(:daily_snapshot, cutoff, daily).deep_stringify_keys
       raise ArgumentError, "Checkpoint calculations do not match approved histories" unless snapshot["savings"] == savings && snapshot["baseline"] == baseline && snapshot["daily"] == daily_summary
       status = snapshot.fetch("final_confirmation_status")
-      raise ArgumentError, "Checkpoint final confirmation is invalid" unless day == 90 ? status.in?(%w[pending confirmed]) : status == "not_applicable"
+      raise ArgumentError, "Checkpoint final confirmation is invalid" unless day == enrollment.rules.final_day ? status.in?(%w[pending confirmed]) : status == "not_applicable"
       true
     rescue KeyError, TypeError, Date::Error
       raise ArgumentError, "Invalid private checkpoint snapshot"
@@ -53,10 +53,11 @@ module SavingsChallenge
     end
 
     def call
-      raise ArgumentError, "Choose Day 30, 60 or 90" unless @day.in?([ 30, 60, 90 ])
+      rules = @enrollment.rules
+      raise ArgumentError, "Choose #{rules.checkpoint_choice_text}" unless rules.checkpoint?(@day)
       cutoff = @enrollment.starts_on + @day - 1
       raise ArgumentError, "Future milestones cannot be staged" if cutoff > @enrollment.local_today
-      raise ArgumentError, "Final confirmation belongs only to Day 90" if @final_confirmation && @day != 90
+      raise ArgumentError, "Final confirmation belongs only to Day #{rules.final_day}" if @final_confirmation && @day != rules.final_day
       financial_sequence = @enrollment.approval_sequence
       daily_sequence = SavingsDailyLedger.find_by(savings_enrollment: @enrollment)&.sequence || 0
       plan = selected_plan(cutoff, financial_sequence)
@@ -70,7 +71,7 @@ module SavingsChallenge
         savings: Projection.new(@enrollment, cutoff_on: cutoff, approval_sequence: financial_sequence, plan_version_id: plan&.id, evidence_mode: :current).call,
         baseline: CheckpointBaseline.resolve!(enrollment: @enrollment, version_id: baseline_id),
         daily: daily_snapshot(cutoff, daily_sequence),
-        final_confirmation_status: @day == 90 ? (@final_confirmation ? "confirmed" : "pending") : "not_applicable"
+        final_confirmation_status: @day == rules.final_day ? (@final_confirmation ? "confirmed" : "pending") : "not_applicable"
       }.deep_stringify_keys
     end
 

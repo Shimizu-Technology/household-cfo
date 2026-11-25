@@ -56,7 +56,9 @@ module HouseholdFinance
           "void_reason" => "draft_reopened"
         )
       )
-      draft.update!(status: "pending", confirmed_transaction: nil, matched_transaction: nil)
+      # The cash it named goes back to its withdrawal (the purchase no longer counts), and she is asked again when she
+      # confirms: her earlier "No, other cash" is not kept either.
+      draft.update!(status: "pending", confirmed_transaction: nil, matched_transaction: nil, draft_payload: CashPayment.with_answer(draft.draft_payload, nil))
     end
 
     def reopen_matched_draft!

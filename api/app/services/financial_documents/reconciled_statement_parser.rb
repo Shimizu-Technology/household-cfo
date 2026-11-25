@@ -327,7 +327,8 @@ module FinancialDocuments
       return "fee" if signed.negative? && body.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       return "cash_withdrawal" if signed.negative? && body.match?(/\b(?:ATM\b|(?:Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && !body.match?(/\b(?:purchase|pos)\b/i)
       return "refund" if signed.positive? && body.match?(/refund|return|reversal/i)
-      return "income" if signed.positive? && body.match?(/payroll|salary|\bdeposit\b|ACH CREDIT|dividend/i)
+      # Money into a card is a payment or a credit on it, never income.
+      return "income" if signed.positive? && @account[:account_basis] != "liability" && body.match?(/payroll|salary|\bdeposit\b|ACH CREDIT|dividend/i)
       return "interest" if body.match?(/\binterest\b/i)
       return "purchase" if signed.negative?
       "unknown"

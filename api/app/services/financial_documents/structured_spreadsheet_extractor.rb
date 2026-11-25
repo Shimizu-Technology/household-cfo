@@ -71,18 +71,20 @@ module FinancialDocuments
       end
     end
 
-    def initialize(file_path:, filename:, document_kind: "spreadsheet", negative_is_money_out: nil, account_basis: nil)
+    # account_conventions: her answer for one account of a multi-account file, keyed by that file's Account cell.
+    def initialize(file_path:, filename:, document_kind: "spreadsheet", negative_is_money_out: nil, account_basis: nil, account_conventions: {})
       @file_path = file_path
       @filename = filename
       @document_kind = document_kind
       @warnings = []
       @negative_is_money_out = negative_is_money_out
+      @account_conventions = account_conventions
       @account_basis = account_basis
       @sign_question = false
     end
 
     def call
-      summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename).call
+      summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename, preserve_cell_keys: true).call
       warnings << SpreadsheetSummarizer.uncalculated_formula_warning(summary[:uncalculated_formula_cells]) if summary[:uncalculated_formula_cells].to_i.positive?
       if summary[:sheet_limit_exceeded]
         return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_SHEETS} worksheets and could not be inspected completely. Remove empty sheets or split it into smaller workbooks so every value can be reviewed.")
@@ -202,9 +204,10 @@ module FinancialDocuments
           merchant_cell = %w[merchant label].any? { |field| map[field].to_i.positive? && cell(values, map, field).present? }
           next unless financial_cell || merchant_cell
           next if !transaction_like_row?(values, map) && item_from_row(values, map, cell_types: row[:cell_types], cell_formats: row[:cell_formats])
-          key = cell(values, map, "account").to_s.presence || "sheet-#{sheet_index}"
+          account_label = cell(values, map, "account").to_s.presence
+          key = source_account_key(row, map, sheet_index)
           basis = @account_basis || cell(values, map, "account_basis").to_s.downcase
-          raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: "Spreadsheet account #{sheet_index + 1}" }
+          raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: SourceReview::AccountName.display_label(account_label).presence || "Spreadsheet account #{sheet_index + 1}" }
           merchant = clean_text(cell(values, map, "merchant").presence || cell(values, map, "label"), max_length: 120)
           notes = clean_text(cell(values, map, "notes"), max_length: 500)
           category = clean_text(cell(values, map, "category"), max_length: 120)
@@ -212,7 +215,7 @@ module FinancialDocuments
           amount, limitations = signed_row_amount(values, map, file_direction: directions[[ sheet_index, key ]])
           kind = cell(values, map, "status").to_s.match?(/\Apending\z/i) ? "informational" : "posted"
           kind = "informational" if [ merchant, notes ].compact.join(" ").match?(/returned\s+unpaid|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
-          type = source_event_type(values, map, merchant, amount)
+          type = source_event_type(values, map, merchant, amount, basis: basis)
           limitations << "merchant_missing" if merchant.blank?
           warnings << "Retained unresolved #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): conflicting debit and credit information makes its direction unclear." if limitations.include?("conflicting_debit_credit")
           warnings << "Retained #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): transaction direction is unclear; provide debit/credit direction before review." if limitations.include?("transaction_direction_unclear")
@@ -230,6 +233,14 @@ module FinancialDocuments
             external_id: clean_text(cell(values, map, "external_reference"), max_length: 120).presence || "sheet-#{sheet_index}-row-#{row[:row]}", limitations: limitations
           }
         end
+      end
+      # Distinct account numbers in one file can have an identical masked label.
+      # Keep their source keys and ask which account each section belongs to.
+      raw_accounts = raw_accounts.uniq { |account| [ account[:account_key], account[:account_basis] ] }
+      raw_accounts.group_by { |account| [ AccountingContract.normalized_text(account[:label], 120)&.downcase, account[:account_basis] ] }.each_value do |group|
+        next unless group.many?
+
+        group.each { |account| account[:limitations] = [ "account_label_ambiguous" ] }
       end
       contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
       AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },
@@ -252,7 +263,7 @@ module FinancialDocuments
         map = header_map_for(header[:values])
         next [] if map.key?("debit") || map.key?("credit") || !map.key?("amount")
         rows.select { |row| row[:row] > header[:row] && !transaction_header?(row[:values]) }
-          .group_by { |row| cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet[:sheet_index] || index}" }
+          .group_by { |row| source_account_key(row, map, sheet[:sheet_index] || index) }
           .map { |key, group| [ [ sheet[:sheet_index] || index, key ], group, map ] }
       end
       unresolved = []
@@ -265,8 +276,9 @@ module FinancialDocuments
         direction = nil
         if eligible.any?
           basis = @account_basis || cell(group.first[:values], map, "account_basis").to_s.downcase
-          if !@negative_is_money_out.nil?
-            direction = @negative_is_money_out ? :signed : :reversed
+          answered = @account_conventions.fetch(key.last, @negative_is_money_out)
+          if !answered.nil?
+            direction = answered ? :signed : :reversed
           else
             observations = group.map do |row|
               [ parsed_date(cell(row[:values], map, "date")),
@@ -329,7 +341,9 @@ module FinancialDocuments
         signed = money_cents(raw, allow_negative: true)
         if signed
           signed = -signed if file_direction == :reversed
-          category_direction = recognized_direction(normalized_token(cell(values, map, "category")))
+          category = normalized_token(cell(values, map, "category"))
+          # Interest is charged on a card as often as it is earned on savings; the word alone has no direction.
+          category_direction = category == "interest" ? nil : recognized_direction(category)
           return [ nil, [ "conflicting_debit_credit" ] ] if category_direction == :credit && signed.negative?
           return [ signed, [] ]
         end
@@ -343,17 +357,20 @@ module FinancialDocuments
       [ -magnitude, [] ]
     end
 
-    def source_event_type(values, map, merchant, amount)
+    def source_event_type(values, map, merchant, amount, basis: nil)
       # The description is evidence even when a Merchant column names the store ("ATM Withdrawal" at "Tasi Demo Bank").
       description = [ merchant, cell(values, map, "label") ].compact.uniq.join(" ")
       label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), description ].compact.join(" ").downcase
       return "debt_payment" if label.match?(/payment\s+thank\s+you|(?:credit card|card|loan|debt|visa|mastercard)\s+(?:payment|pmt)|payment\s+(?:to|for)\s+(?:card|loan|debt)/)
+      return "debt_payment" if label.match?(/payment\s+(?:to|for)\s+.{1,60}?\b(?:card|loan|debt)\s+(?:ending\s+)?[0-9]{4}\b/)
       return "transfer" if label.match?(/transfer|wallet\s+funding|payment[_ ]sent/)
       return "fee" if amount.to_i.negative? && label.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       # "ATM/POS Purchase" in the description is a purchase; a "Type: purchase" column can't override "ATM Withdrawal".
       return "cash_withdrawal" if !amount.to_i.positive? && label.match?(/\b(?:ATM\b|(?:Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && !description.match?(/\b(?:purchase|pos)\b/i)
       return "refund" if label.match?(/refund|reimburse|reversal/)
       return "interest" if label.match?(/interest/)
+      # Money into a card or loan ("AUTOPAY PAYMENT", "MOBILE PAYMENT") is a payment on it, never income; anything else is asked.
+      return label.match?(/\b(?:payments?|pmt|auto\s*pay|autopay)\b/) ? "debt_payment" : "unknown" if amount.to_i.positive? && basis == "liability"
       return "income" if amount.to_i.positive?
       return "purchase" if amount.to_i.negative?
 
@@ -506,6 +523,10 @@ module FinancialDocuments
         evidence: notes.presence || label,
         metadata: {}
       }
+    end
+
+    def source_account_key(row, map, sheet_index)
+      row.dig(:cell_keys, map["account"]) || cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet_index}"
     end
 
     def cell(values, header_map, key)

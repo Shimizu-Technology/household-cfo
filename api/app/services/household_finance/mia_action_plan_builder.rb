@@ -40,7 +40,7 @@ module HouseholdFinance
       end
 
       results = normalized.map do |entry|
-        action = entry.fetch(:action)
+        action = without_unstated_debt_clears(entry.fetch(:action), entry.fetch(:source_text))
         year = action[:year].to_i
         manager = year.positive? && year != annual_budget_manager.year ? AnnualBudgetManager.new(household, year: year) : annual_budget_manager
         MiaActionDraftBuilder.new(
@@ -126,6 +126,19 @@ module HouseholdFinance
     private
 
     attr_reader :household, :user, :annual_budget_manager, :selected_month, :raw_input, :actions
+
+    # A plan item may clear a debt's past-due amount or due day only when its own words
+    # say so; another item's words, or its own replacement label, never authorize it.
+    def without_unstated_debt_clears(action, source_text)
+      return action unless action[:type].to_s.in?(%w[create_debt update_debt])
+
+      %i[past_due due_day].each_with_object(action.dup) do |field, filtered|
+        next unless filtered[field].to_s.strip.casecmp("unknown").zero?
+        next if MiaIntentResolver.debt_clear_stated?(source_text, field, new_name: action[:new_name])
+
+        filtered[field] = ""
+      end
+    end
 
     def normalize_actions
       cursor = 0

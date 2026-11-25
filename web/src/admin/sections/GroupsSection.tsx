@@ -1,5 +1,5 @@
 import { AdminScope } from '../AdminScope'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createAdminCohort, fetchAdminPersonaAssignableCohorts, updateAdminCohort } from '../../api'
 import type { AdminCohort, AdminCohortStatus, AdminPersonaAssignableCohort, CurrentUser } from '../../api'
 import { Button } from '../../components/Button'
@@ -11,6 +11,7 @@ import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { useMatchMedia } from '../../lib/useMatchMedia'
 import { AdminDialog } from '../AdminDialog'
 import { GroupTools } from './GroupTools'
+import { handOffGroupOpen, takeGroupOpen } from './groupOpenHandoff'
 import { groupLine, groupStatusLabel, runsChallenge, shortDay } from '../adminWords'
 import { joinedCount, useAdminRoster } from '../useAdminRoster'
 import './sections.css'
@@ -24,7 +25,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
   const { activeCoachWorkspaceId } = useAuthContext()
   const { details: groups, people, loading, error, reload } = useAdminRoster(currentUser)
   const wide = useMatchMedia('(min-width: 840px)')
-  const [openId, setOpenId] = useState<number | null>(null)
+  const [openId, setOpenId] = useState<number | null>(() => takeGroupOpen(currentUser.id, activeCoachWorkspaceId))
   const [creating, setCreating] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const open = groups.find(group => group.id === openId) ?? null
@@ -54,29 +55,57 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
         <strong>{group.name}</strong>
         <span>{groupLine(group, joinedCount(people, group.id)).replace(`${group.name} · `, '')}</span>
       </button></li>)}</ul>}
-    {creating && <NewGroup platformMode={platformMode} onClose={() => setCreating(false)} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id) }} />}
+    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} userId={currentUser.id} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id) }} />}
   </section>
 }
 
-function NewGroup({ platformMode, onClose, onCreated }: { platformMode: boolean; onClose: () => void; onCreated: (group: AdminCohort) => Promise<void> }) {
+function NewGroup({ platformMode, programs, userId, onClose, onCreated }: { platformMode: boolean; programs: Array<{ id: number; name: string }>; userId: number; onClose: () => void; onCreated: (group: AdminCohort) => Promise<void> }) {
+  const { selectCoachWorkspace } = useAuthContext()
+  const [programId, setProgramId] = useState(programs.length === 1 ? String(programs[0].id) : '')
   const [name, setName] = useState('')
   const [starts, setStarts] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A reply that arrives after she has left this screen must not move her to another program.
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (busy) return
-    if (platformMode) { setError('Choose a program at the top of the page first, so the group has a home.'); return }
+    if (platformMode && !programId) { setError('Choose the program this group belongs to.'); return }
     if (!name.trim()) { setError('Give the group a name.'); return }
     setBusy(true); setError(null)
     // The program stays put until the group exists and the list has reloaded, so the new group is never lost.
     const release = holdWorkspaceLock()
-    try { await onCreated(await createAdminCohort({ name: name.trim(), status: 'enrolling', ...(starts ? { starts_on: starts } : {}) })) }
-    catch (caught) { setError(message(caught, 'The group couldn’t be created. Try again.')); setBusy(false) }
-    finally { release() }
+    let created: AdminCohort | undefined
+    const values = { name: name.trim(), status: 'enrolling' as const, ...(starts ? { starts_on: starts } : {}) }
+    try {
+      if (!platformMode) { await onCreated(await createAdminCohort(values)); return }
+      created = await createAdminCohort(values, Number(programId))
+    } catch (caught) {
+      if (mounted.current) { setError(message(caught, 'The group couldn’t be created. Try again.')); setBusy(false) }
+      return
+    } finally { release() }
+    if (!created || !mounted.current) return
+    // From "All programs", continue inside the program the group was created in, with the group open.
+    handOffGroupOpen(created.id, Number(programId), userId)
+    selectCoachWorkspace(Number(programId))
+    await onCreated(created)
   }
+  if (platformMode && programs.length === 0) return <AdminDialog title="New group" labelId="admin-new-group-title" onClose={onClose}>
+    <div className="admin-stack">
+      <p>A group belongs to a program. Start a program first, then add its groups.</p>
+      <div className="admin-actions"><Button onClick={() => { onClose(); navigateTo(adminPath('settings')) }}>Start a program</Button></div>
+    </div>
+  </AdminDialog>
   return <AdminDialog title="New group" labelId="admin-new-group-title" onClose={onClose} locked={busy}>
     <form className="admin-stack" onSubmit={submit} noValidate>
+      {platformMode && <label className="admin-field"><span>Program</span>
+        <select value={programId} onChange={event => setProgramId(event.target.value)}>
+          {programs.length > 1 && <option value="">Choose one</option>}
+          {programs.map(program => <option key={program.id} value={program.id}>{program.name}</option>)}
+        </select>
+      </label>}
       <label className="admin-field"><span>Group name</span><input autoFocus maxLength={120} value={name} placeholder="Tuesday evening group" onChange={event => setName(event.target.value)} /></label>
       <label className="admin-field"><span>Start date (optional)</span><input type="date" value={starts} onChange={event => setStarts(event.target.value)} /></label>
       {error && <p className="admin-alert error" role="alert">{error}</p>}

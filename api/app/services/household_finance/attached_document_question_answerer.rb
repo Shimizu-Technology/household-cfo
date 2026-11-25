@@ -12,6 +12,8 @@ module HouseholdFinance
     MONTH_PATTERN = /(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)/i
     GENERIC_REVIEW_PATTERN = /\A(?:please\s+)?(?:review|read|check|process|summarize)\b/i
     SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|add up|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|duplicate|double charged|charged twice|over\s+\$|under\s+\$)\b/i
+    # "voucher $150 plus debit $34.88": how she paid for the receipt, not a question about its rows.
+    PAYMENT_DESCRIPTION = /\b(?:vouchers?|gift\s*-?\s*cards?|gift\s+certificates?|store\s+credit|rewards?|loyalty|points|debit|credit\s+card|cash|paid\s+(?:with|by|using))\b/i
     SETUP_REQUEST_PATTERN = /\A(?:(?:can|could|would)\s+you\s+)?(?:use|set up|import).{0,100}\b(?:budget|profile|household|income)\b/i
 
     # "Review and show transactions" or "Review and tell me the amount I paid" opens
@@ -47,6 +49,11 @@ module HouseholdFinance
       setup = setup_rows
       return UploadReadReply.call(household, document_imports) || no_evidence_answer if rows.empty? && setup.empty?
 
+      # Only past the date and risk checks: "Is this fraudulent? I paid with debit" is never a receipt reply.
+      receipt_reply = receipt_draft_reply(rows) unless invalid_date_scope? || unsupported_risk_or_advice_question?
+      # A second receipt that couldn't be read still needs her to send it again.
+      return [ receipt_reply, failed_import_notice ].compact.join(" ") if receipt_reply
+
       parts = direct_answer_parts(rows, setup)
       if parts.empty?
         read_reply = UploadReadReply.call(household, document_imports)
@@ -62,9 +69,51 @@ module HouseholdFinance
       transaction_question?
     end
 
+    def answerable_question?
+      transaction_question? || setup_question?
+    end
+
     private
 
     attr_reader :household, :message, :document_imports, :max_transaction_rows, :max_setup_rows, :max_pending_plan_fit_drafts
+
+    # One receipt she just sent: talk about its draft when she only says how she paid, or names a store
+    # the receipt doesn't, never "no attached row matching" a store she named in her own words.
+    def receipt_draft_reply(rows)
+      return unless evidence_imports.any? && evidence_imports.all? { |document_import| document_import.document_kind == "receipt" }
+      return unless rows.one? && rows.first.fetch(:status) == "pending"
+      return unless payment_only? || not_new_money_amount_question? || (transaction_question? && unmatched_store_named?(rows))
+
+      ReceiptDraftReply.call(rows.first.fetch(:record), message: message)
+    end
+
+    # "Paid with points. How much was it?": a gift card, voucher, store credit or points isn't new money
+    # (decision 4), so the answer is the receipt's draft and what counts, never a bare row total. Another
+    # kind of question beside it, a date or an amount filter is still answered as that question.
+    def not_new_money_amount_question?
+      message.match?(ReceiptDraftReply::NOT_NEW_MONEY) && transaction_total_question? &&
+        !(duplicate_question? || plan_fit_question? || largest_question? || transaction_list_question? || category_question? || date_question?) &&
+        !date_scope_requested? && !threshold_requested?
+    end
+
+    # "How much did I spend at Kmart?" about a Ross receipt. A category she names that the receipt
+    # doesn't have ("in the Dining category") still gets the no-matching-row answer.
+    def unmatched_store_named?(rows)
+      return false if matching_transaction_entities(rows).any? || message.match?(/\bcategor(?:y|ies)\b/i)
+
+      candidate = message.match(/\b(?:at|from)\s+([^?.,;]{2,60})/i)&.[](1)
+      candidate.present? && !generic_attachment_reference?(candidate) && !date_like_scope?(candidate)
+    end
+
+    # "voucher $150 plus debit $34.88": only how she paid. A question beside it ("Does this fit in my
+    # Groceries budget?", "What category is this?") is answered as that question.
+    def payment_only?
+      return false unless message.match?(PAYMENT_DESCRIPTION)
+      # "I paid with debit" says how, not "how much did I pay".
+      return false if self.class.new(household, message: message.gsub(/\bpaid\b/i, " "), document_imports: []).answerable_question?
+
+      message.scan(/[^.?!]*\?/).all? { |question| question.match?(PAYMENT_DESCRIPTION) }
+    end
 
     def transaction_rows
       @transaction_rows ||= TransactionDraft
@@ -336,7 +385,7 @@ module HouseholdFinance
       merchant_matches = matches.select { |match| match.fetch(:field) == :merchant }
       category_matches = matches.select { |match| match.fetch(:field) == :category }
       rows.select do |row|
-        merchant_match = merchant_matches.empty? || merchant_matches.any? { |match| normalized_entity(row.fetch(:merchant)) == match.fetch(:value) }
+        merchant_match = merchant_matches.empty? || merchant_matches.any? { |match| merchant_entities(row).include?(match.fetch(:value)) }
         category_match = category_matches.empty? || category_matches.any? do |match|
           row.fetch(:category_allocations).keys.any? { |category| entity_matches?(category, match.fetch(:value)) }
         end
@@ -352,7 +401,8 @@ module HouseholdFinance
       @matching_transaction_entities ||= begin
         normalized = " #{normalized_entity(message)} "
         rows.flat_map do |row|
-          values = [ { field: :merchant, value: normalized_entity(row.fetch(:merchant)) } ]
+          # "the Ross receipt" names the store the way she reads it, not "ROSS DRESS FOR LESS #123".
+          values = merchant_entities(row).map { |value| { field: :merchant, value: value } }
           values.concat(row.fetch(:category_allocations).keys.map { |category| { field: :category, value: normalized_entity(category) } })
           values.filter_map do |entry|
             value = entry.fetch(:value)
@@ -362,6 +412,10 @@ module HouseholdFinance
           end
         end.uniq
       end
+    end
+
+    def merchant_entities(row)
+      [ row.fetch(:merchant), SpendingPatterns::MerchantName.call(row.fetch(:merchant)) ].map { |value| normalized_entity(value) }.compact_blank.uniq
     end
 
     def entity_mentioned?(normalized_message, normalized_value)

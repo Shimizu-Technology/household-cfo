@@ -8,6 +8,11 @@ module Scorecard
       @transactions = @household.household_transactions.where(status: %w[confirmed reconciled]).includes(transaction_splits: :budget_category).to_a
       @reviewed = FinancialDocuments::SourceReview::ApprovedSourceReader.new(@household).call(revision_ids: FinancialExtractionRevision.where(household: @household).pluck(:id))
       @income = @reviewed[:canonical_rows].select { |row| row[:account_identity_current] && row[:event_type] == "income" }
+      # Budget nets approved refunds into the refunded purchase's category, in the month the refund posts.
+      @refunds = HouseholdFinance::RefundCredits.new(@household).counted
+      # Budget counts a purchase paid from cash she took out in the withdrawal's month, out of its category.
+      @cash = HouseholdFinance::CashDrawdowns.new(@household)
+      @category_names = @household.budget_categories.pluck(:id, :name).to_h
       months = @key.expected_months(@documents).to_h do |month, expected|
         [ month, month_report(month, expected) ]
       end
@@ -49,8 +54,12 @@ module Scorecard
 
     def month_report(month, expected)
       transactions = @transactions.select { |row| row.occurred_on.strftime("%Y-%m") == month }
+      refunds = @refunds.select { |credit| credit.posted_on.strftime("%Y-%m") == month }
       actual_categories = transactions.flat_map(&:transaction_splits).group_by { |split| split.budget_category.name }.transform_values { |splits| splits.sum(&:amount_cents) }
+      refunds.flat_map(&:allocations).each { |part| name = @category_names.fetch(part[:category_id]); actual_categories[name] = actual_categories.fetch(name, 0) - part[:amount_cents] }
       year, number = month.split("-").map(&:to_i)
+      cash = @cash.category_cents(from: Date.new(year, number, 1), to: Date.new(year, number, 1).end_of_month)
+      cash.each { |id, cents| name = @category_names.fetch(id); actual_categories[name] = actual_categories.fetch(name, 0) + cents }
       # Exercise the Budget presenter, not a scorecard-owned spending formula.
       budget = HouseholdFinance::AnnualBudgetManager.new(@household, year: year).plan_data
       budget_categories = budget[:rows].to_h { |row| [ row[:name], HouseholdFinance::Money.cents(row[:months][number - 1][:actual]) ] }
@@ -59,19 +68,23 @@ module Scorecard
         [ name, metric(actual_categories.fetch(name, 0), expected.fetch("spending_by_category_cents").fetch(name, 0)) ]
       end
       income = @income.select { |row| row[:posted_on]&.start_with?(month) }
-      counted_answers = transactions.filter_map { |row| transaction_answer(row) } + income.filter_map { |row| @simulator.row_answers[row[:event_id]] }
+      counted_answers = transactions.filter_map { |row| transaction_answer(row) } + income.filter_map { |row| @simulator.row_answers[row[:event_id]] } +
+        refunds.filter_map { |credit| @simulator.row_answers[credit.event_id] }
       # Twin event IDs can be interchanged: the pair has capacity two.
       double_counts = counted_answers.group_by { |line| economic_key(@key.event(line)) }.sum do |key, group|
         capacity = key.start_with?("group:") ? @key.data.fetch("events").count { |event| economic_key(event) == key } : 1
         [ group.length - capacity, 0 ].max
       end
-      leaked_spending = transactions.select { |row| transfer?(transaction_answer(row)) }.sum(&:total_amount_cents)
+      # A transfer approved as a counted refund changes spending too, so it leaks as much as one counted as a purchase.
+      leaked_spending = transactions.select { |row| transfer?(transaction_answer(row)) }.sum(&:total_amount_cents) +
+        refunds.select { |credit| transfer?(@simulator.row_answers[credit.event_id]) }.sum(&:amount_cents)
       leaked_income = income.select { |row| transfer?(@simulator.row_answers[row[:event_id]]) }.sum { |row| row[:signed_amount_cents].abs }
       analysis = SpendingPatterns::Analyzer.new(@household, today: Date.current, from: Date.new(year, number, 1), to: Date.new(year, number, 1).end_of_month).call
       receipts = receipt_report(month)
       decisions = @simulator.decisions.fetch(month, {})
-      { "total_spending" => metric(transactions.sum(&:total_amount_cents), expected.fetch("total_spending_cents")),
+      { "total_spending" => metric(transactions.sum(&:total_amount_cents) - refunds.sum(&:amount_cents) + cash.values.sum, expected.fetch("total_spending_cents")),
         "spending_by_category" => categories, "income" => metric(income.sum { |row| row[:signed_amount_cents] }, expected.fetch("income_cents")),
+        "app_actual_income" => known_metric(budget.fetch(:actual_income).fetch(number).fetch(:actual_cents), expected.fetch("income_cents"), partial: budget.fetch(:actual_income).fetch(number).fetch(:partial)),
         "analyzer_spending" => metric(analysis[:observed_spending_cents].to_i, expected.fetch("total_spending_cents")),
         "double_counts" => double_counts, "transfer_leakage_cents" => leaked_spending + leaked_income,
         "transfer_leakage_spending_cents" => leaked_spending, "transfer_leakage_income_cents" => leaked_income,
@@ -108,6 +121,8 @@ module Scorecard
     def aggregate(months)
       keys = %w[total_spending income analyzer_spending]
       result = keys.to_h { |key| [ key, metric(months.sum { |row| row.dig(key, "actual_cents") }, months.sum { |row| row.dig(key, "expected_cents") }) ] }
+      income = months.map { |row| row.fetch("app_actual_income") }
+      result["app_actual_income"] = metric(income.sum { |row| row["actual_cents"].to_i }, income.sum { |row| row["expected_cents"] }).merge("known" => income.all? { |row| row["known"] })
       result["spending_by_category"] = months.flat_map { |row| row.fetch("spending_by_category").keys }.uniq.to_h do |name|
         values = months.filter_map { |row| row.dig("spending_by_category", name) }
         [ name, metric(values.sum { |row| row["actual_cents"] }, values.sum { |row| row["expected_cents"] }) ]
@@ -120,6 +135,13 @@ module Scorecard
       result.merge("receipt_extraction_absolute_error_cents" => receipts.sum { |row| row.dig("extracted_new_money", "error_cents").abs }, "receipt_count" => receipts.length, "receipt_matches" => receipts.count { |row| row["matched_to_bank"] },
         "receipt_new_money_absolute_error_cents" => receipts.sum { |row| row.dig("new_money", "error_cents").abs },
         "receipt_category_allocation_error_cents" => receipts.sum { |row| row["category_allocation_error_cents"] })
+    end
+
+    # Unknown is never $0: an unknown month misses everything expected for it and says it is not known.
+    def known_metric(actual, expected, partial: false)
+      return metric(actual, expected).merge("known" => !partial) unless actual.nil?
+
+      { "actual_cents" => nil, "expected_cents" => expected, "error_cents" => -expected, "absolute_error_percent" => expected.zero? ? 0.0 : 100.0, "known" => false }
     end
 
     def metric(actual, expected)

@@ -26,7 +26,7 @@ module HouseholdFinance
         end_on: end_on.iso8601,
         plan_available: report_plan_available?,
         plan_starts_on: PlanCoverage.new(household).starts_on.iso8601,
-        actual_known: household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: start_on..end_on).exists?,
+        actual_known: household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: start_on..end_on).exists? || refund_cents.any?,
         totals: {
           planned: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) }),
           actual: Money.dollars(rows.sum { |row| row.fetch(:actual_cents) }),
@@ -44,6 +44,7 @@ module HouseholdFinance
         ),
         categories: rows.map { |row| category_payload(row) } + uncategorized_pending_payload,
         transactions: transactions_payload,
+        refunds: refunds_payload,
         pending_drafts: pending_drafts_payload,
         ignored_drafts: ignored_drafts_payload
       }
@@ -99,6 +100,8 @@ module HouseholdFinance
             category: category,
             planned_cents: allocation_sums[id].to_i,
             actual_cents: actual_sums[id].to_i,
+            # A confirmed purchase or counted refund landed here, even when they net to $0.
+            has_activity: actual_sums.key?(id),
             pending_cents: pending_sums[id].to_i
           }
         end.sort_by { |row| [ row.fetch(:category).sort_order, row.fetch(:category).name ] }
@@ -114,12 +117,13 @@ module HouseholdFinance
     end
 
     def category_ids_with_actuals
-      TransactionSplit
+      spent = TransactionSplit
         .joins(:budget_category, :household_transaction)
         .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
         .distinct
         .pluck(:budget_category_id)
+      (spent + refund_cents.keys + cash_cents.keys).uniq
     end
 
     def allocation_sums
@@ -149,13 +153,45 @@ module HouseholdFinance
       (allocation.planned_amount_cents * overlap_days).to_r / period_days
     end
 
+    # The same netting Budget uses: an approved refund reduces the category of the purchase it refunds, dated when it posts.
     def actual_sums
-      @actual_sums ||= TransactionSplit
-        .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
-        .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
-        .group(:budget_category_id)
-        .sum(:amount_cents)
+      @actual_sums ||= begin
+        sums = TransactionSplit
+          .joins(:budget_category, :household_transaction)
+          .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
+          .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
+          .group(:budget_category_id)
+          .sum(:amount_cents)
+        refund_cents.each { |id, cents| sums[id] = sums.fetch(id, 0) - cents }
+        # Budget's cash rule: a purchase paid from cash she took out counts in the withdrawal's month, out of its category.
+        cash_cents.each { |id, cents| sums[id] = sums.fetch(id, 0) + cents }
+        sums
+      end
+    end
+
+    def cash_drawdowns
+      @cash_drawdowns ||= CashDrawdowns.new(household)
+    end
+
+    def cash_cents
+      @cash_cents ||= cash_drawdowns.category_cents(from: start_on, to: end_on)
+    end
+
+    def refund_credits
+      @refund_credits ||= RefundCredits.new(household, from: start_on, to: end_on)
+    end
+
+    def refund_cents
+      @refund_cents ||= refund_credits.category_cents
+    end
+
+    # Refunds she approved in this period: where each one went back, or that it still needs a category before it counts.
+    def refunds_payload
+      names = household.budget_categories.where(id: refund_credits.call.flat_map { |credit| credit.allocations.pluck(:category_id) }).pluck(:id, :name).to_h
+      refund_credits.call.last(MAX_TRANSACTIONS).reverse.map do |credit|
+        { id: credit.version_id, occurred_on: credit.posted_on.iso8601, merchant: credit.merchant.presence || "Refund", amount: Money.dollars(credit.amount_cents),
+          counted: credit.counted?, categories: credit.allocations.filter_map { |part| names[part[:category_id]] } }
+      end
     end
 
     def pending_sums
@@ -242,6 +278,7 @@ module HouseholdFinance
         .limit(MAX_TRANSACTIONS)
         .to_a
       reopenable_draft_ids = reopenable_draft_ids_for(transactions)
+      drawdowns = cash_drawdowns.call.index_by { |drawdown| drawdown.purchase.id }
 
       transactions.map do |transaction|
         {
@@ -252,8 +289,15 @@ module HouseholdFinance
           source_type: transaction.source_type,
           categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name },
           transaction_draft_id: reopenable_draft_ids[transaction.id]
-        }
+        }.merge(cash_withdrawal_payload(drawdowns[transaction.id]))
       end
+    end
+
+    # Paid from cash she took out: it counts in that withdrawal's month, not as new spending here.
+    def cash_withdrawal_payload(drawdown)
+      return {} unless drawdown
+
+      { cash_withdrawal: { withdrawn_on: drawdown.withdrawn_on.iso8601, amount: Money.dollars(drawdown.amount_cents) } }
     end
 
     # The review that confirmed a row is what the participant reopens to take it back out of actuals.
@@ -319,7 +363,8 @@ module HouseholdFinance
         actual: Money.dollars(actual_cents),
         pending: Money.dollars(pending_cents),
         remaining: Money.dollars(planned_cents - actual_cents),
-        active: category.active
+        active: category.active,
+        has_activity: row.fetch(:has_activity)
       }
     end
 

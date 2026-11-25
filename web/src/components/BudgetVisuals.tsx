@@ -1,23 +1,22 @@
+import { ActualIncomeLine } from './HomeScreen'
 import { plannedOutForMonth } from '../lib/plannedOutForMonth'
 import { useId, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey, DashboardData } from '../api'
+import { expenseGroupLabels, expenseGroupOrder, useExpenseGroupNames } from '../lib/expenseGroups'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { addMoney, subtractMoney } from '../lib/moneyMath'
 
-const stackOrder: BudgetStackKey[] = [
-  'non_discretionary',
-  'discretionary',
-  'sinking_expected',
-  'sinking_unexpected',
-]
+const stackOrder: BudgetStackKey[] = expenseGroupOrder
 
-const stackLabels: Record<BudgetStackKey, string> = {
-  non_discretionary: 'Must-pay bills',
-  discretionary: 'Flexible spending',
-  sinking_expected: 'Planned yearly costs',
-  sinking_unexpected: 'Surprise fund',
-}
+/** How the steady and adjustable groups read in the program's chosen names. */
+const groupsNote = {
+  plain: 'Must-pay bills stay steady. Flexible spending is where you can adjust.',
+  method: 'Non-discretionary costs stay steady. Discretionary spending is where you can adjust.',
+} as const
+
+/** A month can end below zero when more came back in refunds than was spent. It is shown as it is, never as $0 or as unknown. */
+const refundNote = 'More came back in refunds this month than was spent.'
 
 export function MonthPlanSummary({
   label, income, planned, actual, pending, debtMinimums = 0,
@@ -46,12 +45,13 @@ export function MonthPlanSummary({
       <div className="month-plan-values">
         <PlanValue label="Money in" value={incomeKnown ? income : null} />
         <PlanValue label="Planned out" value={plannedOut} />
-        <PlanValue label="Spent so far" value={actual > 0 ? actual : null} emptyText="No confirmed transactions yet" />
+        <PlanValue label="Spent so far" value={actual !== 0 ? actual : null} emptyText="No confirmed transactions yet" />
       </div>
       {balance !== null && <p className={`month-plan-balance${balance < 0 ? ' is-short' : ''}`}>{balance < 0
         ? `This month’s plan is ${formatReviewMoney(Math.round((-balance) * 100))} more than money in.`
         : balance === 0 ? 'Your plan uses all of your money in.' : `Your plan leaves ${formatReviewMoney(Math.round((balance) * 100))} after planned spending.`}</p>}
       {overPlan > 0 && <p className="month-plan-balance is-short">Spending is {formatReviewMoney(Math.round((overPlan) * 100))} over the plan.</p>}
+      {actual < 0 && <p className="month-plan-note">{refundNote}</p>}
       {pending > 0 && <p className="month-plan-pending"><i className="pending-swatch" aria-hidden="true" /> {formatReviewMoney(Math.round((pending) * 100))} pending review · not counted as spent</p>}
       {planKnown && !compact && <BudgetProgressTrack planned={planned} actual={actual} pending={pending} label={`${label}: ${formatReviewMoney(Math.round((actual) * 100))} confirmed, ${formatReviewMoney(Math.round((pending) * 100))} pending, against ${formatReviewMoney(Math.round((planned) * 100))} planned`} />}
       {planKnown && !compact && (debtMinimums > 0 || !debtMinimumsKnown) && <p className="month-plan-note" role="group" aria-label="Monthly money out breakdown">
@@ -67,9 +67,13 @@ export function BudgetPlanStrip({ plan, monthIndex, planKnown, confirmedFields =
   const approved = plan.plan_available !== false
   const income = answer ? (answer.money_in_cents == null ? null : answer.money_in_cents / 100) : approved && month ? plan.monthly_income[month.id] : null
   const planned = plannedOutForMonth(plan, monthIndex, planKnown, confirmedFields, answer)
+  const actual = plan.actual_income?.[monthIndex + 1]
   const left = answer ? (answer.plan_left_cents == null ? null : answer.plan_left_cents / 100) : income != null && planned != null ? subtractMoney(income, planned) : null
   return <section className={`budget-plan-strip ui-card${[income, planned, left].some(value => value == null || formatReviewMoney(Math.round(Math.abs(value) * 100)).length >= 9) ? ' is-long-money' : ''}`} aria-label={`${month?.label ?? 'Selected month'} plan position`}>
     <p className="budget-strip-period ui-label">{month && new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month.starts_on}T00:00:00Z`))}</p>
+    <ActualIncomeLine actual={actual} plannedCents={income == null ? null : Math.round(income * 100)} />
+    {/* A month still open, or only partly covered, would show a shortfall that is only missing statements. */}
+    {actual?.actual_cents != null && !actual.partial && !actual.month_open && income != null && <p style={{ fontVariantNumeric: 'tabular-nums' }}>Difference from plan: {formatReviewMoney(actual.actual_cents - Math.round(income * 100))}</p>}
     <dl>
       <div><dt>Money in</dt><dd>{income == null ? 'Not entered' : formatReviewMoney(Math.round(income * 100))}</dd></div>
       <div><dt>Planned out</dt><dd>{planned == null ? 'Not entered' : formatReviewMoney(Math.round(planned * 100))}</dd></div>
@@ -81,21 +85,23 @@ export function BudgetPlanStrip({ plan, monthIndex, planKnown, confirmedFields =
 
 export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, planningBlockedReason }: { positions: BudgetPosition[]; debtMinimums?: number | null; planningBlockedReason?: string; onPlanCategory?: (categoryId: number) => void }) {
   const titleId = useId()
+  const names = useExpenseGroupNames()
+  const stackLabels = expenseGroupLabels[names]
   const groups = stackOrder.map((stackKey) => {
-    const stackPositions = positions.filter((position) => position.stackKey === stackKey && (position.active || position.actual > 0))
-    // Money spent in an archived category still counts in its group; its old allocation is no longer part of the plan.
+    const stackPositions = positions.filter((position) => position.stackKey === stackKey && (position.active || position.actual !== 0 || position.hasActivity))
+    // Money spent in an archived category still counts in its group, even when its refunds bring it to $0; its old allocation is no longer part of the plan.
     const totals = { ...budgetPositionTotals(stackPositions), planned: budgetPositionTotals(stackPositions.filter(position => position.active)).planned }
     return { stackKey, label: stackLabels[stackKey], positions: stackPositions, totals }
   })
 
   return (
     <section className="expense-stack-overview ui-card" aria-labelledby={titleId}>
-      <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>Must-pay bills stay steady. Flexible spending is where you can adjust.</p></div>
+      <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>{groupsNote[names]}</p></div>
       <div className="expense-stack-list">
         {groups.map(({ stackKey, label, totals, positions: categories }) => {
           const known = categories.some(category => category.id !== 0) && !categories.some(category => category.id !== 0 && category.active && category.allocationMissing)
           const over = known ? subtractMoney(totals.actual, totals.planned) : 0
-          const spent = totals.actual > 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} spent` : 'No confirmed transactions yet'
+          const spent = totals.actual > 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} spent` : totals.actual < 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} after refunds` : categories.some(category => category.hasActivity) ? `${formatReviewMoney(0)} spent after refunds` : 'No confirmed transactions yet'
           const value = known && totals.planned > 0 ? Math.min(100, Math.max(0, totals.actual / totals.planned * 100)) : known && totals.actual > 0 ? 100 : 0
           return <article className={`expense-stack-row stack-${stackKey}${over > 0 ? ' is-over' : ''}${formatReviewMoney(Math.round(Math.max(totals.planned, totals.actual) * 100)).length > 12 ? ' is-long-money' : ''}`} key={stackKey}>
             <details className="expense-group-details">
@@ -105,9 +111,9 @@ export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, 
                   <div id={`${titleId}-${stackKey}-values`} className="expense-group-money"><b>{known ? `${formatReviewMoney(Math.round(totals.planned * 100))} planned` : 'Not entered'}</b><span>{spent}</span></div>
                 </div>
                 {known && <div className="ui-track" aria-hidden="true" style={{ '--value': `${value}%` } as CSSProperties}><span className="ui-track__fill" /></div>}
-                <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
+                <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 && !categories.some(category => category.hasActivity) ? 'Nothing spent against this plan yet.' : totals.actual === 0 && totals.planned === 0 ? 'Purchases and refunds cancelled out.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
               </summary>
-              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.neverPlanned ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.neverPlanned && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" disabled={Boolean(planningBlockedReason)} aria-describedby={planningBlockedReason ? `${titleId}-${category.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.neverPlanned && !category.allocationMissing && <small id={`${titleId}-${category.id}-plan-blocked`}>{planningBlockedReason}</small>}</li>)}</ul>}
+              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} ${category.actual < 0 || (category.actual === 0 && category.hasActivity) ? 'after refunds' : 'spent'} · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.neverPlanned ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.neverPlanned && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" disabled={Boolean(planningBlockedReason)} aria-describedby={planningBlockedReason ? `${titleId}-${category.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.neverPlanned && !category.allocationMissing && <small id={`${titleId}-${category.id}-plan-blocked`}>{planningBlockedReason}</small>}</li>)}</ul>}
             </details>
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your monthly debt payments.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in monthly debt payments.`}</p>}
           </article>
@@ -135,7 +141,8 @@ export function CategoryPressureList({
   planKnown?: boolean
 }) {
   const titleId = useId()
-  const activePositions = positions.filter((position) => position.active && (planKnown || position.actual > 0 || position.pending > 0))
+  const stackLabels = expenseGroupLabels[useExpenseGroupNames()]
+  const activePositions = positions.filter((position) => position.active && (planKnown || position.actual !== 0 || position.hasActivity || position.pending > 0))
   const rankedPositions = [...activePositions]
     .sort((left, right) => categoryPressureScore(right) - categoryPressureScore(left) || right.actual - left.actual)
     .slice(0, limit ?? activePositions.length)
@@ -176,12 +183,13 @@ export function CategoryPressureList({
               </div>
               {positionPlanKnown && <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />}
               <div className="category-pressure-values">
-                <span>{(planKnown && position.id !== 0) || position.actual > 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
+                <span>{(planKnown && position.id !== 0) || position.actual !== 0 || position.hasActivity ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
                 {positionPlanKnown && <>
                   <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
                   <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
                 </>}
               </div>
+              {position.actual < 0 && <p className="category-pressure-note">{refundNote}</p>}
               {position.allocationMissing && <p>Planned amount needs repair</p>}
               {planKnown && position.id !== 0 && position.neverPlanned && !position.allocationMissing && <div className="ui-row"><span className="ui-row__body">No amount planned yet</span>{onPlanCategory && position.active && <button type="button" className="ui-btn ui-btn--tonal" disabled={Boolean(planningBlockedReason)} aria-describedby={planningBlockedReason ? `${titleId}-${position.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(position.id)}>Set amount for {position.name}</button>}{planningBlockedReason && <small id={`${titleId}-${position.id}-plan-blocked`}>{planningBlockedReason}</small>}</div>}
             </article>

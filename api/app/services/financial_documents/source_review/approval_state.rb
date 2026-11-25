@@ -1,21 +1,27 @@
 module FinancialDocuments
   module SourceReview
     class ApprovalState
-      def initialize(household, revision)
-        @household, @revision = household, revision
+      def initialize(household, revision, batch: nil, accounts: nil)
+        @household, @revision, @batch, @accounts = household, revision, batch, accounts
         raise ArgumentError, "Revision is outside this household" unless revision.household_id == household.id
       end
 
       def call
-        events = revision.financial_source_events.order(:position).to_a
-        heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(approved_version: :source_account_identity_version).index_by(&:financial_source_event_id)
-        account_heads = SourceAccountReviewHead.where(household: household, financial_source_account_id: revision.financial_source_accounts.select(:id)).includes(approved_version: :source_tracked_account).index_by(&:financial_source_account_id)
+        events = @batch ? @batch[:events].values.sort_by(&:position) : revision.financial_source_events.order(:position).to_a
+        heads = @batch ? @batch[:heads] : SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(approved_version: :source_account_identity_version).index_by(&:financial_source_event_id)
+        account_heads = @accounts || SourceAccountReviewHead.where(household: household, financial_source_account_id: revision.financial_source_accounts.select(:id)).includes(approved_version: :source_tracked_account).index_by(&:financial_source_account_id)
+        events.each do |event|
+          head = heads[event.id]
+          next unless head
+          head.financial_source_event = event
+          head.approved_version.source_review_head = head if head.approved_version
+        end
         row_versions = events.filter_map { |event| heads[event.id]&.approved_version }
         identities = account_heads.values.filter_map(&:approved_version)
         deficiencies = []
         deficiencies << "empty_source_history" if events.empty? || row_versions.none? { |row| row.disposition.in?(%w[include match]) } && !verified_zero_activity?(events, row_versions, identities)
         deficiencies << "unreviewed_source_rows" if row_versions.length != events.length
-        deficiencies << "unreviewed_source_accounts" if identities.length != revision.financial_source_accounts.count
+        deficiencies << "unreviewed_source_accounts" if identities.length != source_accounts.length
         deficiencies << "account_period_unknown" if identities.any? { |identity| identity.statement_facts.values_at("period_start_on", "period_end_on").any?(&:nil?) }
         deficiencies << "account_identity_changed" if row_versions.any? { |row| account_heads[row.financial_source_event.financial_source_account_id]&.approved_version_id != row.source_account_identity_version_id }
         source_report = revision.reconciliation
@@ -38,7 +44,7 @@ module FinancialDocuments
             groups: groups.map { |account| account.slice(:source_account_ids, :tracked_account_id, :period_start_on, :period_end_on) } }
         end
         { revision_id: revision.id, represented_rows: events.length, approved_rows: row_versions.length,
-          pending_corrections: SourceReviewDraft.where(household: household, source_review_head_id: heads.values.map(&:id)).pending.count,
+          pending_corrections: (@batch ? heads.values.sum { |head| head.source_review_drafts.count { |draft| draft.status == "pending" } } : SourceReviewDraft.where(household: household, source_review_head_id: heads.values.map(&:id)).pending.count),
           content_digest: HouseholdFinance::Operations::PreparedOperation.fingerprint(content), **content,
           deficiencies: deficiencies.uniq, reconciliation: reconciliation }
       end
@@ -48,6 +54,11 @@ module FinancialDocuments
       def self.dependencies(household, versions)
         ids = versions.map(&:id)
         matches = versions.select { |version| version.disposition == "match" }.map do |version|
+          # The same purchase as one she confirmed stays current while that purchase still counts and is not another line's.
+          if version.matched_transaction_id
+            next({ alias_version_id: version.id, target_transaction_id: version.matched_transaction_id,
+              current: ConfirmedPurchaseMatch.current?(household, version) })
+          end
           target = version.matched_version
           head_id = target&.source_review_head&.approved_version_id
           identity_id = target&.source_account_identity_version&.source_account_review_head&.approved_version_id
@@ -70,10 +81,12 @@ module FinancialDocuments
 
       attr_reader :household, :revision
 
+      def source_accounts = @source_accounts ||= @batch ? @batch[:source_accounts].values.sort_by(&:id) : revision.financial_source_accounts.order(:id).to_a
+
       def verified_zero_activity?(events, versions, identities)
         return false unless versions.length == events.length && versions.all? { |row| row.disposition == "informational" }
         return false unless events.all? { |event| event.row_kind == "informational" || event.signed_amount_cents == 0 }
-        return false unless identities.length == revision.financial_source_accounts.count && identities.any?
+        return false unless identities.length == source_accounts.length && identities.any?
         identities.all? do |identity|
           facts = identity.statement_facts
           facts["period_start_on"].present? && facts["period_end_on"].present? &&
@@ -87,7 +100,7 @@ module FinancialDocuments
       end
 
       def reviewed_reconciliation(events, heads, account_heads)
-        ReviewedReconciliation.new(revision, events, heads, account_heads).call
+        ReviewedReconciliation.new(revision, events, heads, account_heads, accounts: source_accounts).call
       end
     end
   end

@@ -24,7 +24,8 @@ class HouseholdTransaction < ApplicationRecord
   validate :associations_belong_to_household
 
   def validate_split_total!
-    return true if transaction_splits.sum(:amount_cents) == total_amount_cents
+    total = transaction_splits.loaded? ? transaction_splits.sum(&:amount_cents) : transaction_splits.sum(:amount_cents)
+    return true if total == total_amount_cents
 
     errors.add(:base, "Transaction splits must equal transaction total")
     raise ActiveRecord::RecordInvalid, self

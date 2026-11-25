@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FinancialDocumentImport } from '../api'
-import { documentNeedsReview, uploadStatusLabel, latestAppliedImport, transactionReviewCoverage } from './documentReview'
+import { documentNeedsReview, importIdsForRevisions, uploadStatusLabel, latestAppliedImport, transactionReviewCoverage, withStatementProgress } from './documentReview'
 
 function statement(status: FinancialDocumentImport['status'], statuses: string[]): FinancialDocumentImport {
   return { status, transaction_drafts: statuses.map((status, id) => ({ id, status })) } as FinancialDocumentImport
@@ -51,7 +51,9 @@ describe('statement status follows current saved lines rather than import proces
     expect(documentNeedsReview(source)).toBe(false)
     source.statement_review!.without_category = 13
     expect(uploadStatusLabel(source)).toBe('Saved · some without a category')
-    expect(documentNeedsReview(source)).toBe(false)
+    // A saved purchase with no category counts nowhere yet, so the statement still needs her.
+    expect(documentNeedsReview(source)).toBe(true)
+    source.statement_review!.without_category = 0
     source.statement_review!.coverage = { question: 'Is anything missing?', answer: null }
     expect(uploadStatusLabel(source)).toBe('Saved · check for missing lines')
     expect(documentNeedsReview(source)).toBe(true)
@@ -61,5 +63,28 @@ describe('statement status follows current saved lines rather than import proces
     source.statement_review!.done = 26
     expect(uploadStatusLabel(source)).toBe('Some lines saved')
     expect(documentNeedsReview(source)).toBe(true)
+  })
+})
+
+describe('upload status after a statement save', () => {
+  const progress = (done: number) => ({ total: 4, done, without_category: 0, spending: { count: 0, cents: 0 }, coverage: { question: null, answer: null } }) as unknown as NonNullable<FinancialDocumentImport['statement_review']>
+  const upload = (id: number, revision: number, done: number) => ({ id, status: 'needs_review', transaction_drafts: [], metadata: { source_accounting_revision_id: revision }, statement_review: progress(done) }) as unknown as FinancialDocumentImport
+
+  it('moves the status of each statement read back, and leaves the others as they are', () => {
+    const open = upload(1, 88, 1)
+    const other = upload(2, 99, 0)
+    const untouched = upload(3, 77, 0)
+    const legacy = { ...upload(4, 66, 0), statement_review: null }
+    expect([open, other, untouched].map(uploadStatusLabel)).toEqual(['Some lines saved', 'Ready to review', 'Ready to review'])
+
+    const ids = importIdsForRevisions([open, other, untouched, legacy], [99, 66])
+    expect(ids).toEqual([2, 4])
+    const after = withStatementProgress([open, other, untouched, legacy], new Map([[2, progress(4)], [4, progress(4)]]))
+    expect(after.map(uploadStatusLabel)).toEqual(['Some lines saved', 'Saved', 'Ready to review', 'Ready to review'])
+    expect(documentNeedsReview(after[1])).toBe(false)
+    // Only its progress changes, so nothing reloads the review she has open.
+    expect(after[0]).toBe(open)
+    expect(after[3]).toBe(legacy)
+    expect(withStatementProgress(after, new Map())).toBe(after)
   })
 })

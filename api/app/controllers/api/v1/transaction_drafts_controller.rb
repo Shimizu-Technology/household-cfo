@@ -3,7 +3,7 @@ module Api
     class TransactionDraftsController < BaseController
       before_action :authenticate_user!
       before_action :require_writable_household!
-      before_action :set_draft, only: %i[update confirm ignore match reopen]
+      before_action :set_draft, only: %i[update confirm ignore match reopen cash_answer]
 
       def create
         result = operation_runner.run(
@@ -37,6 +37,7 @@ module Api
       end
 
       def confirm
+        refresh_match_suggestions!([ @draft ])
         result = operation_runner.run(
           operation_key: "transaction.draft.confirm",
           input: confirm_params.to_h.merge(draft_id: @draft.id, source_type: "manual_ui"),
@@ -57,6 +58,36 @@ module Api
           transaction: serialize_transaction(transaction),
           workspace: workspace_payload_for(transaction.budget_period.budget_year.year)
         }
+      rescue HouseholdFinance::TransactionDraftConfirmer::PossibleDuplicate => e
+        keep_correction_for_review!
+        render_possible_duplicate(e)
+      rescue HouseholdFinance::TransactionDraftConfirmer::CashWithdrawalQuestion => e
+        keep_correction_for_review!
+        render json: { errors: [ e.message ], code: "cash_withdrawal_question", cash_question: e.question,
+          transaction_draft: serialize_draft(@draft.reload) }, status: :conflict
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
+      end
+
+      # Her answer to "Paid with the $100 you took out on Aug 3?" on a cash purchase she already confirmed: logged
+      # before its statement was approved, or the withdrawal it named was removed or made smaller since.
+      def cash_answer
+        answer = if ActiveModel::Type::Boolean.new.cast(cash_answer_params[:cash_from_elsewhere]) == true
+          HouseholdFinance::CashPayment::ELSEWHERE
+        elsif cash_answer_params[:cash_withdrawal_event_id].to_s.match?(/\A\d{1,18}\z/)
+          cash_answer_params[:cash_withdrawal_event_id].to_i
+        end
+        return render json: { errors: [ "Choose which cash paid for this purchase." ] }, status: :unprocessable_entity unless answer
+
+        result = HouseholdFinance::CashQuestionAnswer.new(current_household, @draft, user: current_user, membership: current_cohort_membership).call(cash_withdrawal: answer)
+        append_chat_status_message(result.message) if result.changed
+        render json: {
+          transaction_draft: serialize_draft(result.draft),
+          message: result.message,
+          workspace: workspace_payload_for(result.draft.occurred_on.year)
+        }
+      rescue HouseholdFinance::CashQuestionAnswer::Stale => e
+        render json: { errors: [ e.message ], code: "stale_review" }, status: :conflict
       rescue ArgumentError, ActiveRecord::RecordInvalid => e
         render_operation_error(e)
       end
@@ -161,6 +192,7 @@ module Api
           return render json: { errors: [ "Type CONFIRM #{draft_ids.length} to approve this bulk actuals update" ] }, status: :unprocessable_entity
         end
 
+        refresh_match_suggestions!(current_household.transaction_drafts.where(id: draft_ids).to_a)
         operation = operation_runner.run(
           operation_key: "transaction.drafts.bulk_confirm",
           input: {
@@ -190,6 +222,51 @@ module Api
         render_operation_error(e)
       end
 
+      # The purchase might look like one she already has only now, for example
+      # after its bank line was approved. Save those suggestions first so a
+      # refused confirmation can ask "Same purchase as …?" on the card.
+      # Suggestions never change spending.
+      def refresh_match_suggestions!(drafts)
+        drafts.each do |draft|
+          next unless draft.pending? && draft.financial_source_event_id.nil?
+
+          draft.with_lock { HouseholdFinance::TransactionDraftMatcher.new(draft).call if draft.pending? }
+        end
+      end
+
+      # The refused confirmation rolled back everything, including the amount,
+      # date, merchant or split she corrected on the way. Save that correction
+      # on the purchase, which stays pending, the same way "Save draft" does.
+      # The update also refreshes the suggestions for the corrected purchase,
+      # so its card can ask "Same purchase as …?" and accept that match.
+      # It also keeps the answer she just gave ("Different purchase", or which
+      # cash paid for it) when the refusal asks her the other question, so the
+      # card asks that one next instead of asking the first one again.
+      def keep_correction_for_review!
+        corrections = confirm_params.to_h
+        corrections = corrections.except("different_purchase") unless ActiveModel::Type::Boolean.new.cast(corrections["different_purchase"]) == true
+        corrections = corrections.except("cash_from_elsewhere") unless ActiveModel::Type::Boolean.new.cast(corrections["cash_from_elsewhere"]) == true
+        corrections = corrections.except("cash_withdrawal_event_id") if corrections["cash_withdrawal_event_id"].blank?
+        return if corrections.empty?
+
+        operation_runner.run(
+          operation_key: "transaction.draft.update",
+          input: corrections.merge(draft_id: @draft.id, source_type: "manual_ui"),
+          idempotency_key: "#{required_idempotency_key}:kept-correction"
+        )
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        Rails.logger.warn("Possible duplicate correction was not kept draft_id=#{@draft.id}: #{e.class}: #{e.message}")
+      end
+
+      def render_possible_duplicate(error)
+        render json: {
+          errors: [ error.message ],
+          code: "possible_duplicate",
+          possible_matches: error.matches,
+          transaction_draft: serialize_draft(@draft.reload)
+        }, status: :conflict
+      end
+
       def requested_draft_ids
         Array(params[:transaction_draft_ids]).map(&:to_i).select(&:positive?).uniq
       end
@@ -207,11 +284,15 @@ module Api
       end
 
       def confirm_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, :different_purchase, :cash_withdrawal_event_id, :cash_from_elsewhere, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+      end
+
+      def cash_answer_params
+        permitted_draft_params.permit(:cash_withdrawal_event_id, :cash_from_elsewhere)
       end
 
       def update_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, :paid_with_cash, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def permitted_draft_params
@@ -259,7 +340,17 @@ module Api
         categories = draft.confirmed_transaction.transaction_splits.includes(:budget_category)
           .filter_map { |split| split.budget_category&.name }.uniq
         category = categories.presence&.to_sentence || "Needs a category"
+        drawdown = HouseholdFinance::CashDrawdowns.new(current_household).for_purchase(draft.confirmed_transaction)
+        if drawdown
+          rest = draft.total_amount_cents - drawdown.amount_cents
+          also = rest.positive? ? " The other #{money(rest)} counts as new spending." : ""
+          return "Saved #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}, paid with cash you took out on #{HouseholdFinance::CashPayment.short_date(drawdown.withdrawn_on)}. That cash already counted, so #{money(drawdown.amount_cents)} moved from #{cash_category_names(drawdown)} to #{category}.#{also}"
+        end
         "Saved #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. It now counts in your spending total."
+      end
+
+      def cash_category_names(drawdown)
+        current_household.budget_categories.where(id: drawdown.cash_parts.pluck(:category_id)).pluck(:name).to_sentence.presence || "Cash"
       end
 
       def ignored_message(draft)
@@ -296,7 +387,9 @@ module Api
           financial_document_import_id: draft.financial_document_import_id,
           splits: ordered_draft_splits_for(draft).map { |split| serialize_split(split) },
           matches: ordered_draft_matches_for(draft).map { |match| serialize_match(match) },
-          matched_transaction_id: draft.matched_transaction_id
+          matched_transaction_id: draft.matched_transaction_id,
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft),
+          cash_payment: HouseholdFinance::CashPayment.presentation(draft)
         }
       end
 
@@ -343,6 +436,7 @@ module Api
             id: transaction.id,
             occurred_on: transaction.occurred_on.iso8601,
             merchant: transaction.merchant,
+            store_name: HouseholdFinance::TransactionDraftConfirmer.store_name(transaction.merchant),
             amount: HouseholdFinance::Money.dollars(transaction.total_amount_cents),
             source_type: transaction.source_type,
             categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }

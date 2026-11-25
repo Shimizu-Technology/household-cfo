@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, fetchDocumentSourceReview, mutateStatementReview } from '../api'
 import { participantReviewFixture, sourceReviewFixture } from '../../e2e/sourceReviewFixtures'
@@ -14,12 +14,97 @@ const mount = () => render(<StatementSourceReview importId={1203} revisionId={88
 const region = () => screen.getByRole('region', { name: 'Statement review' })
 afterEach(() => cleanup())
 beforeEach(() => {
-  sessionStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+  sessionStorage.clear(); localStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
   fetchReview.mockReset(); fetchReview.mockImplementation(async (_id, _revision, page, filter) => participantReviewFixture(page, filter))
   mutate.mockReset(); mutate.mockResolvedValue({ result: { approved: 0, left_out: 0, unchanged: 0, complete: false } })
 })
 
+it('opens an approved table row on its pending correction and preserves its token', async () => {
+  const data = participantReviewFixture()
+  const event = data.events[0]
+  const review = data.participant_review!
+  const proposal = { ...review.plan.attention[0], event_id: event.id, kind: 'correction' as const, merchant: 'Talun Proposed Store', editable_merchant: 'Talun Proposed Store', signed_amount_cents: -777, posted_on: '2026-09-12', category_id: 10,
+    question: 'Review your proposed correction.', answers: [{ id: 'edit' as const, label: 'Review correction' }], expected_head: { approved_version_id: 900, lock_version: 1, account_version_id: 100, pending_digest: 'talun-pending' } }
+  review.plan.attention = [proposal]
+  review.rows[event.id].approved = { id: 900, digest: 'talun-approved', version_number: 1, reason: 'Fictional approval', projection: { action: 'none' }, actual: null,
+    facts: { source_account_identity_version_id: 100, disposition: 'include', event_type: 'purchase', signed_amount_cents: -500, purchase_amount_cents: 500, posted_on: '2026-09-01', merchant: 'Talun Saved Store', budget_category_id: 10, overlap_disposition: 'new' } }
+  fetchReview.mockResolvedValue(data)
+  mount()
+  fireEvent.click(await screen.findByText('See all 137 lines'))
+  fireEvent.click(screen.getByRole('button', { name: 'Talun Saved Store' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByLabelText('Name')).toHaveProperty('value', 'Talun Proposed Store')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(mutate).toHaveBeenCalled())
+  expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ expected_head: proposal.expected_head, edit: { amount_cents: 777, posted_on: '2026-09-12' } }] })
+})
+
 describe('statement review a participant can finish', () => {
+  it('answers a cleaned store group in one request and can open individual lines', async () => {
+    const data = participantReviewFixture()
+    const plan = data.participant_review!.plan
+    const first = { ...plan.attention[0], kind: 'no_category' as const, merchant: 'Island Demo Mart', category_id: null, category_name: null,
+      question: 'What was this for?', answers: [{ id: 'edit' as const, label: 'Choose one' }] }
+    const second = { ...first, event_id: first.event_id + 1, signed_amount_cents: -1800 }
+    plan.attention = [first, second]
+    plan.category_groups = [[first.event_id, second.event_id]]
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('2 lines. What are these for?')).toBeTruthy()
+    fireEvent.click(screen.getByText('Review these lines separately'))
+    expect(screen.getAllByRole('button', { name: 'Change this line' })).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries: Island Demo Mart' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [
+      { event_id: first.event_id, decision: 'edited', edit: { category_id: 70 } },
+      { event_id: second.event_id, decision: 'edited', edit: { category_id: 70 } },
+    ] })
+  })
+
+  it('tells the page which other statements a store answer saved, so their uploads show it', async () => {
+    const data = participantReviewFixture()
+    const plan = data.participant_review!.plan
+    const first = { ...plan.attention[0], kind: 'no_category' as const, merchant: 'Island Demo Mart', category_id: null, category_name: null,
+      question: 'What was this for?', answers: [{ id: 'edit' as const, label: 'Choose one' }] }
+    plan.attention = [first]
+    plan.store_groups = [[{ ...first, revision_id: 88 }, { ...first, event_id: 9101, revision_id: 99, statement_name: 'October statement' }, { ...first, event_id: 9102, revision_id: 99, statement_name: 'October statement' }]]
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }]
+    fetchReview.mockResolvedValue(data)
+    const others = vi.fn()
+    mutate.mockRejectedValueOnce(new ApiRequestError('We couldn’t save that answer.', { status: 422 }))
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onOtherStatementsSaved={others} />)
+    expect(await screen.findByText('3 lines across your statements. What are these for?')).toBeTruthy()
+    // A save that didn't go through moved nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries: Island Demo Mart' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(others).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: 'Groceries: Island Demo Mart' }))
+    await waitFor(() => expect(others).toHaveBeenCalledWith([99]))
+    expect(mutate.mock.calls[1][3]).toMatchObject({ store_lines: [{ event_id: first.event_id, revision_id: 88 }, { event_id: 9101, revision_id: 99 }, { event_id: 9102, revision_id: 99 }] })
+  })
+
+  it.each([true, false])('asks once before leaving repeated lines out (%s)', async (leaveOut) => {
+    const data = participantReviewFixture()
+    const plan = data.participant_review!.plan
+    const first = { ...plan.attention[0], kind: 'duplicate' as const, question: 'Is this the same charge as one you already have?', answers: [{ id: 'leave_out' as const, label: 'Same charge' }] }
+    const second = { ...first, event_id: first.event_id + 1 }
+    plan.attention = [first, second]
+    plan.repeated_line_ids = [first.event_id, second.event_id]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByText('2 lines in this file repeat statements you already approved. Leave them all out?')
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: leaveOut ? 'Leave them out' : 'Review them one by one' }))
+    if (leaveOut) {
+      await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+      expect(mutate.mock.calls[0][3]).toMatchObject({ leave_repeats_out: true, lines: [{ event_id: first.event_id, decision: 'leave_out' }, { event_id: second.event_id, decision: 'leave_out' }] })
+    } else {
+      expect(screen.getAllByText('Is this the same charge as one you already have?')).toHaveLength(2)
+      expect(mutate).not.toHaveBeenCalled()
+    }
+  })
+
   it.each([null, 70])('shows the category or No category on approved cash lines (%s)', async (categoryId) => {
     const data = participantReviewFixture()
     const event = data.events[1]
@@ -48,24 +133,24 @@ describe('statement review a participant can finish', () => {
     data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: null }
     fetchReview.mockResolvedValue(data)
     mutate.mockRejectedValueOnce(new ApiRequestError('Coverage changed in another window.', { status: 409 }))
-    mount()
-    fireEvent.click(await screen.findByRole('button', { name: 'Nothing’s missing' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
-    const refresh = await screen.findByRole('button', { name: 'Refresh statement' })
+    await act(async () => { mount() })
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' })) })
+    const refresh = screen.getByRole('button', { name: 'Refresh statement' })
     const newer = structuredClone(data)
     newer.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: 'something_missing', version_id: 910 }
     fetchReview.mockResolvedValue(newer)
-    fireEvent.click(refresh)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true'))
+    await act(async () => { fireEvent.click(refresh) })
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Nothing’s missing' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.queryByText('Coverage changed in another window.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh statement' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
-    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' })) })
+    expect(mutate).toHaveBeenCalledTimes(2)
     expect(mutate.mock.calls[1][3]).not.toHaveProperty('coverage_answer')
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
-    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(3))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' })) })
+    expect(mutate).toHaveBeenCalledTimes(3)
     expect(mutate.mock.calls[2][3]).toMatchObject({ coverage_answer: 'nothing_missing', expected_coverage_id: 910 })
   })
 
@@ -106,13 +191,24 @@ describe('statement review a participant can finish', () => {
     data.participant_review!.plan.attention = [{ event_id: 4007, kind: 'no_category', event_type: 'purchase', question: 'What was this for?', answers: [{ id: 'edit', label: 'Choose one' }, { id: 'leave_out', label: 'Leave it out' }], merchant: 'Mystery shop', posted_on: '2026-09-05', signed_amount_cents: -500, category_id: null, category_name: null }]
     fetchReview.mockResolvedValue(data)
     const saved = vi.fn()
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} />)
+    const progress = vi.fn()
+    const changed = vi.fn()
+    mutate.mockImplementation(async () => {
+      const after = participantReviewFixture(); after.participant_review!.categories = data.participant_review!.categories
+      after.participant_review!.plan = { ...after.participant_review!.plan, done: data.participant_review!.plan.done + 1, attention: [] }
+      fetchReview.mockResolvedValue(after)
+      return { result: { approved: 1, left_out: 0, unchanged: 0, complete: false } }
+    })
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} onChanged={changed} onProgress={progress} />)
     const choice = await screen.findByRole('button', { name: 'Everyday spending: Mystery shop' })
     expect(screen.queryByRole('combobox', { name: 'Category for Mystery shop' })).toBeNull()
     fireEvent.click(choice)
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'edited', edit: { kind: 'spending', merchant: 'Mystery shop', posted_on: '2026-09-05', amount_cents: 500, category_id: 71 } }] })
+    // The statement isn't finished, but the upload's status in the list ("Some lines saved") moves with what was read back.
+    await waitFor(() => expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ done: data.participant_review!.plan.done + 1 })))
     expect(saved).not.toHaveBeenCalled()
+    expect(changed).toHaveBeenCalledOnce()
   })
 
   it('refreshes the parent upload after saving a review so its status is read back', async () => {
@@ -303,6 +399,25 @@ describe('statement review a participant can finish', () => {
     expect(mutate.mock.calls[1][3]).toEqual({ lines: [{ event_id: 4007, decision: 'leave_out' }] })
   })
 
+  it('asks whether a bank line is a purchase she already confirmed, and names that purchase when she says it is', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.attention = [{ event_id: 4008, kind: 'same_purchase', event_type: 'purchase', question: 'Same purchase as your receipt from Payless Supermarkets on Aug 3 ($103.42)?',
+      answers: [{ id: 'same_purchase', label: 'Same purchase' }, { id: 'different', label: 'Different purchase' }],
+      merchant: 'POS PURCHASE PAYLESS SUPERMARKET #12', posted_on: '2026-08-04', signed_amount_cents: -10342, category_id: null, category_name: null,
+      purchase_match: { transaction_id: 77, merchant: 'Payless Supermarkets', occurred_on: '2026-08-03', amount_cents: 10342, source_type: 'receipt', categories: ['Groceries', 'Household', 'Medical'] } }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    const item = (await screen.findByRole('list', { name: 'Lines that need a quick look' })).querySelector('li')!
+    expect(within(item).getByText('Same purchase as your receipt from Payless Supermarkets on Aug 3 ($103.42)?')).toBeTruthy()
+    fireEvent.click(within(item).getByRole('button', { name: 'Same purchase: POS PURCHASE PAYLESS SUPERMARKET #12' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4008, decision: 'same_purchase', match_transaction_id: 77, shown: { event_type: 'purchase', category_id: null } }] })
+    await waitFor(() => expect((within(item).getByRole('button', { name: 'Different purchase: POS PURCHASE PAYLESS SUPERMARKET #12' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(within(item).getByRole('button', { name: 'Different purchase: POS PURCHASE PAYLESS SUPERMARKET #12' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).toEqual({ lines: [{ event_id: 4008, decision: 'different', shown: { event_type: 'purchase', category_id: null } }] })
+  })
+
   it('opens a line in a sheet to fix it and sends the corrected facts', async () => {
     mount()
     const list = await screen.findByRole('list', { name: 'Lines that need a quick look' })
@@ -392,6 +507,49 @@ describe('statement review a participant can finish', () => {
     expect(fetchReview).toHaveBeenLastCalledWith(1203, 88, 2, 'all', expect.any(AbortSignal))
   })
 
+  it('keeps an early "Is anything missing?" answer when she leaves and comes back, and sends it with her next save', async () => {
+    const data = participantReviewFixture(); data.participant_review!.plan.coverage = { question: 'Your statement shows 27 lines and we found 26. Is anything missing?', answer: null }
+    fetchReview.mockResolvedValue(data)
+    const first = mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Something’s missing' }))
+    expect(mutate).not.toHaveBeenCalled()
+    first.unmount()
+    mount()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true'))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toMatchObject({ coverage_answer: 'something_missing', expected_coverage_id: null })
+  })
+
+  it('keeps that answer only for the person who gave it', async () => {
+    localStorage.setItem('hcfo:statement-coverage:902:77:1203:88', 'something_missing')
+    const data = participantReviewFixture(); data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null }
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByRole('button', { name: 'Something’s missing' })
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).not.toBe('true')
+  })
+
+  it('says a kept answer is not saved yet when no line is left for it to go with, and forgets it once recorded', async () => {
+    localStorage.setItem('hcfo:statement-coverage:901:77:1203:88', 'nothing_missing')
+    const data = participantReviewFixture()
+    data.participant_review!.plan = { ...data.participant_review!.plan, done: 137, attention: [], ready: [], ready_event_ids: [], coverage: { question: 'Is anything missing?', answer: null } }
+    fetchReview.mockResolvedValue(data)
+    const first = mount()
+    expect(await screen.findByText('We couldn’t save your answer yet. Please try again.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Nothing’s missing' }).getAttribute('aria-pressed')).toBe('true')
+    // "Try again" saves, but the server can't record it yet: the notice doesn't come straight back.
+    mutate.mockResolvedValueOnce({ result: { approved: 0, left_out: 0, unchanged: 0, complete: false } })
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(fetchReview.mock.calls.length).toBeGreaterThan(1))
+    await waitFor(() => expect(screen.queryByText('We couldn’t save your answer yet. Please try again.')).toBeNull())
+    first.unmount()
+    fetchReview.mockResolvedValue({ ...data, participant_review: { ...data.participant_review!, plan: { ...data.participant_review!.plan, coverage: { question: null, answer: 'nothing_missing', version_id: 940 } } } })
+    mount()
+    await waitFor(() => expect(localStorage.getItem('hcfo:statement-coverage:901:77:1203:88')).toBeNull())
+  })
+
   it('asks one plain question when the statement cannot show nothing is missing, and sends only her answer', async () => {
     const data = participantReviewFixture(); data.participant_review!.plan.coverage = { question: 'Your statement shows 27 lines and we found 26. Is anything missing?', answer: null }
     fetchReview.mockResolvedValue(data)
@@ -415,13 +573,37 @@ describe('statement review a participant can finish', () => {
     expect(await screen.findByText(/We’ll keep this statement marked as not finished/)).toBeTruthy()
   })
 
+  it('keeps a recorded “something’s missing” changeable after the statement stops asking', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready = []; plan.ready_event_ids = []; plan.attention = []
+    plan.coverage = { question: null, answer: 'something_missing', version_id: 912 }
+    fetchReview.mockResolvedValue(data)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="reask" />)
+    expect(await screen.findByText('You said something may be missing from this statement. Is anything still missing?')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [], coverage_answer: 'nothing_missing', expected_coverage_id: 912 })
+  })
+
+  it('shows the year on line dates when the file runs across a new year', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.first_on = '2025-11-03'; plan.last_on = '2026-11-13'
+    plan.attention = plan.attention.slice(0, 1).map((row) => ({ ...row, posted_on: '2025-12-03' }))
+    fetchReview.mockResolvedValue(data)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="years" />)
+    const list = await screen.findByRole('list', { name: 'Lines that need a quick look' })
+    expect(within(list).getByText(/Dec 3, 2025/)).toBeTruthy()
+  })
+
   it('saves her answer straight away when every line is already saved, and holds the next step until she answers', async () => {
     const data = participantReviewFixture(); const plan = data.participant_review!.plan
     plan.done = 137; plan.ready = []; plan.ready_event_ids = []; plan.attention = []
     fetchReview.mockResolvedValue(data)
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: vi.fn() }]} />)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: vi.fn() }]} doneExtra={<p>Fictional balance offer</p>} />)
     expect(await screen.findByText('All 137 lines are saved.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
+    expect(screen.queryByText('Fictional balance offer')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing', expected_coverage_id: null })
@@ -489,8 +671,10 @@ describe('statement review a participant can finish', () => {
     plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
     fetchReview.mockResolvedValue(data)
     const snapshot = vi.fn(); const mia = vi.fn()
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: mia }, { label: 'Open your spending snapshot', run: snapshot }]} />)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: mia }, { label: 'Open your spending snapshot', run: snapshot }]} doneExtra={<p>Fictional balance offer</p>} />)
     expect(await screen.findByText('All 137 lines are saved.')).toBeTruthy()
+    // A balance offered from this statement appears only once every line is saved.
+    expect(screen.getByText('Fictional balance offer')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull()
     // What Mia notices is the main step; the snapshot is quieter.
     expect(screen.getByRole('button', { name: 'See what Mia notices' }).className).toContain('button--primary')
@@ -624,4 +808,50 @@ it('requires direction on a directly opened unresolved row and keeps its amount'
   expect((await within(sheet).findByRole('alert')).textContent).toBe('Choose whether this was money out or money in.')
   expect(mutate).not.toHaveBeenCalled()
   expect((within(sheet).getByLabelText('Amount') as HTMLInputElement).value).toBe('50.00')
+})
+
+describe('a refund goes back to the category of what she bought', () => {
+  const refund = (categoryId: number | null) => ({ event_id: 4007, kind: 'refund_category' as const, event_type: 'refund' as const, merchant: 'Tasi Demo Outfitters', posted_on: '2026-03-06', signed_amount_cents: 2999, category_id: categoryId, category_name: categoryId ? 'Clothing' : null,
+    question: categoryId ? 'Does this refund go back to Clothing?' : 'Which category does this refund go back to?',
+    answers: categoryId ? [{ id: 'keep' as const, label: 'Yes' }, { id: 'edit' as const, label: 'Change' }] : [{ id: 'edit' as const, label: 'Choose one' }, { id: 'leave_out' as const, label: 'Leave it out' }] })
+
+  it('asks which category a refund goes back to and saves her choice on the refund', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }, { id: 71, name: 'Clothing' }]
+    data.participant_review!.plan.attention = [refund(null)]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('Which category does this refund go back to?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Clothing: Tasi Demo Outfitters' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'edited', edit: { kind: 'refund', merchant: 'Tasi Demo Outfitters', posted_on: '2026-03-06', amount_cents: 2999, category_id: 71 } }] })
+  })
+
+  it('says Yes to the category she chose for this store before, exactly as shown', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }, { id: 71, name: 'Clothing' }]
+    data.participant_review!.plan.attention = [refund(71)]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('Does this refund go back to Clothing?')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Groceries: Tasi Demo Outfitters' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes: Tasi Demo Outfitters' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'as_read', shown: { event_type: 'refund', category_id: 71 } }] })
+  })
+
+  it('lets the line sheet say which category a refund goes back to', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Groceries' }, { id: 71, name: 'Clothing' }]
+    data.participant_review!.plan.attention = [refund(null)]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Tasi Demo Outfitters' }))
+    const sheet = await screen.findByRole('dialog')
+    expect(within(sheet).queryByLabelText(/^Category/)).toBeNull()
+    fireEvent.change(within(sheet).getByLabelText(/^Goes back to/), { target: { value: '71' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4007, decision: 'edited', edit: { kind: 'refund', amount_cents: 2999, category_id: 71 } }] })
+  })
 })

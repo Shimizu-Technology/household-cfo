@@ -12,7 +12,6 @@ module HouseholdFinance
       @ensure_plan = ensure_plan
       @initialize_missing_plan = initialize_missing_plan
       @annual_budget_manager = AnnualBudgetManager.new(household)
-      @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager, ensure_plan: ensure_plan)
       @cohort_membership = if cohort_membership.equal?(UNRESOLVED_COHORT)
         ::Mia::EffectiveCohortResolver.new(user: user).call
       else
@@ -23,6 +22,16 @@ module HouseholdFinance
         cohort_membership: @cohort_membership
       ).call
       @brand = brand || Branding::RuntimeResolver.for_membership(@cohort_membership)
+      @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager, ensure_plan: ensure_plan, method: method_settings)
+    end
+
+    # The participant's program method; without a viewer, the household's own program.
+    def method_settings
+      @method_settings ||= if user
+        CohortExperience::MethodSettings.from_capabilities(@experience_capabilities)
+      else
+        CohortExperience::MethodSettings.for_household(household)
+      end
     end
 
     def app_data
@@ -65,8 +74,15 @@ module HouseholdFinance
         goal_portfolio: GoalPortfolio.new(household).as_json,
         cohort: cohort_context,
         capabilities: participant_capabilities,
+        home_view: home_view,
+        can_edit_household: can_edit_household?,
         brand: brand
       }
+    end
+
+    # Month or year first on Home: the program's default, or this person's own choice.
+    def home_view
+      HomeView.payload(method_settings, membership: user && household.household_memberships.find_by(user_id: user.id))
     end
 
     def participant_capabilities
@@ -159,7 +175,7 @@ module HouseholdFinance
           readiness_tone: readiness_available? ? snapshot.fetch(:readiness_tone) : "red",
           readiness_label: readiness_label_for_dashboard
         },
-        month_answer: MiaMonthAnswer.new(household, annual_plan: annual_plan[:year] == Date.current.year ? annual_plan : AnnualBudgetManager.new(household, year: Date.current.year).read_only_plan_data).call,
+        month_answer: MiaMonthAnswer.new(household, annual_plan: annual_plan[:year] == Date.current.year ? annual_plan : AnnualBudgetManager.new(household, year: Date.current.year).read_only_plan_data, method: method_settings).call,
         action_center: action_center,
         coach_read: coach_read,
         readiness_path: readiness_path,
@@ -215,6 +231,7 @@ module HouseholdFinance
           unavailable_reason: readiness_unavailable_reason,
           scenario: household.primary_goal.presence || "Household stability",
           question: readiness_blocker_question,
+          calculator: optionality_scenario,
           target_runway_months: runway_target,
           current_runway_months: nil,
           monthly_gap: nil,
@@ -251,6 +268,7 @@ module HouseholdFinance
 
       {
         available: true,
+        calculator: optionality_scenario,
         scenario: scenario,
         question: household.primary_goal.presence || "What would it take to safely make the next move?",
         target_runway_months: runway_target,
@@ -262,13 +280,49 @@ module HouseholdFinance
     end
 
     def cfo_filter
+      scenario = cfo_filter_scenario
       {
+        calculator: scenario,
         framework: "CFO Filter",
         prompt: "Before money leaves the household, ask whether this spend protects stability, creates optionality, or moves the dream forward.",
         decisions: decisions,
         targets: targets,
-        priority_stack: [ "Protect the roof", "Protect food/gas", "Protect runway", "Attack high-interest debt", "Fund the dream with evidence" ]
+        priority_stack: method_settings.fetch("priorities").map { |key| "#{CohortExperience::MethodSettings.label(key)} · #{scenario[:priority_statuses][key.to_sym] || 'unknown'}" },
+        windfall_steps: method_settings.fetch("windfall").map { |key| windfall_step(key) },
+        income_split: method_settings.fetch("income_split").map { |key, percent| "#{percent}% to #{CohortExperience::MethodSettings.label(key).sub('Debt acceleration', 'extra debt payments').downcase}" }
       }
+    end
+
+    # Shared by the tools and deterministic Mia answers. Overrides live only in
+    # this request; they never update a plan, balance, goal or income source.
+    def cfo_filter_scenario(spend_cents: 0, windfall_cents: 0, lift_cents: 0)
+      facts = tool_facts
+      # Consumer debts only (never the mortgage). past_due_cents stays nil when not entered.
+      CfoFilterCalculator.new(income_cents: facts[:income_cents], costs_cents: facts[:costs_cents],
+        savings_cents: facts[:savings_cents], debt_cents: WindfallSplit.consumer_debt_cents(household), method: method_settings, target_runway_months: target_runway_months,
+        catch_up_cents: WindfallSplit.consumer_catch_up_cents(household), debt_conflicts: debt_arrears.conflicts,
+        debts: debt_portfolio.mode == "individual" ? debt_portfolio.active_debts.reject { |debt| debt.debt_type == "mortgage" }.map { |debt| { balance_cents: debt.balance_known? ? debt.balance_cents : nil, rate_percent: debt.interest_rate_percent, minimum_cents: debt.minimum_payment_known? ? debt.minimum_payment_cents : nil, past_due_cents: debt.past_due_cents } } : nil)
+        .call(spend_cents: spend_cents, windfall_cents: windfall_cents, lift_cents: lift_cents)
+        .merge(facts: facts, cut_choices: SpendingPatterns::Analyzer.new(household, protected: method_settings.fetch("protected")).call[:candidate_changes])
+    end
+
+    def optionality_scenario(overrides = {})
+      facts = tool_facts
+      inputs = { savings_cents: facts[:savings_cents], monthly_costs_cents: facts[:costs_cents],
+        replacement_income_cents: setup_status.complete? && transition_income_known? ? monthly_business_income_cents + transition_retained_income_cents : nil }
+      OptionalityCalculator.new(**inputs.merge(overrides)).call.merge(inputs: inputs)
+    end
+
+    def transition_income_known?
+      income_sources.any? { |source| source.source_type == "business" } ||
+        Array(household.confirmed_setup_fields).include?("business_income")
+    end
+
+    def tool_facts
+      complete = setup_status.complete?
+      { income_cents: complete ? snapshot.fetch(:monthly_income_cents) - income_sources.select { |source| source.source_type == "bonus" }.sum { |source| current_recurring_income_cents(source) } : nil,
+        costs_cents: complete && snapshot.fetch(:debt_minimums_known) ? snapshot.fetch(:total_outflow_cents) : nil,
+        savings_cents: snapshot.fetch(:liquid_assets_known) ? snapshot.fetch(:liquid_assets_cents) : nil }
     end
 
     def mia(before_id: nil, limit: 60, picture: nil)
@@ -317,6 +371,8 @@ module HouseholdFinance
           balance: debt.balance_known? ? dollars(debt.balance_cents) : nil,
           minimum_payment: debt.minimum_payment_known? ? dollars(debt.minimum_payment_cents) : nil,
           interest_rate_percent: debt.interest_rate_percent&.to_f,
+          due_day: debt.due_day,
+          past_due: debt.past_due_cents && dollars(debt.past_due_cents),
           active: debt.active?,
           archived_at: debt.archived_at&.iso8601,
           source_type: debt.source_type,
@@ -372,6 +428,11 @@ module HouseholdFinance
       end
     end
 
+    # Owners and partners save changes; anyone else with access only reads.
+    def can_edit_household?
+      user.present? && household.household_memberships.find_by(user_id: user.id)&.role.in?(%w[owner partner])
+    end
+
     def cohort_context
       membership = cohort_membership
       return unless membership
@@ -383,6 +444,8 @@ module HouseholdFinance
         status: membership.cohort.status
       }
     end
+
+    def tool_enabled?(id) = module_enabled?(id)
 
     private
 
@@ -478,6 +541,10 @@ module HouseholdFinance
 
     def debt_portfolio
       @debt_portfolio ||= DebtPortfolio.new(household)
+    end
+
+    def debt_arrears
+      @debt_arrears ||= DebtArrears.new(household)
     end
 
     def goals
@@ -595,7 +662,7 @@ module HouseholdFinance
 
       [
         { tone: snapshot.fetch(:readiness_tone), title: "Readiness", body: snapshot.fetch(:readiness_label) },
-        { tone: snapshot.fetch(:baseline_surplus_cents).positive? ? "green" : "red", title: "Baseline", body: baseline_body },
+        { tone: snapshot.fetch(:surplus_tone), title: "Baseline", body: baseline_body },
         { tone: debt_tone, title: "Debt focus", body: debt_body }
       ]
     end
@@ -683,15 +750,21 @@ module HouseholdFinance
       current_year = Date.current.year
       current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
       transaction_reviews = household.transaction_drafts.pending.excluding_non_spending_plaid.where(occurred_on: current_year_range).count
+      # Cash purchases she confirmed that need her answer about the cash she took out: every one Review lists, in any
+      # year (CashDrawdowns#open_question_count). Read from the plan when this request already built it.
+      cash_questions = @annual_plan&.dig(:cash_purchase_questions_meta, :total_count) || CashDrawdowns.new(household).open_question_count
       action_reviews = ::Mia::ActionDraftScope.records(household.mia_action_drafts.reviewable.for_budget_year(current_year),
         user: user, membership: cohort_membership, runtime: @runtime).count
 
       {
-        transaction_review_count: transaction_reviews,
+        transaction_review_count: transaction_reviews + cash_questions,
+        cash_question_count: cash_questions,
         mia_action_review_count: action_reviews,
-        total_review_count: transaction_reviews + action_reviews,
+        total_review_count: transaction_reviews + cash_questions + action_reviews,
         # Statements are reviewed separately; Home links to them without loading every import.
         document_review_count: document_review_count,
+        # Debts she is behind on, largest first. Home lists them with what needs her.
+        past_due_debts: DebtArrears.new(household).as_json,
         current_month_label: Date.current.strftime("%B"),
         current_month_index: Date.current.month - 1,
         current_year: current_year
@@ -725,17 +798,17 @@ module HouseholdFinance
       when "green"
         {
           title: "Keep the household plan steady.",
-          body: "Your target runway and positive monthly cash flow are both in place. Protect expected expenses, review actuals, and avoid turning a Green month into permission for a permanent spending increase."
+          body: snapshot.fetch(:emergency_fund_gap_cents).zero? ? "Your emergency fund target is reached. Protect expected expenses, review actuals, and avoid turning a Green month into permission for a permanent spending increase." : "Your emergency fund target is within #{months_text(snapshot.dig(:status_rule, 'target_green_months'))} at your current surplus. Keep expected expenses funded and keep the monthly transfer going."
         }
       when "yellow"
         {
-          title: "Close the remaining runway gap.",
-          body: "Your monthly cash flow is holding, but the household still needs more protected runway. Keep expected expenses funded and direct planned surplus toward the runway target before expanding wants."
+          title: "Close the emergency fund gap.",
+          body: "At your current surplus, the emergency fund target is more than #{months_text(snapshot.dig(:status_rule, 'target_green_months'))} away. Keep expected expenses funded and direct planned surplus toward it before expanding wants."
         }
       else
         {
-          title: "Protect the baseline and build runway.",
-          body: "The household is Red because essential stability or runway is not protected yet. Pause new wants, review pending activity, cover expected expenses, and direct available surplus toward the Yellow runway threshold."
+          title: "Protect the baseline and build the emergency fund.",
+          body: "The household is Red because the emergency fund target is more than #{months_text(snapshot.dig(:status_rule, 'target_yellow_months'))} away at the current surplus, or there is no surplus yet. Pause new wants, review pending activity, cover expected expenses, and direct available surplus to the emergency fund."
         }
       end
     end
@@ -748,50 +821,53 @@ module HouseholdFinance
           unavailable_reason: readiness_unavailable_reason,
           current_runway_months: nil,
           target_runway_months: target_months,
+          target_runway_source: snapshot.fetch(:target_runway_source),
           protected_liquid_amount: dollars(snapshot.fetch(:liquid_assets_cents)),
           monthly_surplus: nil,
-          yellow: readiness_milestone(tone: "yellow", runway_months: target_months / 2.0, target_cents: 0, liquid_assets_cents: 0, cash_flow_ready: false),
-          green: readiness_milestone(tone: "green", runway_months: target_months, target_cents: 0, liquid_assets_cents: 0, cash_flow_ready: false)
+          emergency_fund: nil,
+          surplus: nil,
+          status_rule: status_rule
         }
       end
-      yellow_months = target_months / 2.0
-      monthly_outflow_cents = snapshot.fetch(:total_outflow_cents)
-      liquid_assets_cents = snapshot.fetch(:liquid_assets_cents)
-      monthly_surplus_cents = snapshot.fetch(:baseline_surplus_cents)
 
       {
         available: true,
         current_runway_months: snapshot.fetch(:runway_months),
         target_runway_months: target_months,
-        protected_liquid_amount: dollars(liquid_assets_cents),
-        monthly_surplus: dollars(monthly_surplus_cents),
-        yellow: readiness_milestone(
-          tone: "yellow",
-          runway_months: yellow_months,
-          target_cents: monthly_outflow_cents * yellow_months,
-          liquid_assets_cents: liquid_assets_cents,
-          cash_flow_ready: monthly_surplus_cents >= 0
-        ),
-        green: readiness_milestone(
-          tone: "green",
-          runway_months: target_months,
-          target_cents: monthly_outflow_cents * target_months,
-          liquid_assets_cents: liquid_assets_cents,
-          cash_flow_ready: monthly_surplus_cents.positive?
-        )
+        target_runway_source: snapshot.fetch(:target_runway_source),
+        protected_liquid_amount: dollars(snapshot.fetch(:liquid_assets_cents)),
+        monthly_surplus: dollars(snapshot.fetch(:baseline_surplus_cents)),
+        emergency_fund: {
+          tone: snapshot.fetch(:readiness_tone),
+          label: snapshot.fetch(:readiness_label),
+          target: dollars(snapshot.fetch(:emergency_fund_target_cents)),
+          gap: dollars(snapshot.fetch(:emergency_fund_gap_cents)),
+          months_to_target: snapshot.fetch(:months_to_target)
+        },
+        surplus: { tone: snapshot.fetch(:surplus_tone), label: snapshot.fetch(:surplus_label) },
+        status_rule: status_rule
       }
     end
 
-    def readiness_milestone(tone:, runway_months:, target_cents:, liquid_assets_cents:, cash_flow_ready:)
-      rounded_target_cents = target_cents.round
+    # The program's colour rule, in dollars for the participant view.
+    def status_rule
+      rule = snapshot.fetch(:status_rule)
       {
-        tone: tone,
-        runway_months: runway_months.round(1),
-        protected_liquid_target: dollars(rounded_target_cents),
-        protected_liquid_gap: dollars([ rounded_target_cents - liquid_assets_cents, 0 ].max),
-        cash_flow_requirement: tone == "green" ? "Positive monthly cash flow" : "Nonnegative monthly cash flow",
-        reached: cash_flow_ready && rounded_target_cents.positive? && liquid_assets_cents >= rounded_target_cents
+        target_green_months: rule.fetch("target_green_months"), target_yellow_months: rule.fetch("target_yellow_months"),
+        surplus_green: dollars(rule.fetch("surplus_green_cents")), surplus_yellow: dollars(rule.fetch("surplus_yellow_cents"))
       }
+    end
+
+    def windfall_step(key)
+      case key
+      when "emergency_fund" then "Fill the emergency fund gap"
+      when "consumer_debt" then "Pay down consumer debt (cards and loans, not the mortgage), catching up anything past due before extra principal"
+      else "Keep the rest as surplus"
+      end
+    end
+
+    def months_text(count)
+      "#{count} #{'month'.pluralize(count.to_i)}"
     end
 
     def quick_prompts
@@ -877,9 +953,11 @@ module HouseholdFinance
       goals.find { |stored_goal| stored_goal.goal_type == "transition" }
     end
 
+    # The household's runway goal, else the program's emergency fund default. Reads goals
+    # directly: building the snapshot here would provision a plan on read-only paths.
     def target_runway_months
       stored_target = goals.find { |goal| goal.goal_type == "runway" }&.target_months.to_f
-      stored_target.positive? ? stored_target : SnapshotBuilder::DEFAULT_RUNWAY_TARGET_MONTHS
+      stored_target.positive? ? stored_target : method_settings.fetch("emergency_fund_months").to_f
     end
 
     def transition_retained_income_cents
@@ -1038,7 +1116,8 @@ module HouseholdFinance
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       runway_met = snapshot.fetch(:runway_months) >= target_runway_months
       apr_unknown = debt_entered && debts.any? { |debt| debt.active? && debt.balance_known? && debt.balance_cents.to_i.positive? && debt.interest_rate_percent.nil? }
-      extra_debt_ready = debt_entered && !apr_unknown && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
+      debt_conflicts = debt_arrears.conflicts
+      extra_debt_ready = debt_conflicts.empty? && debt_entered && !apr_unknown && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
       wants_open = snapshot.fetch(:readiness_tone) == "green" && safe.positive?
       [
         {
@@ -1057,7 +1136,9 @@ module HouseholdFinance
           item: "Extra debt payment",
           amount: extra_debt_ready ? safe : 0,
           recommendation: extra_debt_ready ? "Approve" : "Wait",
-          reason: if !debt_balance_known
+          reason: if debt_conflicts.any?
+            "Your debt records do not add up yet: #{debt_conflicts.to_sentence}. Check your debts before Mia prioritizes payoff."
+                  elsif !debt_balance_known
             "Enter every debt balance before Mia prioritizes an extra payment. Partial totals are not used for payoff decisions."
                   elsif apr_unknown
             "Add the interest rate (APR) on each debt before Mia suggests an extra payment. Until then, pay the minimums and nothing is recommended."
@@ -1112,7 +1193,7 @@ module HouseholdFinance
 
       [
         { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * target_runway_months) },
-        { label: "Debt payoff", current: dollars(snapshot.fetch(:total_debt_cents)), target: 0 },
+        debt_arrears.conflict? ? { label: "Check your debts", current: 0, target: 0 } : { label: "Debt payoff", current: dollars(snapshot.fetch(:total_debt_cents)), target: 0 },
         { label: "Monthly business revenue", current: dollars(monthly_business_income_cents), target: dollars([ snapshot.fetch(:total_outflow_cents) - transition_retained_income_cents, 0 ].max) }
       ]
     end

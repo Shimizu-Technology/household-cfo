@@ -187,6 +187,8 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     assert_response :forbidden
     assert_equal "module_disabled", response.parsed_body.fetch("code")
     assert_equal "cfo_filter", response.parsed_body.fetch("module_id")
+    get "/api/v1/cfo-filter", params: { scenario: "1", spend_cents: 10_000 }, headers: auth_headers(participant)
+    assert_response :forbidden
 
     get "/api/v1/optionality", headers: auth_headers(participant)
     assert_response :success
@@ -437,6 +439,52 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     } }, headers: headers, as: :json
     assert_response :unprocessable_entity
     assert_equal "experience_preview_required", response.parsed_body.fetch("code")
+  end
+
+  test "a program can add protected categories but never remove the core ones" do
+    admin = create_user("admin")
+    cohort = Cohort.create!(name: "Method protections #{SecureRandom.hex(3)}", status: "active", created_by_user: admin)
+    get endpoint(cohort), headers: auth_headers(admin)
+    method = CohortExperience::MethodSettings::DEFAULTS.deep_dup
+    config = CohortExperience::Schema::DEFAULT_CONFIG.deep_dup
+
+    patch endpoint(cohort), params: { experience_configuration: { draft_revision: 1,
+      draft_config: config.merge("method" => method.merge("protected" => method.fetch("protected") - %w[family_support])) } }, headers: auth_headers(admin), as: :json
+    assert_response :unprocessable_entity
+    assert_equal "experience_configuration_invalid", response.parsed_body.fetch("code")
+    assert_includes response.parsed_body.fetch("error"), "always keeps housing, utilities, medical, childcare and school, debt minimums and family support"
+
+    # Wrong element types are a plain validation answer, never a server error.
+    { "priorities" => [ "debt", 1, nil, {} ], "windfall" => [ nil, "surplus", 2 ], "protected" => [ "housing", 3 ] }.each do |key, value|
+      patch endpoint(cohort), params: { experience_configuration: { draft_revision: 1, draft_config: config.merge("method" => method.merge(key => value)) } },
+        headers: auth_headers(admin), as: :json
+      assert_response :unprocessable_entity, key
+      assert_equal "experience_configuration_invalid", response.parsed_body.fetch("code")
+    end
+
+    patch endpoint(cohort), params: { experience_configuration: { draft_revision: 1,
+      draft_config: config.merge("method" => method.merge("protected" => method.fetch("protected") + %w[groceries])) } }, headers: auth_headers(admin), as: :json
+    assert_response :success
+    assert_includes cohort.cohort_experience_configuration.reload.draft_config.dig("method", "protected"), "groceries"
+  end
+
+  test "reviewing Go live leaves a schema 4 draft unchanged so an open tools editor can still save" do
+    admin = create_user("admin")
+    cohort = Cohort.create!(name: "Schema four #{SecureRandom.hex(3)}", status: "active", created_by_user: admin)
+    get endpoint(cohort), headers: auth_headers(admin)
+    configuration = cohort.cohort_experience_configuration
+    v4 = CohortExperience::Schema::DEFAULT_CONFIG.except("method").merge("schema_version" => 4, "module_order" => %w[budget home])
+    configuration.update!(draft_config: v4, last_edited_by_user: admin)
+    revision = configuration.reload.draft_revision
+
+    post "#{endpoint(cohort)}/preview", params: { experience_configuration: { draft_revision: revision, upgrade_to_current: true } }, headers: auth_headers(admin), as: :json
+    assert_response :success
+    assert_equal [ 4, revision ], [ configuration.reload.draft_config.fetch("schema_version"), configuration.draft_revision ]
+
+    # The editor's next save (now schema 5) still matches the revision it loaded.
+    patch endpoint(cohort), params: { experience_configuration: { draft_revision: revision, draft_config: CohortExperience::Schema.upgrade(v4) } }, headers: auth_headers(admin), as: :json
+    assert_response :success
+    assert_equal 5, configuration.reload.draft_config.fetch("schema_version")
   end
 
   private

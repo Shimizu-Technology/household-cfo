@@ -357,7 +357,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     budget = JSON.parse(response.body).fetch("budget")
     assert_equal 250, budget.fetch("total_monthly_outflow")
     row = budget.fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name").casecmp?("dining out") }
-    assert_equal "Non-discretionary", row.fetch("stack_label")
+    assert_equal "Must-pay bills", row.fetch("stack_label")
     assert_equal 250, row.fetch("months").first.fetch("planned")
   end
 
@@ -423,7 +423,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "non_discretionary", body.fetch("category").fetch("stack_key")
     row = body.fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("id") == category_id }
     assert_equal "Restaurants", row.fetch("name")
-    assert_equal "Non-discretionary", row.fetch("stack_label")
+    assert_equal "Must-pay bills", row.fetch("stack_label")
 
     household = user.households.first.reload
     assert_equal 1, household.expense_items.where(label: "Restaurants", stack_key: "non_discretionary", active: true).count
@@ -1226,7 +1226,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     content = body.fetch("assistant_message").fetch("content")
     assert_includes content, "approved household numbers"
     assert_includes content, "Yellow"
-    assert_includes content, "green gap"
+    assert_includes content, "Green about $2,117 a month"
     assert_includes content, "Next CFO move"
     refute_includes content, "confirmed get spending"
   end
@@ -1375,7 +1375,8 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_includes content, "This week"
-    assert_includes content, "yellow runway gap"
+    assert_includes content, "emergency fund gap is $25,400"
+    assert_includes content, "reaches yellow with about $706 a month"
     assert_includes content, "Next CFO move"
     refute_includes content, "For out of red"
     refute_includes content, "need or a want"

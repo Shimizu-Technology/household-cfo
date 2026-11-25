@@ -370,6 +370,17 @@ const annualOutlookMonths = months.map((label, index) => ({
   expected_contributors: index === 11 ? [{ name: 'Holiday travel', amount: 3_000 }] : [],
 }))
 
+// The demo year from this month: $20,000 opening cash, each month's plan, and December's holiday travel standing out.
+const forecastStart = new Date().getMonth()
+let forecastCash = 2_000_000
+const yearForecastMonths = annualOutlookMonths.slice(forecastStart).map((month, offset) => {
+  const index = forecastStart + offset
+  const opening = forecastCash
+  forecastCash += (month.income - month.planned_outflow) * 100
+  return { label: new Date(Date.UTC(currentYear, index, 1)).toLocaleString('en', { month: 'long', timeZone: 'UTC' }), starts_on: month.starts_on, from_on: null, opening_cents: opening, income_cents: month.income * 100, income_basis: 'planned', approved_so_far_cents: null, outflow_cents: month.planned_outflow * 100, spending_plan_known: true, ending_cents: forecastCash, bills: [], reasons: index === 11 ? ['Holiday travel'] : ['Fixed essentials'], includes_estimates: false, higher_costs: index === 11 }
+})
+const yearForecast = { starting_cash_cents: 2_000_000, starting_on: null, starting_note: 'Starting from your cash balances on the last day of last month.', months: yearForecastMonths, first_short_month: null, status: 'no_short_month', missing: [], bills: [], debt_bills: [{ name: 'Monthly debt payments', amount_cents: 20_000 }] }
+
 const budget = {
   framework: 'Expense Stack', intro: 'Annual household plan', monthly_income: 14_200,
   total_monthly_outflow: 5_500, baseline_surplus: 8_700,
@@ -401,6 +412,7 @@ const budget = {
       upcoming_spikes: [{ ...annualOutlookMonths[11], amount_above_typical: 3_000 }],
       next_irregular_month: annualOutlookMonths[11],
     },
+    year_forecast: yearForecast,
     pending_transaction_drafts: [
       { id: 91, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-12`, merchant: 'Dinner with friends', amount: 75, amount_cents: 7_500, status: 'pending', source_type: 'receipt', category_id: 2, category_name: 'Dining out' },
       { id: 92, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-15`, merchant: 'Storm supplies', amount: 40, amount_cents: 4_000, status: 'pending', source_type: 'manual_chat', category_id: 4, category_name: 'Unexpected sinking fund' },
@@ -2224,8 +2236,18 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(answer).toContainText('Money out · planned$5,500')
   await expect(answer).toContainText('What’s left · planned$9,500')
   await expect(answer).toContainText('Spent so far this month: $3,475')
+  const incomeLine = answer.getByText(/Money in: Not known yet/).locator('..')
+  await expect(incomeLine).toBeVisible()
+  const layout = await incomeLine.evaluate(line => {
+    const note = line.parentElement!.querySelector('.home-plan-caveat')!
+    return {
+      fullWidth: Math.abs(line.getBoundingClientRect().width - note.getBoundingClientRect().width) < 1,
+      usesNoteColor: getComputedStyle(line).color === getComputedStyle(note).color,
+    }
+  })
+  expect(layout).toEqual({ fullWidth: true, usesNoteColor: true })
   await expect(home.getByRole('heading', { name: '0.5 months of breathing room' })).toBeVisible()
-  await expect(home.locator('.year-outlook-months')).toContainText('Holiday travel')
+  await expect(home.locator('.year-outlook')).toContainText('Holiday travel')
   await expect(home.locator('.cash-flow-month')).toHaveCount(0)
   await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
@@ -2233,14 +2255,16 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(page).toHaveURL(/#Review$/)
 })
 
-test('BOG UI household year outlook groups steady months without interactive bars', async ({ page }) => {
+test('BOG UI household year outlook gives one glance and opens every month in Budget', async ({ page }) => {
   await page.goto('/')
   const outlook = page.locator('.home-screen .year-outlook')
-  await expect(outlook).toContainText('Jan–Jul')
-  await expect(outlook).toContainText('Aug–Nov')
-  await expect(outlook).toContainText('Dec')
-  await expect(outlook.locator('li')).toHaveCount(3)
-  await expect(outlook.getByRole('button')).toHaveCount(0)
+  await expect(outlook).toContainText('No month runs short through December.')
+  await expect(outlook).toContainText('Higher costs than usual: December (Holiday travel).')
+  await expect(outlook.locator('.forecast-table')).toHaveCount(0)
+  await outlook.getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.locator('.budget-year-forecast')).toHaveAttribute('open', '')
+  await expect(page.locator('.budget-year-forecast .forecast-table')).toContainText('December')
 })
 
 test('BOG UI household Home respects the shared penny-level answer instead of recalculating from budget', async ({ page }) => {
@@ -2278,8 +2302,7 @@ test('BOG UI Home Look A keeps the answer, rows and outlook bounded', async ({ p
   expect(marks.rowHeight).toBeGreaterThanOrEqual(56)
   expect(marks.figureFits).toBe(true)
   expect(marks.overflow).toBe(false)
-  await expect(home.locator('.year-outlook-months > li')).toHaveCount(3)
-  await expect(home.locator('.home-year-columns')).toHaveAttribute('aria-hidden', 'true')
+  await expect(home.locator('.year-outlook-headline')).toHaveText('No month runs short through December.')
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
 })
 
@@ -3895,7 +3918,7 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
   await expect(page.getByRole('heading', { name: 'Spending by category' })).toBeVisible()
   await expect(page.locator('.annual-outlook')).toHaveCount(0)
   await openSection(page, 'Home')
-  await expect(page.locator('.year-outlook')).toContainText('Holiday travel: $3,000')
+  await expect(page.locator('.year-outlook')).toContainText('December (Holiday travel)')
   await openSection(page, 'Review')
   const diningDraft = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await diningDraft.getByText('Purchase details', { exact: true }).click()
@@ -4652,7 +4675,7 @@ test('BOG UI household compact phone layouts keep a stable shell and overlay sec
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
   await openSection(page, 'Home')
-  await expect(page.locator('.home-screen .year-outlook-months > li')).toHaveCount(3)
+  await expect(page.locator('.home-screen .year-outlook-headline')).toBeVisible()
   await openSection(page, 'Ask Mia')
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   // Mia owns the phone header; Account remains reachable through More.
@@ -5259,6 +5282,52 @@ test('confirmed import history does not project the same draft into budget impac
   await expect(card.getByRole('region', { name: /Budget impact if approved/ })).toHaveCount(0)
 })
 
+for (const detailReloads of [true, false]) {
+  test(`a receipt purchase refused as a possible duplicate ${detailReloads ? 'asks Same purchase once its receipt reloads' : 'keeps the refusal when its receipt fails to reload'}`, async ({ page }) => {
+    const pendingDraft = {
+      id: 506, occurred_on: `${currentYear}-08-05`, merchant: 'Tasi Demo Home Store', amount: 34.88, amount_cents: 3_488,
+      status: 'pending', source_type: 'receipt', financial_document_import_id: 507, category_id: 2, category_name: 'Dining out',
+      splits: [{ id: 508, budget_category_id: 2, category_name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 34.88, amount_cents: 3_488, notes: null, confidence: 0.9, metadata: {} }],
+      matches: [] as Array<Record<string, unknown>>,
+    }
+    const receipt = {
+      id: 507, household_id: 77, document_kind: 'receipt', status: 'needs_review', filename: 'talun-voucher-receipt.jpg', content_type: 'image/jpeg', byte_size: 2_048,
+      document_date: pendingDraft.occurred_on, period_start_on: null, period_end_on: null, extracted_summary: 'One purchase to review.', extraction_error: null,
+      processed_at: `${currentYear}-08-16T01:00:00Z`, applied_at: null, source_deleted_at: null, updated_at: `${currentYear}-08-16T01:00:00Z`,
+      source_available: false, details_included: true, uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [],
+      transaction_drafts: [pendingDraft], attempts: [],
+    }
+    const refusal = 'This looks like Tasi Demo Home Store on Aug 5 ($34.88), which you already have. Is it the same purchase or a different one? Nothing was added to your spending.'
+    const bankLine = { id: 509, status: 'proposed', confidence: 0.94, match_reason: 'same amount', transaction: { id: 510, occurred_on: pendingDraft.occurred_on, merchant: 'Purchase authorized on 08/05 Tasi Demo Home Store Tamuning Gum', store_name: 'Tasi Demo Home Store', amount: 34.88, source_type: 'statement', categories: ['Dining out'] } }
+    let detailRequests = 0
+    await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+    await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [receipt] } }))
+    await page.route('http://api.test/api/v1/document_imports/507', (route) => {
+      detailRequests++
+      // The server saved the suggestion when it refused; only the receipt's own details carry it to this card.
+      if (!detailReloads) return route.fulfill({ status: 503, json: { errors: ['Try again shortly.'] } })
+      return route.fulfill({ status: 200, json: { document_import: { ...receipt, transaction_drafts: [{ ...pendingDraft, matches: [bankLine] }] } } })
+    })
+    await page.route('http://api.test/api/v1/transaction_drafts/506/confirm', (route) => route.fulfill({ status: 409, json: { errors: [refusal], code: 'possible_duplicate', possible_matches: [{ transaction_id: 510 }] } }))
+
+    await page.goto('/?pilot_e2e_role=participant#Statements')
+    const card = page.locator('[data-review-item="506"]')
+    await card.getByRole('button', { name: /^Confirm / }).click()
+    await expect.poll(() => detailRequests).toBe(1)
+
+    if (detailReloads) {
+      await expect(card).toContainText('Same purchase as Tasi Demo Home Store on Aug 5 ($34.88)?')
+      await expect(card.getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+      await expect(card).not.toContainText(refusal)
+    } else {
+      // The card still shows the old Confirm, so the refusal must stay visible beside it.
+      await expect(card).toContainText(refusal)
+      await expect(card.locator('.transaction-duplicate-question')).toHaveCount(0)
+    }
+    await expect(page.getByText(/Your change was saved/)).toHaveCount(0)
+  })
+}
+
 test('PDF document preview keeps keyboard focus inside accessible controls', async ({ page }) => {
   const pdfImport = {
     id: 606,
@@ -5681,6 +5750,8 @@ test('Coach Studio Review in form opens and focuses the exact teaching and phras
 })
 
 test('Coach Studio preserves coach-authored community context through preview, publish, and assignment', async ({ page }) => {
+  // A long preview, publish and assignment journey; with three CI workers per runner it ran close to 30 seconds on WebKit.
+  test.slow()
   let initialCoachingAuthorization = ''
   await page.route('http://api.test/api/v1/admin/personas', async (route) => {
     initialCoachingAuthorization = route.request().headers().authorization ?? ''
@@ -5810,6 +5881,8 @@ test('Coach Studio preserves coach-authored community context through preview, p
 })
 
 test('Coach Studio switches tenant context safely across responsive layouts', async ({ page }) => {
+  // A long journey across workspaces and layouts; with three CI workers per runner it ran close to 30 seconds on WebKit.
+  test.slow()
   await mockStaffWithParticipantSeat(page, 'coach')
   let firstPersona = personaDetailFixture()
   const secondPersona = {
@@ -5977,7 +6050,7 @@ test('Coach Studio platform administrator deliberately switches between global a
   await page.getByRole('button', { name: 'New group' }).click()
   await page.getByLabel('Group name').fill('Somewhere')
   await page.getByRole('button', { name: 'Create group' }).click()
-  await expect(page.getByText(/Choose a program at the top of the page first/)).toBeVisible()
+  await expect(page.getByText('Choose the program this group belongs to.')).toBeVisible()
 })
 
 test('Coach Studio content controls follow independent editor and reviewer permissions', async ({ page }) => {
@@ -7437,6 +7510,8 @@ test('Admin UI People is a table on a wide screen, rows on a phone, and invites 
 })
 
 test('Admin UI every section fits the screen and calls a group a group', async ({ page }) => {
+  // Ten cold loads of the admin app (seven sections, then three widths); with three CI workers per runner it ran over 20 seconds.
+  test.slow()
   for (const section of ['today', 'people', 'groups', 'coaching', 'reports', 'support', 'settings']) {
     await page.goto(`/admin/${section}?pilot_e2e_role=admin`)
     await expect(page.locator('.admin-content [data-page-heading]').first()).toBeVisible()
@@ -9195,7 +9270,8 @@ test('BOG UI completing a statement refreshes Home purchase counts without a pag
   await expect(page.getByRole('button', { name: /Review \d+ purchases/ })).toHaveCount(0)
   await openSection(page, 'Review')
   await expect(page.getByText('No purchases to review', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: /1 file waiting for review/ })).toBeVisible()
+  // The statement just saved still has one purchase with no category, so it stays on her list beside the other file.
+  await expect(page.getByRole('button', { name: /2 files waiting for review/ })).toBeVisible()
 })
 
 test('BOG UI Mia posts a card for a statement she has read, and the participant approves it without leaving the chat', async ({ page }) => {
@@ -13030,7 +13106,7 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
     if (section !== 'Home') await openSection(page, section)
     await expectPhoneTargets(page)
     if (section === 'Home') {
-      await expect(page.locator('.year-outlook li')).toHaveCount(3)
+      await expect(page.getByRole('region', { name: 'Year outlook' })).toBeVisible()
       await expectPhoneTargets(page)
     }
     if (section === 'My Money') {
@@ -13608,6 +13684,91 @@ test('BOG UI W18 a later successful Home refresh clears the earlier saved-change
   await expect(warning).toHaveCount(0)
   await openSection(page, 'Home')
   await expect(page.locator('.home-money-values')).toContainText('$9,300')
+})
+
+// A saved bill change whose forecast refresh fails must not leave the old forecast looking current anywhere.
+test('BOG UI household a bill removed while the forecast cannot refresh keeps the warning on Home', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const bill = { id: 5, name: 'Talun water', amount_cents: 4_000, due_on: `${currentYear}-12-05`, repeat_months: 1, budget_category_id: null, must_pay: true, estimate: false, paid_on: null, was_this_paid: false, looks_like_debt: null }
+  workspace.budget.annual_plan.year_forecast = { ...workspace.budget.annual_plan.year_forecast, bills: [bill] }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  let removed = false
+  await page.route('http://api.test/api/v1/bills/5', route => { removed = route.request().method() === 'DELETE'; return route.fulfill({ json: { saved: true } }) })
+  await page.route('http://api.test/api/v1/budget?**', route => route.fulfill({ status: 503, json: { errors: ['Synthetic refresh outage'] } }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByText('Year ahead and bills', { exact: true }).click()
+  await page.getByText('Bills and due dates', { exact: true }).click()
+  await page.getByRole('button', { name: 'Remove Talun water' }).click()
+  await page.getByRole('button', { name: 'Remove bill', exact: true }).click()
+  await expect.poll(() => removed).toBe(true)
+  const warning = page.getByRole('alert').filter({ hasText: 'Your bill change was saved, but the forecast could not refresh.' })
+  await expect(warning).toBeVisible()
+  // Budget stays usable: the rest of the plan is there, and the forecast offers a reload instead of old totals.
+  await expect(page.getByRole('heading', { name: 'Budget', exact: true })).toBeVisible()
+  const forecast = page.locator('.budget-year-forecast')
+  await expect(forecast.getByRole('button', { name: 'Reload forecast', exact: true })).toBeVisible()
+  await expect(forecast).toContainText('Forecast not available')
+  await expect(forecast.locator('.forecast-table')).toHaveCount(0)
+  await expect(forecast.getByText('Talun water')).toHaveCount(0)
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Home$/)
+  // Home keeps the warning and hides the old forecast totals instead of showing them as current.
+  await expect(warning).toContainText('Reload before using those totals.')
+  const outlook = page.locator('.home-screen .year-outlook')
+  await expect(outlook).toContainText('Forecast not available')
+  await expect(outlook.locator('.year-outlook-headline')).toHaveCount(0)
+  await expect(outlook).not.toContainText('would end with about')
+
+  // A fresh plan brings the forecast back on both screens.
+  workspace.budget.annual_plan.year_forecast = { ...workspace.budget.annual_plan.year_forecast, bills: [] }
+  await page.unroute('http://api.test/api/v1/budget?**')
+  await page.route('http://api.test/api/v1/budget?**', route => route.fulfill({ json: workspace.budget }))
+  await outlook.getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await forecast.getByRole('button', { name: 'Reload forecast', exact: true }).click()
+  await expect(forecast.locator('.forecast-table')).toBeVisible()
+  await expect(warning).toHaveCount(0)
+  await openSection(page, 'Home')
+  await expect(outlook.locator('.year-outlook-headline')).toBeVisible()
+  await expect(outlook).not.toContainText('Forecast not available')
+})
+
+test('BOG UI household the Home outlook opens the forecast for the year Home shows', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  const lastYear = structuredClone(workspace.budget)
+  lastYear.annual_plan.year = currentYear - 1
+  lastYear.annual_plan.months.forEach((month, index) => { month.starts_on = `${currentYear - 1}-${String(index + 1).padStart(2, '0')}-01`; month.ends_on = `${currentYear - 1}-${String(index + 1).padStart(2, '0')}-28` })
+  delete (lastYear.annual_plan as { year_forecast?: unknown }).year_forecast
+  await page.route(`http://api.test/api/v1/budget?year=${currentYear - 1}`, route => route.fulfill({ json: lastYear }))
+  await page.route(`http://api.test/api/v1/budget?year=${currentYear}`, route => route.fulfill({ json: workspace.budget }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Previous year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toHaveText(String(currentYear - 1))
+  await openSection(page, 'Home')
+  await page.locator('.home-screen .year-outlook').getByRole('button', { name: 'See every month and your bills' }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.locator('.budget-year-label')).toHaveText(String(currentYear))
+  await expect(page.locator('.budget-year-forecast')).toHaveAttribute('open', '')
+  await expect(page.locator('.budget-year-forecast .forecast-table')).toBeVisible()
+})
+
+test('BOG UI household an edited bill holds Budget until it is saved or canceled', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByText('Year ahead and bills', { exact: true }).click()
+  await page.getByText('Bills and due dates', { exact: true }).click()
+  await page.getByRole('button', { name: 'Add bill', exact: true }).click()
+  const form = page.getByRole('form', { name: 'Add a bill' })
+  await form.getByLabel('Bill name').fill('Talun school fee')
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.getByText('You have unsaved budget changes. Save or cancel them before leaving Budget.')).toBeVisible()
+  await expect(form.getByLabel('Bill name')).toHaveValue('Talun school fee')
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await openSection(page, 'Home')
+  await expect(page).toHaveURL(/#Home$/)
 })
 
 test('BOG UI W18 a new version waits for an unsent message and reloads only after it is cleared', async ({ page }) => {
@@ -14982,7 +15143,7 @@ for (const count of [7, 4, 2]) {
 }
 
 // Fix-round acceptance uses the existing synthetic API fixtures; preview transport remains mocked.
-test('Admin UI a sole-program administrator can retain All programs after reload and open household reset', async ({ page }) => {
+test('Admin UI a sole-program administrator starts in that program, can retain All programs after reload, and open household reset', async ({ page }) => {
   await mockFinancialRestartBrowser(page)
   await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: {
     ...pilotAdminUser, id: 900, clerk_id: 'e2e_admin', role: 'admin', is_admin: true, is_staff: true,
@@ -14990,8 +15151,6 @@ test('Admin UI a sole-program administrator can retain All programs after reload
     coach_workspaces: [{ id: 1, name: 'Only program', slug: 'only', membership_role: 'platform_admin', coach_profile: null }],
   } } }))
   await page.goto('/admin/today?pilot_e2e_role=admin&pilot_e2e_live_api=true')
-  await expectAdminProgramValue(page, 'platform')
-  await selectAdminProgram(page, '1')
   await expectAdminProgramValue(page, '1')
   await selectAdminProgram(page, 'platform')
   await page.reload()
@@ -15607,6 +15766,8 @@ test('BOG UI Mia fix2 savings and goal completions expose status with inert focu
 })
 
 test('BOG UI Budget redesign bars and column layouts preserve exact money at phone tablet and laptop widths', async ({ page }) => {
+  // Eight cold loads of the app, one per width; with three CI workers per runner it ran over 20 seconds.
+  test.slow()
   const workspace = realWorkspaceData(true)
   workspace.budget.annual_plan.pending_transaction_drafts = []
   workspace.budget.annual_plan.rows.forEach((row, index) => row.months.forEach(cell => { cell.planned = 100; cell.actual = [0, 25, 100, 125][index] ?? 0 }))
@@ -15647,7 +15808,7 @@ test('BOG UI Review redesign keeps purchase drafts through queue paging and show
   } } }))
   await page.goto('/?pilot_e2e_role=participant#Review')
   await expect(page.getByRole('heading', { name: 'Review', exact: true })).toBeVisible()
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total).toContainText('$12,345.67')
   await expect(total).not.toContainText('100 purchases')
   await page.getByRole('button', { name: 'Add a purchase', exact: true }).click()
@@ -15706,7 +15867,7 @@ test('BOG UI P5 figure 2 editing another month preserves the current total and o
     await route.fulfill({ json: p5Report(route, calls > 1 ? 55.25 : 43.10) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
   await total.locator('summary').click()
   await expect(total.getByText('Current confirmed market')).toBeVisible()
@@ -15737,7 +15898,7 @@ test('BOG UI P5 figure 4 quiet success overtakes initial loading and rejects its
     }
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total).toContainText('Loading report')
   await p5Edit(page)
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
@@ -15766,7 +15927,7 @@ test('BOG UI P5 figure 4 later quiet success clears a quiet error', async ({ pag
     return calls === 2 ? route.fulfill({ status: 503, json: { error: 'Fictional refresh failure' } }) : route.fulfill({ json: p5Report(route, calls === 1 ? 43.10 : 57.25) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
-  const total = page.getByRole('region', { name: 'Confirmed spending this month' })
+  const total = page.getByRole('region', { name: 'Confirmed spending for this period' })
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
   await p5Edit(page)
   await expect(total.getByRole('alert')).toBeVisible()
@@ -15828,6 +15989,8 @@ for (const resolution of ['confirm', 'ignore'] as const) {
 }
 
 test('BOG UI P5 Budget strip fits unknown nine-character and largest values on narrow phones', async ({ page }) => {
+  // Nine cold loads of the app (three values at three widths); with three CI workers per runner it ran close to 30 seconds.
+  test.slow()
   const workspace = realWorkspaceData(true)
   const answer = workspace.dashboard.month_answer!
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
@@ -17254,7 +17417,7 @@ test('BOG UI F4 HEIC and HEIF bytes convert locally to a readable JPEG and bad p
 })
 
 for (const permanent of [true, false]) test(`BOG UI F4 ${permanent ? 'permanent' : 'temporary'} file failure gives the right next step`, async ({ page }) => {
-  const source = { ...f4Source(), status: 'failed', metadata: { extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes.' }
+  const source = { ...f4Source(), status: 'failed', metadata: { extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so open File options and choose Try again in a few minutes.' }
   await f4Chat(page, [source])
   await expect(page.getByRole('region', { name: /Could not read/ })).toBeVisible()
   await f4Evidence(page, permanent ? 'permanent-failure' : 'temporary-failure')
@@ -18006,12 +18169,72 @@ test('BOG UI F2 fix1 duplicate keeps the created purchase in review without conf
   await page.goto('/?pilot_e2e_role=participant#Review')
   await fix1EnterPurchase(page)
   await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
-  await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('Possible duplicate')
+  await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('This may be a purchase you already have')
   await expect(page.locator('.manual-transaction-capture [role=status]')).toHaveClass(/warning/)
-  await expect(page.locator('[data-review-item="7801"]')).toContainText('Match existing')
+  await expect(page.locator('[data-review-item="7801"]')).toContainText('Same purchase as')
+  await expect(page.locator('[data-review-item="7801"]').getByRole('button', { name: /^Confirm / })).toHaveCount(0)
   await expect(page.getByText('1 review', { exact: true })).toBeVisible()
   await expect(page.getByText('0 reviews', { exact: true })).toHaveCount(0)
   expect(calls).toEqual({ creates: 1, confirms: 0 })
+})
+
+test('BOG UI F2 a confirm the server refuses as a possible duplicate turns into the Same purchase question', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  const draft = { id: 7891, occurred_on: '2026-11-14', merchant: 'Payless', amount: 103.42, amount_cents: 10342, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Flexible spending', splits: [{ id: 7892, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', amount: 103.42, amount_cents: 10342, metadata: {} }], matches: [] as Array<Record<string, unknown>> }
+  workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+  const confirmBodies: unknown[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts/7891/confirm', async route => {
+    const body = route.request().postDataJSON()
+    confirmBodies.push(body)
+    if (!body.transaction_draft?.different_purchase) {
+      // Its bank line was approved since she logged it: the server saved the suggestion and refused.
+      draft.matches = [{ id: 7893, status: 'proposed', confidence: 0.92, match_reason: 'same amount', transaction: { id: 7894, occurred_on: '2026-11-13', merchant: 'POS PURCHASE PAYLESS SUPERMARKET TAMUNING GU', store_name: 'Payless Supermarket', amount: 103.42, source_type: 'statement', categories: ['Flexible spending'] } }]
+      f2SyncSnapshot(workspace)
+      return route.fulfill({ status: 409, json: { errors: ['This looks like Payless Supermarket on Nov 13 ($103.42), which you already have. Is it the same purchase or a different one? Nothing changed.'], code: 'possible_duplicate', possible_matches: [{ transaction_id: 7894 }] } })
+    }
+    workspace.budget.annual_plan.rows[0].months[10].actual = 103.42
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    f2SyncSnapshot(workspace)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const card = page.locator('[data-review-item="7891"]')
+  await card.getByRole('button', { name: /^Confirm / }).click()
+  await expect(card).toContainText('Same purchase as Payless Supermarket on Nov 13 ($103.42)?')
+  await expect(card.getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+  await expect(card.locator('.chat-error')).toHaveCount(0)
+  await card.getByRole('button', { name: /^Different purchase:/ }).click()
+  await expect(card.locator('[data-review-result]')).toBeVisible()
+  expect(confirmBodies).toEqual([{ transaction_draft: {} }, { transaction_draft: { different_purchase: true } }])
+})
+
+test('BOG UI F2 a retried confirm that is refused as a possible duplicate still asks Same purchase', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  const draft = { id: 7895, occurred_on: '2026-11-14', merchant: 'Market', amount: 45.2, amount_cents: 4520, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Flexible spending', splits: [{ id: 7896, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', amount: 45.2, amount_cents: 4520, metadata: {} }], matches: [] as Array<Record<string, unknown>> }
+  await page.route('http://api.test/api/v1/transaction_drafts', async route => {
+    workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
+    await route.fulfill({ json: { transaction_draft: draft, workspace } })
+  })
+  const keys: string[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts/7895/confirm', async route => {
+    keys.push(route.request().headers()['idempotency-key'])
+    // The first response is lost on the way back.
+    if (keys.length === 1) return route.abort('connectionreset')
+    // Meanwhile its bank line was approved: the server saved the suggestion and refused.
+    draft.matches = [{ id: 7897, status: 'proposed', confidence: 0.92, match_reason: 'same amount', transaction: { id: 7898, occurred_on: '2026-11-14', merchant: 'POS PURCHASE MARKET', store_name: 'Market', amount: 45.2, source_type: 'statement', categories: ['Flexible spending'] } }]
+    f2SyncSnapshot(workspace)
+    return route.fulfill({ status: 409, json: { errors: ['This looks like Market on Nov 14 ($45.20), which you already have. Is it the same purchase or a different one? Nothing was added to your spending.'], code: 'possible_duplicate', possible_matches: [{ transaction_id: 7898 }] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await fix1EnterPurchase(page)
+  await page.getByLabel('Date', { exact: true }).fill('2026-11-14')
+  await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
+  await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('This may be a purchase you already have')
+  await expect(page.locator('.manual-transaction-capture [role=status]')).not.toContainText('Confirmation did not finish')
+  await expect(page.locator('[data-review-item="7895"]')).toContainText('Same purchase as Market on Nov 14 ($45.20)?')
+  expect(keys).toHaveLength(2)
+  expect(keys[1]).toBe(keys[0])
 })
 
 test('BOG UI F2 fix1 double tap then Undo replaces the manual confirmation notice', async ({ page }) => {
@@ -18268,9 +18491,9 @@ test('BOG UI F2 fix2 previous-year duplicate stays in Review and Match replaces 
   await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
   await expect(page.locator('.manual-transaction-capture [role=status]')).toHaveClass(/warning/)
   const card = page.locator('[data-review-item="7881"]')
-  await card.getByRole('button', { name: /Match existing/ }).click()
+  await card.getByRole('button', { name: /^Same purchase:/ }).click()
   await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('Matched Year end market')
-  await expect(page.locator('.manual-transaction-capture [role=status]')).not.toContainText('Possible duplicate')
+  await expect(page.locator('.manual-transaction-capture [role=status]')).not.toContainText('may be a purchase you already have')
 })
 
 test('BOG UI F2 fix2 Ask Mia keeps the last purchase heading and finished result in position', async ({ page }) => {
@@ -18599,4 +18822,191 @@ test('BOG UI F5 fix1 account-only partially saved file offers server-authorized 
   await page.getByText('File options', {exact: true}).click()
   await f5Capture(page, 'delete-account-only-partial')
   await expect(page.getByRole('button', {name: 'Delete upload & record', exact: true})).toBeEnabled()
+})
+
+// Decision 4: a gift card or voucher is not new money. Fictional Talun receipt.
+test('BOG UI a voucher receipt says only the card money counts and lets her count all of it', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  const payment = (counting: 'new_money' | 'all') => counting === 'new_money'
+    ? { receipt_total: 184.88, receipt_total_cents: 18488, new_money: 34.88, new_money_cents: 3488, counting, message: '$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts. The receipt total was $184.88.', count_all_label: 'Count all $184.88', count_all_splits: [{ id: 8851, amount: 184.88 }] }
+    : { receipt_total: 184.88, receipt_total_cents: 18488, new_money: 34.88, new_money_cents: 3488, counting, message: 'Counting all $184.88, including the $150.00 paid with a voucher or gift card.', count_new_money_label: 'Count only $34.88', count_new_money_splits: [{ id: 8851, amount: 34.88 }] }
+  const receipt = (cents: number, counting: 'new_money' | 'all') => ({ id: 7851, occurred_on: '2026-11-15', merchant: 'Tasi Demo Home Store', amount: cents / 100, amount_cents: cents, status: 'pending', source_type: 'receipt', financial_document_import_id: 61, category_id: 2, category_name: 'Flexible spending', splits: [{ id: 8851, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', amount: cents / 100, amount_cents: cents, metadata: { receipt_amount_cents: 18488, new_money_amount_cents: 3488 } }], matches: [], receipt_payment: payment(counting) })
+  workspace.budget.annual_plan.pending_transaction_drafts = [receipt(3488, 'new_money')]
+  f2SyncSnapshot(workspace)
+  const updates: unknown[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts/7851', async route => {
+    const body = route.request().postDataJSON().transaction_draft
+    updates.push(body)
+    const draft = Number(body.amount) === 184.88 ? receipt(18488, 'all') : receipt(3488, 'new_money')
+    workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
+    await route.fulfill({ json: { transaction_draft: draft, workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const card = page.locator('[data-review-item="7851"]')
+  const note = card.getByRole('region', { name: /was paid$/ })
+  await expect(note).toContainText('$150.00 was paid with a voucher or gift card, so only the $34.88 on your card counts.')
+  await expect(card.getByRole('button', { name: /^Confirm / })).toBeVisible()
+
+  await card.getByRole('button', { name: 'Count all $184.88' }).click()
+  await expect(note).toContainText('Counting all $184.88, including the $150.00 paid with a voucher or gift card.')
+  await card.getByRole('button', { name: 'Count only $34.88' }).click()
+  await expect(note).toContainText('only the $34.88 on your card counts')
+  expect(updates).toEqual([{ amount: 184.88, splits: [{ id: 8851, amount: 184.88 }] }, { amount: 34.88, splits: [{ id: 8851, amount: 34.88 }] }])
+
+  await page.setViewportSize({ width: 320, height: 720 })
+  const button = card.getByRole('button', { name: 'Count all $184.88' })
+  const box = await button.boundingBox()
+  const cardBox = await card.boundingBox()
+  expect(box!.height).toBeGreaterThanOrEqual(44)
+  expect(box!.width).toBeGreaterThan(cardBox!.width * 0.7)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('BOG UI own-account pair and person payment ask for explicit decisions', async ({ page }) => {
+  const saved: unknown[] = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    saved.push(route.request().postDataJSON().input)
+    return route.fulfill({ json: { result: { approved: 1, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  const review = await openTypedStatementReview(page, false, data => {
+    data.participant_review!.plan.attention = [{ event_id: 4001, event_type: 'transfer', kind: 'person_payment', merchant: 'Zelle to Lina Talun', posted_on: '2026-09-15', signed_amount_cents: -3500,
+      question: 'Your own account or someone else?', category_id: null, category_name: null, answers: [{ id: 'own_account', label: 'Your own account' }, { id: 'someone_else', label: 'Someone else' }] },
+    { event_id: 4002, event_type: 'transfer', kind: 'transfer_pair', merchant: 'Talun savings', posted_on: '2026-09-15', signed_amount_cents: -2500,
+      question: 'Do these two lines show money moved between your accounts?', category_id: null, category_name: null, answers: [{ id: 'pair_transfer', label: 'Yes, pair them — not spending' }],
+      transfer_pair: { event_id: 4901, approved_version_id: null, account_version_id: 100, account: 'Savings ending 4412', description: 'Transfer from Talun checking', posted_on: '2026-09-16', signed_amount_cents: 2500 } },
+    { event_id: 4003, event_type: 'purchase', kind: 'person_payment_duplicate', merchant: 'Zelle to Tasi Talun', posted_on: '2026-09-15', signed_amount_cents: -3500,
+      question: 'Is this the same payment, or a different one?', category_id: null, category_name: null, answers: [{ id: 'leave_out', label: 'Same payment' }, { id: 'someone_else', label: 'Different payment — someone else' }] },
+    { event_id: 4004, event_type: 'unknown', kind: 'direction', recipient_question: true, merchant: 'Venmo to Talun reserve', posted_on: '2026-09-15', signed_amount_cents: null, amount_cents: 3500,
+      question: 'Was this money out or money in?', category_id: null, category_name: null, answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] }]
+    return data
+  })
+  await review.getByRole('button', { name: 'Someone else: Zelle to Lina Talun', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(1)
+  expect(saved[0]).toMatchObject({ lines: [{ decision: 'someone_else' }] })
+  await expect(review.getByText(/Matching line in Savings ending 4412: Transfer from Talun checking/)).toBeVisible()
+  await review.getByRole('button', { name: 'Yes, pair them — not spending: Talun savings', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(2)
+  expect(saved[1]).toMatchObject({ lines: [{ decision: 'pair_transfer', transfer_pair: { event_id: 4901, account_version_id: 100 } }] })
+  await review.getByRole('button', { name: 'Different payment — someone else: Zelle to Tasi Talun', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(3)
+  expect(saved[2]).toMatchObject({ lines: [{ decision: 'someone_else' }] })
+  await review.getByRole('button', { name: 'Money out: Venmo to Talun reserve', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Venmo to Talun reserve', exact: true })
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(sheet.getByRole('alert')).toHaveText('Choose your own account or someone else.')
+  expect(saved).toHaveLength(3)
+  const own = sheet.getByRole('button', { name: 'Your own account', exact: true })
+  const other = sheet.getByRole('button', { name: 'Someone else', exact: true })
+  if (page.viewportSize()!.width <= 390) {
+    const first = await own.boundingBox(), second = await other.boundingBox()
+    expect(first!.height).toBeGreaterThanOrEqual(44)
+    expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height)
+  }
+  await own.click()
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(4)
+  expect(saved[3]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: 'moved', money_direction: 'out', amount_cents: 3500 } }] })
+  await review.getByRole('button', { name: 'Money out: Venmo to Talun reserve', exact: true }).click()
+  const bill = page.getByRole('dialog', { name: 'Venmo to Talun reserve', exact: true })
+  await bill.getByRole('button', { name: 'Spending', exact: true }).click()
+  await bill.getByRole('combobox', { name: /^Category/ }).selectOption({ index: 1 })
+  await bill.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(() => saved.length).toBe(5)
+  expect(saved[4]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: 'spending', category_id: expect.any(Number) } }] })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+function round4CashQuestion() {
+  return {
+    transaction_draft_id: 9342, transaction_id: 9343, state: 'unanswered', merchant: 'Round four demo lunch',
+    occurred_on: `${currentYear}-01-05`, amount: 40, amount_cents: 4000, cash_cents: 4000,
+    covered_cents: 0, counting_on_its_own_cents: 4000, message: 'This cash purchase currently counts on its own.',
+    question: 'Paid with the cash you took out?', decline_label: 'No, other cash',
+    candidates: [{ financial_source_event_id: 9344, withdrawn_on: `${currentYear - 1}-12-30`, amount: 100, amount_cents: 10000, available: 100, available_cents: 10000, covers_cents: 4000, label: 'the $100 you took out on Dec 30' }],
+  }
+}
+
+test('B5 round 4 cash answer invalidates a previously cached other year', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  Object.assign(workspace.budget.annual_plan, { cash_purchase_questions: [round4CashQuestion()] })
+  let reads = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/budget?**', route => {
+    reads += 1
+    const year = Number(new URL(route.request().url()).searchParams.get('year'))
+    return route.fulfill({ json: budgetFixtureForYear(year) })
+  })
+  await page.route('http://api.test/api/v1/transaction_drafts/9342/cash_answer', route => {
+    Object.assign(workspace.budget.annual_plan, { cash_purchase_questions: [] })
+    return route.fulfill({ json: { message: 'Saved cash answer.', workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Previous year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toContainText(String(currentYear - 1))
+  expect(reads).toBe(1)
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toContainText(String(currentYear))
+  await openSection(page, 'Review')
+  await page.getByRole('button', { name: /Yes: Round four demo lunch/ }).click()
+  await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toHaveCount(0)
+  await openSection(page, 'Budget')
+  await page.getByRole('button', { name: 'Previous year', exact: true }).click()
+  await expect.poll(() => reads).toBe(2)
+})
+
+test('B5 round 4 cash answers stay disabled until a pending Mia response settles', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  Object.assign(workspace.budget.annual_plan, { cash_purchase_questions: [round4CashQuestion()] })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/mia/messages', async route => {
+    await gate
+    return route.fulfill({ json: {
+      user_message: { id: 9345, role: 'user', author: 'You', content: 'Check my spending.', attachments: [] },
+      assistant_message: { id: 9346, role: 'assistant', author: 'Mia', content: 'Here is your spending.', attachments: [] },
+      transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null,
+    } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Check my spending.')
+  const sent = page.waitForRequest('http://api.test/api/v1/mia/messages')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await sent
+  await openSection(page, 'Review')
+  await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toBeDisabled()
+  release()
+  await expect(page.getByRole('button', { name: /Yes: Round four demo lunch/ })).toBeEnabled()
+})
+
+
+test('BOG UI pending exclusion on an approved purchase stays left out when saved unchanged', async ({ page }) => {
+  let saved = false
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    expect(route.request().postDataJSON().input.lines[0]).toMatchObject({ decision: 'edited', expected_head: { pending_digest: 'demo-exclusion' }, edit: { kind: 'spending', amount_cents: 1000, category_id: null } })
+    saved = true
+    return route.fulfill({ json: { result: { approved: 1, left_out: 1, unchanged: 0, complete: true } } })
+  })
+  const review = await openTypedStatementReview(page, false, data => {
+    const event = { ...data.events[0], event_type: 'purchase' as const, signed_amount_cents: -1000 }
+    data.events = [event]
+    data.counts.all = 1
+    data.pagination = { page: 1, per_page: 50, total_count: 1, total_pages: 1, has_previous: false, has_next: false }
+    const participant = data.participant_review!
+    participant.rows[event.id] = { head: { id: 900, approved_version_id: saved ? 901 : 900, lock_version: saved ? 2 : 1 }, pending: null,
+      approved: { id: saved ? 901 : 900, digest: 'demo-purchase', version_number: saved ? 2 : 1, current: true, reason: 'Fictional approval', projection: { action: 'none' }, actual: null,
+        facts: { source_account_identity_version_id: 100, disposition: saved ? 'exclude' : 'include', event_type: 'purchase', signed_amount_cents: -1000, purchase_amount_cents: saved ? null : 1000, posted_on: event.posted_on, merchant: 'Demo purchase', budget_category_id: saved ? null : 10, overlap_disposition: saved ? 'excluded' : 'new' } } }
+    participant.plan = { ...participant.plan, total: 1, done: saved ? 1 : 0, ready: [], ready_event_ids: [], coverage: { question: null, answer: null }, attention: saved ? [] : [{ ...participant.plan.attention[0], event_id: event.id, kind: 'correction', event_type: 'purchase', disposition: 'exclude', signed_amount_cents: -1000, merchant: 'Demo purchase', editable_merchant: 'Demo purchase', posted_on: event.posted_on, category_id: null, recipient_question: false, question: 'Review your proposed correction.', answers: [{ id: 'edit', label: 'Review correction' }], expected_head: { approved_version_id: 900, lock_version: 1, account_version_id: 100, pending_digest: 'demo-exclusion' } }] }
+    return data
+  })
+  await review.getByRole('button', { name: 'Review correction' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Demo purchase' })
+  await expect(dialog.getByText('This line is left out of spending and income.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Leave this line out' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await review.getByText('See all 1 line', { exact: true }).click()
+  await expect(review.getByRole('cell', { name: 'Left out', exact: true })).toBeVisible()
+  expect(saved).toBe(true)
 })

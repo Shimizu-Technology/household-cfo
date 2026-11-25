@@ -3,6 +3,56 @@ require "spreadsheet"
 require "zip"
 
 class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::TestCase
+  test "a named card payment with its last four is a debt payment rather than a purchase" do
+    Tempfile.create([ "named-card", ".csv" ]) do |file|
+      file.write("Date,Description,Withdrawal\n2026-10-03,Payment to Chase card ending 1234,500.00\n2026-10-03,Payment to Guam Power Authority,75.00\n")
+      file.flush
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "named-card.csv").call
+      assert result.success?, result.error
+      assert_equal %w[debt_payment purchase], result.data.fetch(:source_accounting).fetch(:events).pluck(:event_type)
+    end
+  end
+
+  test "money into a card is a payment on it or a question, never income" do
+    Tempfile.create([ "card", ".csv" ]) do |file|
+      file.write("Date,Description,Amount\n2026-10-03,AUTOPAY PAYMENT,500.00\n2026-10-05,MOBILE PAYMENT,75.00\n2026-10-06,TALUN DEMO CASHBACK CREDIT,12.00\n2026-10-07,Tasi Demo Market,-40.00\n")
+      file.flush
+      events = ->(basis) { FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "card.csv", account_basis: basis, negative_is_money_out: true).call.data.fetch(:source_accounting).fetch(:events).pluck(:event_type) }
+      assert_equal %w[debt_payment debt_payment unknown purchase], events.call("liability")
+      assert_equal %w[income income income purchase], events.call("asset")
+    end
+  end
+
+  test "keeps CSV account names and masks account numbers without collapsing distinct numbers" do
+    Tempfile.create([ "accounts", ".csv" ]) do |file|
+      file.write(<<~CSV)
+        Date,Account,Description,Debit
+        2026-01-02,Everyday checking,Demo Market,12.00
+        2026-01-02,111122226824,Demo Cafe,7.00
+        2026-01-03,333344446824,Demo Store,30.00
+      CSV
+      file.flush
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "accounts.csv").call
+      accounts = result.data.fetch(:source_accounting).fetch(:accounts)
+      assert_equal [ "Everyday checking", "····6824", "····6824" ], accounts.map { |account| account.dig(:evidence, :label) }
+      assert_equal 3, accounts.pluck(:source_key).uniq.size
+      assert accounts.drop(1).all? { |account| account[:limitations].include?("account_label_ambiguous") }
+    end
+  end
+
+  test "CSV labels that store identically after normalization and truncation are ambiguous" do
+    Tempfile.create([ "account-collision", ".csv" ]) do |file|
+      prefix = "Example checking " * 8
+      file.write("Date,Account,Description,Debit\n2026-01-02,#{prefix}one,Demo Market,12.00\n2026-01-03,#{prefix.sub('E', 'Ｅ')}two,Demo Store,30.00\n")
+      file.flush
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "accounts.csv").call
+      accounts = result.data.fetch(:source_accounting).fetch(:accounts)
+      assert_equal 2, accounts.length
+      assert_equal 1, accounts.map { |account| account.dig(:evidence, :label) }.uniq.length
+      assert accounts.all? { |account| account[:limitations].include?("account_label_ambiguous") }
+    end
+  end
+
   test "ATM purchases fees and cash back remain whole expenses distinct from withdrawals" do
     descriptions = {
       "ATM/POS Purchase Walmart" => "purchase", "Purchase with Cash Back $20" => "purchase",

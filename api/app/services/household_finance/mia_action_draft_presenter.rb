@@ -269,8 +269,10 @@ module HouseholdFinance
         { label: "Type", before: "—", after: debt["debt_type"].to_s.humanize },
         { label: "Balance", before: "—", after: debt_money_value(debt, "balance") },
         { label: "Monthly minimum", before: "—", after: debt_money_value(debt, "minimum_payment") },
-        { label: "APR", before: "—", after: debt_apr_value(debt["interest_rate_percent"]) }
-      ]
+        { label: "APR", before: "—", after: debt_apr_value(debt["interest_rate_percent"]) },
+        ({ label: "Past due", before: "—", after: debt_past_due_value(debt["past_due_cents"]) } if debt.key?("past_due_cents")),
+        ({ label: "Payment due day", before: "—", after: debt_due_day_value(debt["due_day"]) } if debt.key?("due_day"))
+      ].compact
     end
 
     def account_create_review_fields(account)
@@ -356,6 +358,7 @@ module HouseholdFinance
         "label" => "Debt", "debt_type" => "Type", "balance_cents" => "Balance",
         "balance_known" => "Balance", "minimum_payment_cents" => "Monthly minimum",
         "minimum_payment_known" => "Monthly minimum", "interest_rate_percent" => "APR",
+        "past_due_cents" => "Past due", "due_day" => "Payment due day",
         "active" => "Planning status"
       }
       handled = []
@@ -398,6 +401,8 @@ module HouseholdFinance
       return debt_money_value(debt, "balance") if key == "balance_cents"
       return debt_money_value(debt, "minimum_payment") if key == "minimum_payment_cents"
       return debt_apr_value(debt[key]) if key == "interest_rate_percent"
+      return debt_past_due_value(debt[key]) if key == "past_due_cents"
+      return debt_due_day_value(debt[key]) if key == "due_day"
       return debt[key] ? "Active" : "Archived" if key == "active"
       debt[key].to_s.humanize
     end
@@ -410,6 +415,14 @@ module HouseholdFinance
     def summary_debt_money(profile, prefix)
       return "Not entered" unless profile["debt_summary_#{prefix}_known"]
       money_from_cents(profile["debt_summary_#{prefix}_cents"])
+    end
+
+    def debt_past_due_value(cents)
+      cents.nil? ? "Not entered" : money_from_cents(cents)
+    end
+
+    def debt_due_day_value(day)
+      day.nil? ? "Not entered" : "The #{day.to_i.ordinalize} of each month"
     end
 
     def debt_apr_value(value)
@@ -484,7 +497,7 @@ module HouseholdFinance
     end
 
     def stack_label(key)
-      SnapshotBuilder::STACK_LABELS.fetch(key.to_s, key.to_s.humanize)
+      ExpenseGroups.label(key, draft.household && CohortExperience::MethodSettings.for_household(draft.household))
     end
 
     def setup_coverage_after_apply

@@ -212,4 +212,22 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
     end
     assert_equal({ amount: "2000", merchant: "Costco" }, HouseholdFinance::TransactionDraftBuilder.explicit_purchase_details("I spent $2k at Costco"))
   end
+
+  test "her words that she paid in cash are kept on the purchase, so it can ask which cash" do
+    result = HouseholdFinance::MiaTransactionDraftCreator.new(@household, user: @user,
+      command: { type: "create_transaction_draft", merchant: "Tasi Demo Cafe", amount: "40.00", occurred_on: "2026-07-10", splits: [] },
+      raw_input: "I paid $40 cash for lunch at Tasi Demo Cafe.").call
+    assert result.success?
+    assert_equal({ "source" => "participant" }, result.draft.draft_payload.fetch("cash_payment"))
+
+    plain = HouseholdFinance::MiaTransactionDraftCreator.new(@household, user: @user,
+      command: { type: "create_transaction_draft", merchant: "Tasi Demo Cafe", amount: "12.00", occurred_on: "2026-07-11", splits: [] },
+      raw_input: "Lunch at Tasi Demo Cafe was $12.").call
+    assert_nil plain.draft.draft_payload["cash_payment"]
+    card = HouseholdFinance::MiaTransactionDraftCreator.new(@household, user: @user,
+      command: { type: "create_transaction_draft", merchant: "Tasi Demo Cafe", amount: "40.00", occurred_on: "2026-07-12", splits: [] },
+      raw_input: "I paid $40 by card at Tasi Cafe, not in cash.").call
+    assert card.success?
+    assert_nil card.draft.draft_payload["cash_payment"]
+  end
 end

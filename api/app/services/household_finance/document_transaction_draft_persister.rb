@@ -8,8 +8,13 @@ module HouseholdFinance
       "low" => BigDecimal("0.35")
     }.freeze
 
-    def initialize(document_import, transaction_drafts)
+    # summary: the reader's summary of the whole document. A one-purchase
+    # receipt's summary can say how it was paid when the row itself doesn't.
+    # summary_cut: the summary was longer than the reader keeps.
+    def initialize(document_import, transaction_drafts, summary: nil, summary_cut: false)
       @document_import = document_import
+      @summary = summary
+      @summary_cut = summary_cut
       @household = document_import.household
       @transaction_drafts = Array(transaction_drafts)
       limit = @transaction_drafts.all? { |draft| draft.is_a?(Hash) && draft[:financial_source_event_id].present? } ? FinancialDocuments::AccountingContract::MAX_EVENTS : MAX_DRAFTS
@@ -80,6 +85,8 @@ module HouseholdFinance
         warnings << "Skipped #{merchant}: split amounts did not equal the transaction total."
         return
       end
+      cash_cents = receipt_cash_cents(draft_payload, source_type, total_amount_cents)
+      receipt_payment, total_amount_cents, splits = receipt_payment_for(draft_payload, source_type, total_amount_cents, splits)
 
       match_count_for_draft = persist_draft_transaction!(
         draft_payload: draft_payload,
@@ -88,7 +95,9 @@ module HouseholdFinance
         total_amount_cents: total_amount_cents,
         source_type: source_type,
         splits: splits,
-        index: index
+        index: index,
+        receipt_payment: receipt_payment,
+        cash_payment: (CashPayment.receipt_payload(cash_cents) if cash_cents)
       )
       @created_count += 1
       @match_count += match_count_for_draft
@@ -104,7 +113,7 @@ module HouseholdFinance
       warnings << "Skipped transaction row #{index + 1}: it could not be saved."
     end
 
-    def persist_draft_transaction!(draft_payload:, occurred_on:, merchant:, total_amount_cents:, source_type:, splits:, index:)
+    def persist_draft_transaction!(draft_payload:, occurred_on:, merchant:, total_amount_cents:, source_type:, splits:, index:, receipt_payment: nil, cash_payment: nil)
       matcher_results = []
       ApplicationRecord.transaction(requires_new: true) do
         draft = document_import.transaction_drafts.create!(
@@ -118,7 +127,7 @@ module HouseholdFinance
           status: "pending",
           confidence: normalized_decimal(draft_payload[:confidence]),
           raw_input: raw_input_for(draft_payload, merchant),
-          draft_payload: sanitized_draft_payload(draft_payload, index: index)
+          draft_payload: sanitized_draft_payload(draft_payload, index: index).merge({ ReceiptTenders::PAYLOAD_KEY => receipt_payment, CashPayment::PAYLOAD_KEY => cash_payment }.compact)
         )
         splits.each { |split| create_split!(draft, split) }
         matcher_results = TransactionDraftMatcher.new(draft).call
@@ -163,6 +172,50 @@ module HouseholdFinance
           ).compact
         }
       end
+    end
+
+    # Part of a receipt paid with a gift card, voucher, store credit or rewards
+    # is not new money (decision 4), so propose only the new money and scale
+    # the splits to it. The receipt total and each split's receipt amount stay
+    # on the draft so she can count all of it instead. Nothing counts until she
+    # confirms. When the payment lines don't add up, the draft stays as read.
+    def receipt_payment_for(draft_payload, source_type, total_amount_cents, splits)
+      unchanged = [ nil, total_amount_cents, splits ]
+      return unchanged unless source_type == "receipt" && draft_payload[:financial_source_event_id].blank?
+
+      texts = [ draft_payload[:evidence], *Array(draft_payload[:warnings]) ]
+      cut = draft_payload[:receipt_text_cut] == true
+      if transaction_drafts.length == 1
+        texts << @summary
+        cut ||= @summary_cut
+      end
+      reading = ReceiptTenders.read(total_cents: total_amount_cents, texts: texts, cut: cut)
+      return unchanged unless reading
+
+      payment = { "reader" => "receipt_tenders_v1", "receipt_total_cents" => reading.receipt_total_cents,
+        "new_money_cents" => reading.new_money_cents, "paid_with" => reading.paid_with }
+      with_receipt_amounts = splits.map { |split| split.merge(metadata: split[:metadata].merge(receipt_amount_cents: split[:amount_cents])) }
+      # All of it paid without new money: a purchase can't be $0, so she sees
+      # why and chooses Not now herself.
+      return [ payment, total_amount_cents, with_receipt_amounts ] if reading.new_money_cents.zero?
+
+      shares = RefundCredits.proportional(splits.each_with_index.map { |split, index| { category_id: index, amount_cents: split[:amount_cents] } }, reading.new_money_cents)
+      # A split too small to keep a whole cent: leave the draft as read.
+      return unchanged unless shares.length == splits.length
+
+      scaled = with_receipt_amounts.zip(shares).map do |split, share|
+        split.merge(amount_cents: share[:amount_cents], metadata: split[:metadata].merge(new_money_amount_cents: share[:amount_cents]))
+      end
+      [ payment, reading.new_money_cents, scaled ]
+    end
+
+    # A receipt paid wholly or partly in cash names cash she took out (decision 3); the card asks which withdrawal.
+    def receipt_cash_cents(draft_payload, source_type, total_amount_cents)
+      return unless source_type == "receipt" && draft_payload[:financial_source_event_id].blank?
+
+      texts = [ draft_payload[:evidence], *Array(draft_payload[:warnings]) ]
+      texts << @summary if transaction_drafts.length == 1
+      ReceiptTenders.cash_cents(total_cents: total_amount_cents, texts: texts)
     end
 
     def split_sum_valid?(splits, total_amount_cents)

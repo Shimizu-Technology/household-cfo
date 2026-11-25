@@ -24,6 +24,23 @@ module SavingsChallengeTestSupport
     yield
   end
 
+  # Go live with a schema 5 savings experience whose method sets these challenge rules.
+  # Later joiners read the new release; earlier enrollments keep what they started with.
+  def publish_savings_challenge_rules(challenge, key: SecureRandom.hex(6))
+    configuration = @savings_cohort.cohort_experience_configuration.reload
+    config = CohortExperience::Schema.upgrade(CohortExperience::Schema::PILOT_SAVINGS_CONFIG)
+    config["method"] = config["method"].merge("challenge" => challenge.stringify_keys)
+    configuration.update!(draft_config: config, last_edited_by_user: @savings_owner)
+    publisher = CohortExperience::Publisher.new(configuration: configuration, actor: @savings_owner)
+    digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+    publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision,
+      expected_current_version_id: configuration.current_published_version_id)
+    @savings_release = CohortReleases::Sealer.new(cohort: @savings_cohort.reload, actor: nil, publication_source: "system").call!(request_key: "synthetic-savings-rules-#{key}")
+    # Go live points the group at the new release (the rollout path is tested elsewhere).
+    @savings_cohort.reload.update!(active_cohort_release: @savings_release)
+    @savings_cohort
+  end
+
   def savings_offer_digest(user: @savings_user)
     membership = @savings_cohort.cohort_memberships.find_by!(user_id: user.id, role: "participant")
     SavingsChallenge::EnrollmentOffer.call(cohort: @savings_cohort.reload, user: user, membership: membership).fetch(:acceptance_digest)

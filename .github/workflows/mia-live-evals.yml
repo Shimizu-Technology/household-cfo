@@ -2,7 +2,8 @@
 # It is the only CI context the live runner accepts (MIA_LIVE_EVALS_NIGHTLY_WORKFLOW
 # plus this workflow's name); every other CI job is still refused. It never gates a
 # PR, but the run goes red when a case fails. Without the OPENROUTER_API_KEY
-# repository secret it skips with a notice.
+# repository secret the live job is skipped (grey, not a green pass), with a warning
+# and a run summary that say no live run happened.
 name: Mia live evals (nightly)
 
 on:
@@ -29,8 +30,35 @@ permissions:
   contents: read
 
 jobs:
+  # A job-level `if` can't read secrets, so this job reads the key and hands the
+  # live job a yes or no. The key never leaves this step.
+  check-key:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      present: ${{ steps.key.outputs.present }}
+    steps:
+      - name: Check for the OpenRouter key
+        id: key
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::warning title=Mia live evals did not run::The OPENROUTER_API_KEY repository secret is not set, so the live job was skipped and no evals ran. Add the secret to turn this run on."
+            {
+              echo "## Mia live evals did NOT run"
+              echo
+              echo "The \`OPENROUTER_API_KEY\` repository secret is not set, so the live job was skipped. No model was called and no case was checked. This is not a pass."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
   live:
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    needs: check-key
+    if: needs.check-key.outputs.present == 'true'
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
@@ -63,55 +91,37 @@ jobs:
     # The OpenRouter key is set only on the steps that use it, so setup steps and
     # third-party actions never see it.
     steps:
-      - name: Check for the OpenRouter key
-        id: key
-        working-directory: .
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "::notice title=Mia live evals skipped::The OPENROUTER_API_KEY repository secret is not set, so no live evals ran. Add the secret to turn this run on."
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Install PostgreSQL client libraries
-        if: steps.key.outputs.present == 'true'
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev
         working-directory: .
 
       - name: Checkout code
-        if: steps.key.outputs.present == 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Ruby
-        if: steps.key.outputs.present == 'true'
-        uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
+        uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
         with:
           bundler-cache: true
           working-directory: api
 
       - name: Prepare database
-        if: steps.key.outputs.present == 'true'
         run: bin/rails db:prepare
 
       - name: Run live Mia evals
-        if: steps.key.outputs.present == 'true'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         # Exits non-zero when a case fails a check its known gap doesn't name, or a model call fails.
         run: bin/rails mia:evals:live
 
       - name: Add the report to the run summary
-        if: ${{ always() && steps.key.outputs.present == 'true' }}
+        if: ${{ always() }}
         run: |
           report=$(ls -t tmp/evals/*.md 2>/dev/null | head -1)
           # The totals and the case table; the transcripts stay in the artifact.
           if [ -n "$report" ]; then awk '/^## /{exit} {print}' "$report" >> "$GITHUB_STEP_SUMMARY"; else echo "No live eval report was written." >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Keep the report
-        if: ${{ always() && steps.key.outputs.present == 'true' }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mia-live-evals-${{ github.run_id }}

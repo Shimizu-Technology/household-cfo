@@ -6,7 +6,8 @@ class CohortExperienceSchemaTest < ActiveSupport::TestCase
   test "new household configurations use the current schema and statement tools" do
     owner = User.create!(clerk_id: "current-schema-owner", email: "current-schema@example.invalid", role: "coach", invitation_status: "accepted")
     cohort = Cohort.create!(name: "Current tools", status: "enrolling", created_by_user: owner)
-    assert_equal 4, schema::DEFAULT_CONFIG.fetch("schema_version")
+    assert_equal 5, schema::DEFAULT_CONFIG.fetch("schema_version")
+    assert_equal CohortExperience::MethodSettings::DEFAULTS, schema::DEFAULT_CONFIG.fetch("method")
     assert_equal schema::DEFAULT_CONFIG, cohort.cohort_experience_configuration.draft_config
     assert_equal true, cohort.cohort_experience_configuration.draft_config.dig("optional_modules", "statements")
   end
@@ -70,7 +71,7 @@ class CohortExperienceSchemaTest < ActiveSupport::TestCase
   end
 
   test "schema four makes every non-core module optional and orders capabilities" do
-    config = schema.upgrade(schema::DEFAULT_CONFIG)
+    config = schema.upgrade(schema::DEFAULT_CONFIG).merge("schema_version" => 4).except("method")
     assert_empty schema.errors(config)
     assert_equal 4, config.fetch("schema_version")
     assert_equal [], config.fetch("module_order")

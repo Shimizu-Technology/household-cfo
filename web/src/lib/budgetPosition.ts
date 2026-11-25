@@ -20,6 +20,8 @@ export type BudgetPosition = {
   active: boolean
   neverPlanned?: boolean
   allocationMissing?: boolean
+  /** Confirmed activity this month, so a $0 total is known (purchases and refunds that cancel out). */
+  hasActivity?: boolean
 }
 
 export type BudgetPositionTotals = {
@@ -75,6 +77,7 @@ export function budgetPositionsForMonth(
       pending: reportCategory?.pending ?? pendingByCategory.get(row.id) ?? 0,
       remaining: subtractMoney(planned, actual),
       active: row.active,
+      hasActivity: reportCategory?.has_activity === true,
     }
   })
 
@@ -90,6 +93,7 @@ export function budgetPositionsForMonth(
       pending: category.pending,
       remaining: category.remaining,
       active: category.active ?? true,
+      hasActivity: category.has_activity === true,
     }))
 
   const uncategorizedPending = pendingByCategory.get(null) ?? 0

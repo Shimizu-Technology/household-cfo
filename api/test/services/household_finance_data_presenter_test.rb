@@ -34,8 +34,8 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_nil debt_milestone
     assert_equal [ 0, 0, 0 ], decisions.values.map { |decision| decision.fetch(:amount) }
     assert_equal [ "Wait", "Wait", "Wait" ], decisions.values.map { |decision| decision.fetch(:recommendation) }
-    assert_equal false, payload.dig(:dashboard, :readiness_path, :yellow, :reached)
-    assert_equal false, payload.dig(:dashboard, :readiness_path, :green, :reached)
+    assert_nil payload.dig(:dashboard, :readiness_path, :emergency_fund)
+    assert_nil payload.dig(:dashboard, :readiness_path, :surplus)
     assert_equal "Household CFO", payload.dig(:workspace, :brand, :config, "product_name")
     assert_equal "legacy_household_cfo_builtin", payload.dig(:workspace, :brand, :mode)
   end
@@ -90,7 +90,8 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
   test "optionality uses approved readiness language instead of conflicting numeric scores" do
     household, user = create_household
     household.update!(primary_goal: "Leave my job safely")
-    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
+    # At a $250 surplus: $16,500 short is 66 months (Red), $9,000 short is 36 (Yellow), then reached (Green).
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 325_000, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     account = household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
     household.goals.create!(label: "Runway target", goal_type: "runway", target_months: 6, priority: 1)
@@ -462,7 +463,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
   test "dashboard and Mia prompts use one approved readiness status" do
     household, user = create_household
-    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 310_000, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
     household.goals.create!(label: "Runway target", goal_type: "runway", target_months: 6, priority: 1)
@@ -472,14 +473,11 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
     assert_equal "red", payload.dig(:dashboard, :summary, :readiness_tone)
     assert_equal 0, payload.dig(:dashboard, :summary, :next_safe_to_spend_amount)
-    assert_equal "Protect the baseline and build runway.", payload.dig(:dashboard, :coach_read, :title)
-    assert_equal 3.0, payload.dig(:dashboard, :readiness_path, :yellow, :runway_months)
-    assert_equal 9_000, payload.dig(:dashboard, :readiness_path, :yellow, :protected_liquid_target)
-    assert_equal 7_500, payload.dig(:dashboard, :readiness_path, :yellow, :protected_liquid_gap)
-    assert_equal false, payload.dig(:dashboard, :readiness_path, :yellow, :reached)
-    assert_equal 6.0, payload.dig(:dashboard, :readiness_path, :green, :runway_months)
-    assert_equal 18_000, payload.dig(:dashboard, :readiness_path, :green, :protected_liquid_target)
-    assert_equal 16_500, payload.dig(:dashboard, :readiness_path, :green, :protected_liquid_gap)
+    assert_equal "Protect the baseline and build the emergency fund.", payload.dig(:dashboard, :coach_read, :title)
+    fund = payload.dig(:dashboard, :readiness_path, :emergency_fund)
+    assert_equal [ "red", 18_000.0, 16_500.0, 165 ], fund.values_at(:tone, :target, :gap, :months_to_target)
+    assert_equal "red", payload.dig(:dashboard, :readiness_path, :surplus, :tone)
+    assert_equal({ target_green_months: 12, target_yellow_months: 36, surplus_green: 1_000.0, surplus_yellow: 500.0 }, payload.dig(:dashboard, :readiness_path, :status_rule))
     assert_includes payload.dig(:dashboard, :next_steps), "Pause new wants and direct available surplus to essential bills, expected expenses, and runway until the household reaches Yellow."
     assert_includes payload.dig(:mia, :quick_prompts), "Why is my readiness Red?"
     refute_includes payload.dig(:mia, :quick_prompts), "Why is my baseline yellow?"
@@ -487,7 +485,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal 0, decision_map(payload).fetch("Extra debt payment").fetch(:amount)
   end
 
-  test "readiness path marks Yellow and Green thresholds from the saved runway target" do
+  test "readiness path shows the emergency fund gap and colour from the saved runway target" do
     household, user = create_household
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
@@ -496,17 +494,16 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
     yellow_path = HouseholdFinance::DataPresenter.new(household, user: user).dashboard.fetch(:readiness_path)
 
-    assert_equal true, yellow_path.dig(:yellow, :reached)
-    assert_equal false, yellow_path.dig(:green, :reached)
-    assert_equal 0, yellow_path.dig(:yellow, :protected_liquid_gap)
-    assert_equal 9_000, yellow_path.dig(:green, :protected_liquid_gap)
+    # $9,000 short at a $4,000 surplus: 3 months.
+    assert_equal [ "green", 18_000.0, 9_000.0, 3 ], yellow_path.fetch(:emergency_fund).values_at(:tone, :target, :gap, :months_to_target)
+    assert_equal "household", yellow_path.fetch(:target_runway_source)
+    assert_equal "green", yellow_path.dig(:surplus, :tone)
 
     account.update!(balance_cents: 1_800_000)
     green_path = HouseholdFinance::DataPresenter.new(household, user: user).dashboard.fetch(:readiness_path)
 
-    assert_equal true, green_path.dig(:yellow, :reached)
-    assert_equal true, green_path.dig(:green, :reached)
-    assert_equal 0, green_path.dig(:green, :protected_liquid_gap)
+    assert_equal [ "green", 0.0, 0 ], green_path.fetch(:emergency_fund).values_at(:tone, :gap, :months_to_target)
+    assert_equal "Green — emergency fund target reached", green_path.dig(:emergency_fund, :label)
   end
 
   test "missing liquid balances keep runway nullable and point blockers to account controls" do

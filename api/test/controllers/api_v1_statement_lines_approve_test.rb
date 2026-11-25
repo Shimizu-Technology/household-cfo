@@ -41,7 +41,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert version.expense?
     assert_equal 32_000, version.purchase_amount_cents
     assert_equal cash.id, version.budget_category_id
-    assert_equal({ "read_count" => 1, "read_cents" => 32_000, "counted_count" => 1, "counted_cents" => 32_000 }, review_plan.fetch("spending"))
+    assert_equal({ "read_count" => 1, "read_cents" => 32_000, "counted_count" => 1, "counted_cents" => 32_000, "refund_count" => 0, "refund_cents" => 0 }, review_plan.fetch("spending"))
     assert_equal 1, @household.household_transactions.count
     budget = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).plan_data
     budget_cents = HouseholdFinance::Money.cents(budget.fetch(:rows).find { |category| category[:id] == cash.id }.fetch(:actual_total))
@@ -61,6 +61,76 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     refute moved.expense?
     assert_empty @household.household_transactions.where(status: %w[confirmed reconciled])
     assert_nil SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 8, 2), from: "2026-07-01", to: "2026-07-31").call[:observed_spending_cents]
+  end
+
+  test "a purchase saved with no category stays on her list until she chooses one or leaves it out" do
+    @source = build_source(rows: [ [ "Tasi Demo Cafe", -1250, "purchase", 1 ], [ "Mangilao Demo Hardware", -4200, "purchase", 2 ] ])
+    cafe, hardware = @source[:revision].financial_source_events.order(:position).to_a
+    suggest(cafe, @clothing)
+    assert_equal @clothing.id, review_plan.fetch("ready").find { |row| row["event_id"] == cafe.id }.fetch("category_id"), "The reader guessed a category"
+    approve_lines({ lines: [ cafe, hardware ].map { |event| { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: nil } } } })
+    assert_response :success, response.body
+
+    plan = review_plan
+    assert_equal [ 2, 2 ], plan.values_at("done", "without_category")
+    rows = plan.fetch("attention").index_by { |row| row["event_id"] }
+    assert_equal [ cafe.id, hardware.id ], rows.keys.sort
+    assert_equal [ "no_category" ], rows.values.map { |row| row["kind"] }.uniq
+    assert_equal "What was this for?", rows.fetch(cafe.id).fetch("question")
+    assert_equal [ "edit", "leave_out" ], rows.fetch(cafe.id).fetch("answers").map { |answer| answer["id"] }
+    assert_equal [ nil, nil ], rows.fetch(cafe.id).values_at("category_id", "category_name"), "Shows what she saved, not the reader's guess"
+    assert_empty @household.household_transactions.where(status: %w[confirmed reconciled]), "Without a category it counts nowhere"
+
+    approve_lines({ lines: [ { event_id: cafe.id, expected_head: rows.fetch(cafe.id).fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @groceries.id } },
+      { event_id: hardware.id, expected_head: rows.fetch(hardware.id).fetch("expected_head"), decision: "leave_out" } ] })
+    assert_response :success, response.body
+    plan = review_plan
+    assert_empty plan.fetch("attention")
+    assert_equal [ 2, 0 ], plan.values_at("done", "without_category")
+    assert_equal [ 1250 ], @household.household_transactions.where(status: %w[confirmed reconciled]).pluck(:total_amount_cents)
+    assert_equal "exclude", SourceReviewHead.find_by!(financial_source_event: hardware).approved_version.disposition
+  end
+
+  test "choosing a category for a saved line keeps her corrected amount, name and kind" do
+    @source = build_source(rows: [ [ "Tasi Demo Hardware", -12_500, "purchase", 1 ], [ "Own savings", -3_100, "transfer", 2 ] ])
+    hardware, moved = @source[:revision].financial_source_events.order(:position).to_a
+    approve_lines({ lines: [ { event_id: hardware.id, decision: "edited", edit: { kind: "spending", merchant: "Tasi Demo Hardware store", amount_cents: 1250, category_id: nil } },
+      { event_id: moved.id, decision: "edited", edit: { kind: "spending", category_id: nil } } ] })
+    assert_response :success, response.body
+
+    rows = review_plan.fetch("attention").index_by { |row| row["event_id"] }
+    assert_equal [ -1250, "Tasi Demo Hardware store", "purchase" ], rows.fetch(hardware.id).values_at("signed_amount_cents", "merchant", "event_type"), "She is shown what she saved"
+    assert_equal [ -3100, "purchase" ], rows.fetch(moved.id).values_at("signed_amount_cents", "event_type")
+
+    # The category alone is what she changes; nothing else reverts to the statement as first read.
+    approve_lines({ lines: [ hardware, moved ].map { |event| { event_id: event.id, expected_head: rows.fetch(event.id).fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @groceries.id } } } })
+    assert_response :success, response.body
+    saved = [ hardware, moved ].map { |event| SourceReviewHead.find_by!(financial_source_event: event).approved_version }
+    assert_equal [ [ -1250, "Tasi Demo Hardware store", "purchase" ], [ -3100, "Own savings", "purchase" ] ], saved.map { |version| [ version.signed_amount_cents, version.merchant, version.event_type ] }
+    assert_equal [ 1250, 3100 ], @household.household_transactions.where(status: %w[confirmed reconciled]).order(:total_amount_cents).pluck(:total_amount_cents)
+  end
+
+  test "a saved line she called a different charge can still get its category" do
+    # The same amount on the same day in a second file looks like a copy of the first file's line.
+    first_file = build_source(rows: [ [ "Tasi Demo Cafe", -1250, "purchase", 1 ] ])
+    approve_lines({ lines: [ { event_id: first_file[:revision].financial_source_events.sole.id, decision: "edited", edit: { kind: "spending", category_id: @groceries.id } } ] }, source: first_file)
+    assert_response :success, response.body
+    # Another name for the store, so nothing from the first file's category carries over.
+    @source = build_source(rows: [ [ "Tasi Demo Coffee Bar", -1250, "purchase", 1 ] ])
+    copy = @source[:revision].financial_source_events.sole
+    assert_equal "duplicate", review_plan.fetch("attention").sole.fetch("kind")
+    approve_lines({ lines: [ { event_id: copy.id, decision: "different", shown: { category_id: nil, event_type: "purchase" } } ] })
+    assert_response :success, response.body
+    assert_equal [ "distinct", nil ], SourceReviewHead.find_by!(financial_source_event: copy).approved_version.then { |version| [ version.overlap_disposition, version.budget_category_id ] }
+
+    row = review_plan.fetch("attention").sole
+    assert_equal "no_category", row.fetch("kind")
+    approve_lines({ lines: [ { event_id: copy.id, expected_head: row.fetch("expected_head"), decision: "edited", edit: { kind: "spending", merchant: row["merchant"], posted_on: row["posted_on"], amount_cents: 1250, category_id: @groceries.id } } ] })
+    assert_response :success, response.body
+    version = SourceReviewHead.find_by!(financial_source_event: copy).approved_version
+    assert_equal [ "distinct", @groceries.id ], [ version.overlap_disposition, version.budget_category_id ], "Her different-charge answer stands"
+    assert_empty review_plan.fetch("attention")
+    assert_equal 2, @household.household_transactions.where(status: %w[confirmed reconciled]).count
   end
 
   test "a withdrawal without an active Cash category asks for one instead of guessing or creating it" do
@@ -87,7 +157,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   test "a narrow single category asks before Ross and Amazon can be approved together" do
     @clothing.update!(active: false)
     @groceries.update!(name: "Dining out")
-    source = build_source(rows: [ [ "Ross", -500, "purchase", 1 ], [ "Amazon", -700, "purchase", 2 ] ])
+    source = build_source(rows: [ [ "Ross", -510, "purchase", 1 ], [ "Amazon", -700, "purchase", 2 ] ])
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, source[:revision])
     assert_empty plan.ready_ids
     assert_equal [ :suggested_category, :suggested_category ], plan.attention.map(&:kind)
@@ -180,7 +250,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
         assert_response :success
       end
       old = review_plan.fetch("ready").find { |line| line["merchant"] == "Payless" }
-      approve_lines({ accounts: [ { source_account_id: account.id, label: "Different bank", account_basis: "asset" } ], lines: [] })
+      approve_lines({ accounts: [ { source_account_id: account.id, account_basis: "asset", period_start_on: "2026-07-01" } ], lines: [] })
       assert_response :success
       assert_no_difference [ "SourceReviewVersion.count", "SourceReviewDraft.count", "HouseholdTransaction.count" ] do
         approve_lines({ lines: [ { event_id: old.fetch("event_id"), expected_head: old.fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] })
@@ -230,12 +300,12 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "the plan and the upload progress say what was read and what now counts as spending" do
     # Two purchases are on the statement (one is a transfer, one has no amount); nothing counts until she approves it.
-    assert_equal({ "read_count" => 2, "read_cents" => 1_500, "counted_count" => 0, "counted_cents" => 0 }, review_plan.fetch("spending"))
+    assert_equal({ "read_count" => 2, "read_cents" => 1_500, "counted_count" => 0, "counted_cents" => 0, "refund_count" => 0, "refund_cents" => 0 }, review_plan.fetch("spending"))
     assert_equal review_plan.fetch("spending"), upload_progress.fetch("spending")
     ready = review_plan.fetch("ready_event_ids")
     approve_lines({ expect_ready_ids: ready, lines: as_read(ready) })
     assert_response :success
-    counted = { "read_count" => 2, "read_cents" => 1_500, "counted_count" => 1, "counted_cents" => 1_000 }
+    counted = { "read_count" => 2, "read_cents" => 1_500, "counted_count" => 1, "counted_cents" => 1_000, "refund_count" => 0, "refund_cents" => 0 }
     assert_equal counted, review_plan.fetch("spending")
     assert_equal counted, upload_progress.fetch("spending")
     # A purchase she leaves out is saved but never counted; one she gives a category counts at the amount she approved.
@@ -356,7 +426,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     old_attributes = old_release.attributes.deep_dup
     post "/api/v1/admin/cohorts/#{cohort.id}/experience_configuration/preview", params: { experience_configuration: { draft_revision: configuration.draft_revision, upgrade_to_current: true } }, headers: { "Authorization" => "Bearer test_token_#{coach.id}" }, as: :json
     assert_response :success
-    assert_equal 4, configuration.reload.draft_config.fetch("schema_version")
+    # Go live upgrades to the current schema; the method reads as the defaults.
+    assert_equal 5, configuration.reload.draft_config.fetch("schema_version")
+    assert_equal CohortExperience::MethodSettings.defaults, configuration.draft_config.fetch("method")
     assert_equal "This update adds Statements", response.parsed_body.dig("preview", "upgrade_notice")
     assert_equal true, configuration.draft_config.dig("optional_modules", "cfo_filter")
     assert_equal old_config, old_version.reload.config
@@ -367,7 +439,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: old_version.id)
     cohort.reload
     release = CohortReleases::Sealer.new(cohort: cohort, actor: coach).call!(request_key: "current-household", expected_bundle_digest: CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call.bundle_digest)
-    assert_equal 6, release.tool_registry_version
+    assert_equal 7, release.tool_registry_version
     launcher = CohortReleases::InitialLauncher.new(cohort: cohort, actor: coach)
     launcher.call!(release_id: release.id, preview_digest: launcher.preview.fetch(:preview_digest), request_key: "launch-household")
     approve_lines({ lines: @events.values.map { |event| { event_id: event.id, decision: "leave_out" } }, coverage_answer: "nothing_missing" })
@@ -425,7 +497,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     # Publishing a release must retain the same coach-selected restriction.
     CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
     cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
-    assert_equal 6, cohort.active_cohort_release.tool_registry_version
+    assert_equal 7, cohort.active_cohort_release.tool_registry_version
     approve_lines({ lines: as_read(review_plan.fetch("ready_event_ids")) })
     assert_response :forbidden
     assert_equal 0, SourceReviewVersion.where(household: @household).count
@@ -488,7 +560,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a long statement is approved a page at a time: exactly the lines on the page, all or none, and a retry changes nothing" do
-    rows = (1..5).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    rows = (1..5).map { |index| [ "Payroll #{index}", 10_000 + index, "income", index ] }
     long = build_source(rows: rows)
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
     assert_equal 5, ids.length
@@ -522,7 +594,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a page that holds a line that no longer looks right is refused and saves nothing" do
-    long = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ], [ "Pay 2", 10_001, "income", 2 ] ])
+    long = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ], [ "Payroll 2", 10_001, "income", 2 ] ])
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
     changed = build_source(rows: [ [ "Ross", -500, "purchase", 1 ] ])
     approve_lines({ expect_ready_ids: ids + changed[:revision].financial_source_events.pluck(:id), paged: true, lines: as_read(ids, source: long) }, source: long)
@@ -668,7 +740,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a statement whose lines may be missing asks her, and only her answer is recorded as the attestation" do
-    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ], [ "Pay 2", 10_001, "income", 2 ] ], reported: 3)
+    source = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ], [ "Payroll 2", 10_001, "income", 2 ] ], reported: 3)
     plan = plan_for(source)
     assert_equal "Your statement shows 3 lines and we found 2. Is anything missing?", plan.dig("coverage", "question")
     assert_nil plan.dig("coverage", "answer")
@@ -701,7 +773,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "lines the reader could not classify still close the printed totals, so she is not told the totals don't add up" do
     account = { opening_balance_cents: 0, closing_balance_cents: 13_500, printed_debit_cents: 1_500, printed_credit_cents: 15_000, printed_row_count: 3, period_start_on: "2026-07-01", period_end_on: "2026-07-31" }
-    rows = [ [ "Pay 1", 10_000, "income", 1 ], [ "Stripe Transfer", 5_000, "unknown", 2 ], [ "Non-Wells Fargo ATM Transaction Fee", -1_500, "unknown", 3 ] ]
+    rows = [ [ "Payroll 1", 10_000, "income", 1 ], [ "Stripe Transfer", 5_000, "unknown", 2 ], [ "Non-Wells Fargo ATM Transaction Fee", -1_500, "unknown", 3 ] ]
     source = build_source(rows: rows, account: account)
     # The stored extraction report counts only classified lines, so on its own it is $50 short of the printed credits.
     assert_equal 5_000, source[:revision].reconciliation.dig("accounts", 0, "credit_residual_cents")
@@ -754,7 +826,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "something missing sent with the save is kept even when the statement reconciles" do
-    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    source = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     plan = plan_for(source)
     assert_nil plan.dig("coverage", "question")
     approve_lines({ expect_ready_ids: plan.fetch("ready_event_ids"), coverage_answer: "something_missing",
@@ -764,7 +836,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a statement that reconciles needs no question" do
-    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    source = build_source(rows: [ [ "Payroll 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
     plan = plan_for(source)
     assert_nil plan.dig("coverage", "question")
@@ -876,10 +948,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "saying something is missing is recorded even when the totals no longer disagree with the lines she has saved, and saving again does not fail" do
     statement = { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, period_start_on: "2026-07-01", period_end_on: "2026-07-31" }
-    source = build_source(rows: [ [ "Pay 1", 9_000, "income", 1 ] ], account: statement)
+    source = build_source(rows: [ [ "Payroll 1", 9_000, "income", 1 ] ], account: statement)
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
     event_id = source[:revision].financial_source_events.sole.id
-    fixed = { event_id: event_id, decision: "edited", edit: { kind: "money_in", merchant: "Pay 1", posted_on: "2026-07-02", amount_cents: 10_000 } }
+    fixed = { event_id: event_id, decision: "edited", edit: { kind: "money_in", merchant: "Payroll 1", posted_on: "2026-07-02", amount_cents: 10_000 } }
     approve_lines({ lines: [ fixed ], coverage_answer: "something_missing" }, source: source)
     assert_response :success
     approval = SourceRevisionApproval.where(household: @household).sole
@@ -906,6 +978,103 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal 1, SourceTrackedAccount.where(household: @household).count
     assert_equal "BOG Everyday Checking", SourceTrackedAccount.where(household: @household).sole.label
     assert_equal 2, SourceAccountIdentityVersion.where(household: @household).count
+  end
+
+  test "different labels link by a unique last four in the same household and account type" do
+    bank = track("BOH ····6824")
+    track("Other card ····6824", basis: "liability")
+    source = build_source(label: "Bank of Hawaii checking 6824")
+    details = review_account(source)
+    assert_equal bank.id, details.dig("suggested", "id")
+    refute details.fetch("needs_choice")
+
+    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id") } ] }, source: source)
+    assert_response :success
+    assert_equal bank.id, review_account(source).dig("approved", "tracked_account", "id")
+  end
+
+  test "a last-four suggestion which stopped being unique refuses approval without saving anything" do
+    bank = track("BOH ····6824")
+    source = build_source(label: "Bank of Hawaii checking 6824", rows: [ [ "Payroll", 5_000, "income", 2 ] ])
+    details = review_account(source)
+    lines = as_read(source[:revision].financial_source_events.ids, source: source)
+    assert_equal bank.id, details.dig("suggested", "id")
+
+    track("Other checking ····6824")
+    assert_no_difference [ "SourceTrackedAccount.count", "SourceAccountIdentityVersion.count", "SourceReviewVersion.count" ] do
+      approve_lines({ lines: lines, expect_ready_ids: lines.pluck(:event_id),
+        accounts: [ { source_account_id: details.fetch("source_account_id"), expected_tracked_account_id: bank.id } ] }, source: source)
+      assert_response :conflict
+      assert_equal "Your saved accounts changed. Refresh to choose which account this is.", response.parsed_body.fetch("errors").first
+    end
+  end
+
+  test "two last-four matches require a choice, and a new account can be saved separately" do
+    first = track("BOH ····6824")
+    second = track("Second checking 6824")
+    source = build_source(label: "Bank of Hawaii checking 6824")
+    details = review_account(source)
+    assert details.fetch("needs_choice")
+    assert_nil details.fetch("suggested")
+    assert_equal [ first.id, second.id ], details.fetch("choices").pluck("id")
+
+    assert_no_difference [ "SourceTrackedAccount.count", "SourceAccountIdentityVersion.count" ] do
+      approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id") } ] }, source: source)
+      assert_response :conflict
+    end
+
+    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: second.id } ] }, source: source)
+    assert_response :success
+    assert_equal second.id, review_account(source).dig("approved", "tracked_account", "id")
+
+    separate = build_source(label: "Another bank 6824")
+    details = review_account(separate)
+    assert details.fetch("needs_choice")
+    assert_nil details.fetch("suggested")
+    assert_difference "SourceTrackedAccount.count", 1 do
+      approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: nil } ] }, source: separate)
+      assert_response :success
+    end
+    assert_not_equal first.id, review_account(separate).dig("approved", "tracked_account", "id")
+  end
+
+  test "a missing last four asks and a different existing account can be selected later" do
+    source = build_source(label: "Everyday checking", rows: [ [ "Payroll", 5_000, "income", 2 ] ])
+    bank = track("Bank of Hawaii checking ····6824")
+    details = review_account(source)
+    assert details.fetch("needs_choice")
+    assert_nil details.fetch("suggested")
+    assert_equal [ bank.id ], details.fetch("choices").pluck("id")
+
+    approve_lines({ accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: bank.id } ],
+      lines: as_read(source[:revision].financial_source_events.ids, source: source) }, source: source)
+    assert_response :success, response.body
+    assert_equal 1, plan_for(source).fetch("done")
+    other = track("Different checking ····6824")
+    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), tracked_account_id: other.id } ] }, source: source)
+    assert_response :success
+    assert_equal other.id, review_account(source).dig("approved", "tracked_account", "id")
+    assert_equal 0, plan_for(source).fetch("done")
+  end
+
+  test "correcting the saved type and name asks for another look without using last-four matching" do
+    source = build_source(label: "Everyday checking 6824", rows: [ [ "Payroll", 5_000, "income", 2 ] ])
+    lines = as_read(source[:revision].financial_source_events.ids, source: source)
+    approve_lines({ lines: lines }, source: source)
+    assert_response :success
+    details = review_account(source)
+    assert_equal 1, plan_for(source).fetch("done")
+    card = track("Other card ····6824", basis: "liability")
+    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), account_basis: "liability" } ] }, source: source)
+    assert_response :success
+    corrected = review_account(source).dig("approved", "tracked_account")
+    assert_equal "liability", corrected.fetch("account_basis")
+    assert_not_equal card.id, corrected.fetch("id")
+    assert_equal 0, plan_for(source).fetch("done")
+
+    approve_lines({ lines: [], accounts: [ { source_account_id: details.fetch("source_account_id"), label: "My card" } ] }, source: source)
+    assert_response :success
+    assert_equal "My card ····6824", review_account(source).dig("approved", "tracked_account", "label")
   end
 
   test "linking a statement's account while she answers a copy question never makes her answer stale" do
@@ -935,10 +1104,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "changing only the dates of one of two generic accounts never merges it into the other, so their charges are not offered as copies of each other" do
-    one = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "Bank account")
+    one = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "Bank account")
     approve_lines({ lines: as_read(one[:revision].financial_source_events.ids, source: one) }, source: one)
     assert_response :success, response.body
-    two = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "Bank account")
+    two = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "Bank account")
     question = plan_for(two).fetch("attention").sole
     approve_lines({ lines: [ { event_id: question.fetch("event_id"), decision: "different", shown: question.slice("category_id", "event_type").symbolize_keys } ] }, source: two)
     assert_response :success, response.body
@@ -952,12 +1121,82 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_empty plan_for(two).fetch("attention").select { |row| row["kind"] == "duplicate" }
   end
 
+  test "a CSV charge one day before its PDF copy asks before either can count twice" do
+    pdf = build_source(label: "Demo checking ····6824", content_type: "application/pdf", rows: [ [ "ROSS DRESS FOR LESS #123 HAGATNA GU", -1700, "purchase", 2 ] ])
+    original = pdf[:revision].financial_source_events.sole
+    approve_lines({ lines: [ { event_id: original.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] }, source: pdf)
+    assert_response :success, response.body
+
+    csv = build_source(label: "Demo checking 6824", rows: [ [ "Ross", -1700, "purchase", 1 ], [ "Bonus", 700, "income", 6 ] ])
+    copy, bonus = csv[:revision].financial_source_events.order(:position)
+    plan = plan_for(csv)
+    question = plan.fetch("attention").sole
+    assert_equal "Is this the same charge as one you already have?", question.fetch("question")
+    assert_equal copy.id, question.fetch("event_id")
+    assert_equal [ bonus.id ], plan.fetch("ready_event_ids")
+
+    shown = question.slice("category_id", "event_type").symbolize_keys
+    assert_no_difference "HouseholdTransaction.count" do
+      approve_lines({ expect_ready_ids: [ bonus.id, copy.id ], lines: [ { event_id: copy.id, decision: "as_read", shown: shown } ] }, source: csv)
+      assert_response :conflict
+      approve_lines({ lines: [ { event_id: copy.id, decision: "as_read", shown: shown } ] }, source: csv)
+      assert_response :conflict
+      approve_lines({ lines: [ { event_id: copy.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] }, source: csv)
+      assert_response :unprocessable_entity
+      assert_includes response.parsed_body.fetch("errors").first, "rows may overlap"
+    end
+
+    assert_difference "HouseholdTransaction.count", 1 do
+      approve_lines({ lines: [ { event_id: copy.id, decision: "different", shown: shown } ] }, source: csv)
+      assert_response :success, response.body
+    end
+  end
+
+  test "different days in one file do not make recurring charges overlap" do
+    source = build_source(label: "Demo checking", rows: [ [ "Ross", -1700, "purchase", 1 ], [ "Ross", -1700, "purchase", 2 ] ])
+    plan = plan_for(source)
+    assert_empty plan.fetch("attention").select { |row| row["kind"] == "duplicate" }
+    lines = source[:revision].financial_source_events.order(:position).map do |row|
+      { event_id: row.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } }
+    end
+    assert_difference "HouseholdTransaction.count", 2 do
+      approve_lines({ lines: lines }, source: source)
+      assert_response :success, response.body
+    end
+  end
+
+  test "a near date also needs the same signed amount and merchant" do
+    first = build_source(label: "Demo checking", rows: [ [ "Ross", -1700, "purchase", 1 ] ])
+    approve_lines({ lines: [ { event_id: first[:revision].financial_source_events.sole.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] }, source: first)
+    assert_response :success, response.body
+    second = build_source(label: "Demo checking", rows: [ [ "Ross", -1800, "purchase", 2 ], [ "Other store", -1700, "purchase", 3 ], [ "Ross", -1700, "purchase", 5 ] ])
+    assert_empty plan_for(second).fetch("attention").select { |row| row["kind"] == "duplicate" }
+    lines = second[:revision].financial_source_events.order(:position).map do |row|
+      { event_id: row.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } }
+    end
+    assert_difference "HouseholdTransaction.count", 3 do
+      approve_lines({ lines: lines }, source: second)
+      assert_response :success, response.body
+    end
+  end
+
+  test "a bank export's long descriptor that names the statement's merchant is asked about near its date, a single shared word is not" do
+    first = build_source(label: "Demo checking", rows: [ [ "Tasi Demo Fuel", -4886, "purchase", 5 ], [ "Ross", -1700, "purchase", 8 ], [ "Non-WF ATM Tamuning Gum", -10_000, "cash_withdrawal", 12 ], [ "Tasi Demo Mobile", -6_500, "purchase", 14 ] ])
+    approve_lines({ lines: first[:revision].financial_source_events.order(:position).map { |row| { event_id: row.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } } }, source: first)
+    assert_response :success, response.body
+    second = build_source(label: "Demo checking", rows: [ [ "Purchase authorized on 01/05 Tasi Demo Fuel Tamuning Gum Card 7302", -4886, "purchase", 3 ], [ "Ross Corner Market", -1700, "purchase", 7 ],
+      [ "Non-WF ATM Withdrawal authorized on 03/17 Tamuning Gum Card 7302", -10_000, "cash_withdrawal", 10 ], [ "Tasi Demo Mobile Gum", -6_500, "purchase", 13 ], [ "Demo Mobile Tasi", -6_500, "purchase", 15 ] ])
+    # Out of order is a different name.
+    fuel, _ross, atm, mobile, _reordered = second[:revision].financial_source_events.order(:position)
+    assert_equal [ fuel.id, atm.id, mobile.id ], plan_for(second).fetch("attention").select { |row| row["kind"] == "duplicate" }.pluck("event_id").sort
+  end
+
   test "an older line she edited is compared by what she approved, so a copy of the edited line is asked about and the rest can be approved" do
-    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    first = build_source(rows: [ [ "Payroll", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
     older = first[:revision].financial_source_events.sole
     approve_lines({ lines: [ { event_id: older.id, decision: "edited", edit: { kind: "money_in", amount_cents: 5_000 } } ] }, source: first)
     assert_response :success, response.body
-    second = build_source(rows: [ [ "Pay", 5_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking")
+    second = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking")
     plan = plan_for(second)
     copy = plan.fetch("attention").find { |row| row["kind"] == "duplicate" }
     assert copy, "the copy of the edited line is asked about before she approves the rest"
@@ -971,13 +1210,13 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "the same file and row is asked about as a copy even when every amount differs" do
     checksum = SecureRandom.hex(32)
-    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking", checksum: checksum)
+    first = build_source(rows: [ [ "Payroll", 7_000, "income", 2 ] ], label: "BOG Everyday Checking", checksum: checksum)
     older = first[:revision].financial_source_events.sole
     approve_lines({ lines: [ { event_id: older.id, decision: "edited", edit: { kind: "money_in", amount_cents: 5_000 } } ] }, source: first)
     assert_response :success, response.body
     # The same file read again gives a third amount for the same physical row: no amount or date key matches it, but the
     # detector treats file + row as a strong copy, so the plan must ask instead of showing it as ready.
-    second = build_source(rows: [ [ "Pay", 6_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking", checksum: checksum)
+    second = build_source(rows: [ [ "Payroll", 6_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking", checksum: checksum)
     plan = plan_for(second)
     copy = plan.fetch("attention").find { |row| row["kind"] == "duplicate" }
     assert copy, "the same file and row is asked about before she approves the rest"
@@ -988,19 +1227,22 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a copy of a line whose edit is still waiting as a draft is asked about too" do
-    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    first = build_source(rows: [ [ "Payroll", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
     older = first[:revision].financial_source_events.sole
     # An edit she has not approved yet still says what that line will be.
     head = SourceReviewHead.create!(household: @household, financial_source_event: older)
     SourceReviewDraft.create!(household: @household, source_review_head: head, staged_by_user: @user, base_head_lock_version: head.lock_version, digest: SecureRandom.hex(32), reason: "test",
       facts: { "signed_amount_cents" => 5_000, "posted_on" => older.posted_on.iso8601 })
-    second = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    second = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "BOG Everyday Checking")
     assert_equal [ "duplicate" ], plan_for(second).fetch("attention").pluck("kind")
   end
 
   test "a name or a saved description with a raw account number reads masked, even when it was approved before" do
     names = ->(label, masked = nil) { FinancialDocuments::SourceReview::AccountName.parts(label, masked) }
-    assert_equal({ name: "Bank of Guam checking ····5678", last4: nil }, names.call("Bank of Guam checking 000012345678"))
+    assert_equal "Checking ····6824", FinancialDocuments::SourceReview::AccountName.display_label("Checking 1111-2222-6824")
+    assert_equal "Demo ····6824 card", FinancialDocuments::SourceReview::AccountName.display_label("Demo 1111 2222 6824 card")
+    assert_equal "Checking 2", FinancialDocuments::SourceReview::AccountName.display_label("Checking 2")
+    assert_equal({ name: "Bank of Guam checking", last4: "5678" }, names.call("Bank of Guam checking 000012345678"))
     assert_equal({ name: "Statement.pdf ····5678", last4: "1234" }, names.call("Statement.pdf 12345678 · ****1234"))
     event = @events.fetch("Payless")
     approve_lines({ lines: as_read([ event.id ]) })
@@ -1032,8 +1274,153 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_empty(seen.grep(/Unrelated shop/))
   end
 
+  test "bulk repeats reject nearby dates, multiple claims and consecutive statement coffees under the save lock" do
+    [
+      [ [ "Payroll", -1000, "purchase", 1 ], [ [ "Payroll", -1000, "purchase", 1 ], [ "Payroll", -1000, "purchase", 3 ] ], "2026-07-31" ],
+      [ [ "Twin shop", -1000, "purchase", 1 ], [ [ "Twin shop", -1000, "purchase", 1 ], [ "Twin shop", -1000, "purchase", 29 ] ], "2026-07-31" ],
+      [ [ "1776 Coffee", -650, "purchase", 1 ], [ [ "1776 Coffee", -650, "purchase", 2 ], [ "1776 Coffee", -650, "purchase", 4 ] ], "2026-07-02" ]
+    ].each do |original, copies, end_on|
+      first = build_source(rows: [ original ], label: original.first, account: { period_start_on: "2026-06-03", period_end_on: end_on })
+      approve_lines({ lines: [ { event_id: first[:revision].financial_source_events.sole.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] }, source: first)
+      assert_response :success, response.body
+      copy = build_source(rows: copies, label: original.first)
+      approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
+      plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
+      assert_equal 2, plan.attention.count { |line| line.kind == :duplicate }
+      assert_empty plan.repeated_lines
+      assert_no_difference "SourceReviewVersion.count" do
+        approve_lines({ leave_repeats_out: true, lines: plan.attention.map { |line| { event_id: line.event.id, expected_head: line.expected_head, decision: "leave_out" } } }, source: copy)
+        assert_response :conflict, response.body
+      end
+      # Answering one line individually cannot make a second claimant safe to bulk-exclude.
+      approve_lines({ lines: [ { event_id: plan.attention.first.event.id, decision: "leave_out" } ] }, source: copy)
+      assert_response :success, response.body
+      assert_empty FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision]).repeated_lines
+    end
+  end
+
+  test "an exact CSV copy of an approved PDF qualifies within its statement period" do
+    rows = [ [ "1776 Coffee", -650, "purchase", 1 ], [ "Other coffee", -700, "purchase", 2 ] ]
+    first = build_source(rows: rows, content_type: "application/pdf", account: { period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    approve_lines({ lines: first[:revision].financial_source_events.map { |row| { event_id: row.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } } }, source: first)
+    assert_response :success, response.body
+    copy = build_source(rows: rows)
+    approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
+    assert_equal 2, plan.repeated_lines.length
+    approve_lines({ leave_repeats_out: true, lines: plan.repeated_lines.map { |line| { event_id: line.event.id, expected_head: line.expected_head, decision: "leave_out" } } }, source: copy)
+    assert_response :success, response.body
+    assert_equal 2, response.parsed_body.dig("result", "left_out")
+  end
+
+  test "category only saves preserve bank merchant wording and retry unchanged" do
+    source = build_source(rows: [ [ "CARD PURCHASE 1776 COFFEE", -650, "purchase", 1 ] ])
+    event = source[:revision].financial_source_events.sole
+    approve_lines({ lines: [ { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: nil } } ] }, source: source)
+    assert_response :success, response.body
+    assert_equal "CARD PURCHASE 1776 COFFEE", SourceReviewHead.find_by!(financial_source_event: event).approved_version.merchant
+    item = plan_for(source).fetch("attention").sole
+    assert_equal "1776 COFFEE", item.fetch("merchant")
+    assert_equal "CARD PURCHASE 1776 COFFEE", item.fetch("editable_merchant")
+    input = { lines: [ { event_id: event.id, expected_head: item.fetch("expected_head"), decision: "edited", edit: { kind: "spending", merchant: item.fetch("editable_merchant"), category_id: @clothing.id } } ] }
+    approve_lines(input, source: source)
+    assert_response :success, response.body
+    assert_equal "CARD PURCHASE 1776 COFFEE", SourceReviewHead.find_by!(financial_source_event: event).approved_version.merchant
+    head = SourceReviewHead.find_by!(financial_source_event: event)
+    input[:lines].first[:expected_head] = { approved_version_id: head.approved_version_id, lock_version: head.lock_version, account_version_id: SourceAccountReviewHead.find_by!(financial_source_account_id: event.financial_source_account_id).approved_version_id }
+    approve_lines(input, source: source)
+    assert_response :success, response.body
+    assert_equal 1, response.parsed_body.dig("result", "unchanged")
+  end
+
+  test "one explicit answer leaves 300 approved copies out with linear query cost and safe retry" do
+    rows = (1..300).map { |index| [ "Store #{index} payroll", 10_000 + index, "income", index ] }
+    first = build_source(rows: rows, account: { period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    ids = first[:revision].financial_source_events.pluck(:id)
+    ids.each_slice(100) { |slice| approve_lines({ paged: true, expect_ready_ids: slice, lines: as_read(slice, source: first) }, source: first) }
+    assert_response :success, response.body
+    copy = build_source(rows: rows)
+    approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
+    repeated = plan.repeated_lines
+    assert_equal 300, repeated.length
+    input = { leave_repeats_out: true, lines: repeated.map { |line| { event_id: line.event.id, expected_head: line.expected_head, decision: "leave_out" } } }
+    queries = 0
+    counter = ->(*, payload) { queries += 1 unless payload[:name] == "SCHEMA" }
+    ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { approve_lines(input, source: copy) }
+    assert_response :success, response.body
+    assert_equal 300, response.parsed_body.dig("result", "left_out")
+    puts "REPEATED_SAVE size=300 queries=#{queries} per_line=#{queries / 300.0}"
+    assert_operator queries, :<, 3600
+    assert_equal 300, SourceReviewVersion.joins(:source_review_head).where(source_review_heads: { financial_source_event_id: copy[:revision].financial_source_events.select(:id) }, disposition: "exclude").count
+    approve_lines(input, source: copy)
+    assert_response :success, response.body
+    assert_equal 300, response.parsed_body.dig("result", "unchanged")
+  end
+
+  test "a file matching two approved lines keeps its individual question" do
+    first = build_source(rows: [ [ "Twin store payroll", 1000, "income", 1 ], [ "Twin store payroll", 1000, "income", 29 ] ])
+    approve_lines({ lines: as_read(first[:revision].financial_source_events.pluck(:id), source: first) }, source: first)
+    assert_response :success, response.body
+    copy = build_source(rows: [ [ "Twin store payroll", 1000, "income", 1 ] ])
+    approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
+    assert_equal :duplicate, plan.lines.sole.kind
+    assert_empty plan.repeated_lines
+  end
+
+  test "a repeated-file answer refuses a weaker match without saving anything" do
+    first = build_source(rows: [ [ "Store A payroll", 1000, "income", 1 ] ])
+    approve_lines({ lines: as_read(first[:revision].financial_source_events.pluck(:id), source: first) }, source: first)
+    copy = build_source(rows: [ [ "Different store payroll", 1000, "income", 1 ] ])
+    approve_lines({ lines: [], accounts: [ { source_account_id: copy[:revision].financial_source_accounts.sole.id, tracked_account_id: SourceAccountReviewHead.find_by!(financial_source_account: first[:revision].financial_source_accounts.sole).approved_version.source_tracked_account_id } ] }, source: copy)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
+    assert_empty plan.repeated_lines
+    line = plan.lines.sole
+    assert_no_difference "SourceReviewVersion.count" do
+      approve_lines({ leave_repeats_out: true, lines: [ { event_id: line.event.id, expected_head: line.expected_head, decision: "leave_out" } ] }, source: copy)
+    end
+    assert_response :conflict
+  end
+
+  test "grouped category save refuses an account suggestion created after the question loaded" do
+    fresh = build_source(label: "Fictional group checking", rows: [ [ "New shop", -1200, "purchase", 2 ], [ "New shop", -2200, "purchase", 9 ] ])
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    rows = plan.lines.map { |line| { event_id: line.event.id, revision_id: fresh[:revision].id, expected_head: line.expected_head, decision: "edited", edit: { category_id: @groceries.id } } }
+    account = fresh[:revision].financial_source_accounts.sole
+    assert_nil FinancialDocuments::SourceReview::AccountMatch.suggested(@household, "Fictional group checking", "asset", account: account)
+    track("Fictional group checking")
+    assert_no_difference [ "SourceReviewVersion.count", "SourceAccountIdentityVersion.count" ] do
+      approve_lines({ store_lines: rows, accounts: [ { source_account_id: account.id, expected_tracked_account_id: nil } ] }, source: fresh)
+    end
+    assert_response :conflict
+    assert_includes response.body, "Your saved accounts changed"
+  end
+
+  test "one store answer saves category questions across current statements" do
+    first = build_source(rows: [ [ "New shop", -1200, "purchase", 2 ] ])
+    second = build_source(rows: [ [ "New shop", -2200, "purchase", 9 ] ])
+    [ first, second ].each { |file| approve_lines({ lines: [], accounts: [ { source_account_id: file[:revision].financial_source_accounts.sole.id } ] }, source: file) }
+    group = plan_for(first).fetch("store_groups").find { |rows| rows.size == 2 }
+    assert group
+    rows = group.map { |line| { event_id: line["event_id"], revision_id: line["revision_id"], expected_head: line["expected_head"], decision: "edited", edit: { category_id: @groceries.id } } }
+    assert_no_difference "SourceReviewVersion.count" do
+      approve_lines({ lines: [], store_lines: [ rows.first.except(:edit) ] }, source: first)
+    end
+    assert_response :unprocessable_entity
+    stale = rows.map(&:deep_dup)
+    stale.last[:expected_head]["lock_version"] = 999
+    assert_no_difference "SourceReviewVersion.count" do
+      approve_lines({ lines: [], store_lines: stale }, source: first)
+    end
+    assert_response :conflict
+    approve_lines({ lines: [], store_lines: rows }, source: first)
+    assert_response :success, response.body
+    assert_equal [ @groceries.id, @groceries.id ], SourceReviewHead.where(financial_source_event_id: rows.map { |row| row[:event_id] }).map { |head| head.approved_version.budget_category_id }
+  end
+
   test "a statement uploaded twice is checked for copies with a fixed number of queries, not a handful per line" do
-    rows = (1..40).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    rows = (1..40).map { |index| [ "Payroll #{index}", 10_000 + index, "income", index ] }
     first = build_source(rows: rows)
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, first[:revision]).ready_ids
     ids.each_slice(20) { |slice| approve_lines({ expect_ready_ids: slice, paged: true, lines: as_read(slice, source: first) }, source: first) }
@@ -1047,7 +1434,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "a page reads the household's lines once, not once per line, and a repeat of the page still saves nothing new" do
-    rows = (1..20).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    rows = (1..20).map { |index| [ "Payroll #{index}", 10_000 + index, "income", index ] }
     long = build_source(rows: rows)
     ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
     reads = 0
@@ -1135,8 +1522,11 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       end
       analyze = -> { SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call }
       assert_equal [ "Ross", "Amazon Marketplace", "Kmart" ], analyze.call[:discretionary_merchants].pluck(:label)
-      row = rows.fetch("Amazon refund order DEMO-8001")
+      # Before the Amazon purchase was saved the refund asked which category it goes back to; now it names the purchase's.
+      assert_equal "refund_category", rows.fetch("Amazon refund order DEMO-8001").fetch("kind")
+      row = review_plan.fetch("attention").find { |item| item["merchant"] == "Amazon refund order DEMO-8001" }
       assert_equal "refund", row.fetch("kind")
+      assert_equal "Is this a refund? It goes back to Everyday spending.", row.fetch("question")
       approve_lines({ lines: [ { event_id: row.fetch("event_id"), decision: "as_read", shown: row.slice("event_type", "category_id") } ] })
       assert_response :success, response.body
       assert_equal [ "Ross", "Kmart", "Amazon Marketplace" ], analyze.call[:discretionary_merchants].pluck(:label)
@@ -1209,6 +1599,15 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     response.parsed_body.dig("source_review", "participant_review", "plan")
   end
 
+  def track(label, basis: "asset")
+    SourceTrackedAccount.create!(household: @household, approved_by_user: @user, label: label, account_basis: basis)
+  end
+
+  def review_account(source)
+    plan_for(source)
+    response.parsed_body.dig("source_review", "participant_review", "accounts").sole
+  end
+
   def review_plan
     get "/api/v1/document_imports/#{@source[:import].id}/source_review", params: { revision_id: @source[:revision].id }, headers: headers
     assert_response :success
@@ -1227,8 +1626,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   DEFAULT_ROWS = [ [ "Payroll", 200_000, "income", 1 ], [ "Payless", -1_000, "purchase", 2 ], [ "Ross", -500, "purchase", 3 ], [ "Own savings", -3_000, "transfer", 4 ], [ "Unreadable", nil, "purchase", 5 ] ].freeze
 
-  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32), extra_accounts: [])
-    document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
+  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32), extra_accounts: [], content_type: "text/csv")
+    document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: content_type == "application/pdf" ? "synthetic.pdf" : "synthetic.csv", content_type: content_type, byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     events = rows.map do |name, cents, type, row, key, limitations|
       { account_key: key || "synthetic-account", row_kind: type == "unknown" || limitations ? "unresolved" : "posted", limitations: Array(limitations), event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }

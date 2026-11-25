@@ -9,6 +9,23 @@ import {
 import { isStatementReviewActor } from './statementReviewRecovery'
 import { useStatementReviewMutation } from './useStatementReviewMutation'
 
+/**
+ * The server records "Is anything missing?" only once every line is saved, so an earlier answer is kept on this device
+ * for that person, household and statement. Leaving and coming back doesn't lose it; a recorded answer drops it.
+ */
+type Actor = { user_id: number; household_id: number }
+const coverageKey = (actor: Actor, importId: number, revisionId: number) => `hcfo:statement-coverage:${actor.user_id}:${actor.household_id}:${importId}:${revisionId}`
+function keptCoverage(key: string): CoverageAnswer | null {
+  try {
+    const kept = localStorage.getItem(key)
+    return kept === 'nothing_missing' || kept === 'something_missing' ? kept : null
+  } catch { return null }
+}
+function keepCoverage(key: string | null, answer: CoverageAnswer | null) {
+  if (!key) return
+  try { if (answer) localStorage.setItem(key, answer); else localStorage.removeItem(key) } catch { /* The answer still rides with her next save. */ }
+}
+
 export type UnsavedAnswer = { input: ApproveLinesInput; index: number | null; eventId?: number; choice?: PlanAnswerId; categoryId?: number; accountId?: number; basis?: 'asset' | 'liability' }
 
 /**
@@ -32,6 +49,9 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   // What she said about missing lines. It rides along with every save, and the server records it only when the statement is finished.
   const [coverageAnswer, setCoverageAnswer] = useState<CoverageAnswer | null>(null)
   const coverageVersion = useRef<number | null>(null)
+  // A kept answer with nothing left to save is flagged once per visit: if the server still can't record it (say a correction
+  // is pending), a successful "try again" must not bring the notice straight back.
+  const keptFlagged = useRef(false)
   // Her answer is kept on screen if saving it fails, with a plain way to try again; nothing moves on until it is recorded.
   const [coverageFailed, setCoverageFailed] = useState(false)
   const [unsavedAnswer, setUnsavedAnswer] = useState<UnsavedAnswer | null>(null)
@@ -61,7 +81,22 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
       validateSourceReview(payload, importId, revisionId, page, 'all')
       const review = payload.participant_review
       if (!review?.plan || !review.actor_scope || !Number.isSafeInteger(review.actor_scope.user_id) || !Number.isSafeInteger(review.actor_scope.household_id)) throw new Error('This statement review isn’t available right now. Refresh to continue.')
-      if (live) { setResult({ key: requestKey, data: payload }); clearMutationError(); if ((review.plan.coverage.version_id ?? null) !== coverageVersion.current) { setCoverageAnswer(null); setCoverageFailed(false) } }
+      if (live) {
+        setResult({ key: requestKey, data: payload }); clearMutationError()
+        const version = review.plan.coverage.version_id ?? null
+        if (version !== coverageVersion.current) { setCoverageAnswer(null); setCoverageFailed(false) }
+        const key = coverageKey(review.actor_scope, importId, revisionId)
+        if (review.plan.coverage.answer) keepCoverage(key, null)
+        const kept = review.plan.coverage.answer ? null : keptCoverage(key)
+        if (kept) {
+          coverageVersion.current = version
+          // An answer she has just given on screen wins over the kept one.
+          setCoverageAnswer((current) => current ?? kept)
+          // With every line saved there is no save left for it to ride with: say plainly it isn't saved yet.
+          const { attention, ready, total } = review.plan
+          if (total > 0 && attention.length === 0 && ready.length === 0 && !keptFlagged.current) { keptFlagged.current = true; setCoverageFailed(true) }
+        }
+      }
     }).catch((failure: unknown) => {
       if (live) setResult((previous) => ({ key: requestKey, data: previous?.data, error: participantErrorMessage(failure, 'Could not load this statement.') }))
     })
@@ -80,18 +115,25 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   const categories = review?.categories ?? []
   const names = data && review ? accountNames(data.accounts, review.accounts) : {}
   const needBasis = data && review ? accountsNeedingBasis(data.accounts, review.accounts) : []
+  const needsAccountChoice = review?.accounts.some(account => account.needs_choice) ?? false
+  const needsAccount = needsAccountChoice || needBasis.length > 0
   const counts = plan ? statementCounts(plan) : null
   const said = coverageAnswer ?? plan?.coverage.answer ?? null
   // Only what the server recorded counts as answered: the next step opens after the save that records it.
   const recorded = plan?.coverage.answer ?? null
   const finished = Boolean(plan && plan.total > 0 && plan.done === plan.total && plan.attention.length === 0 && plan.ready.length === 0 && (!plan.coverage.question || recorded))
   useEffect(() => { if (finished) savedCallback.current?.() }, [finished, recorded])
-  const askCoverage = Boolean(plan?.coverage.question) && plan?.total !== 0
+  // A recorded "something's missing" keeps its buttons even when the statement no longer asks, so she can change it.
+  const askCoverage = Boolean(plan?.coverage.question || plan?.coverage.answer === 'something_missing') && plan?.total !== 0
 
   async function save(input: ApproveLinesInput, focusIndex: number | null = null): Promise<boolean> {
     focusAfter.current = focusIndex
     const answer = input.coverage_answer ?? coverageAnswer
-    const saved = await mutation.mutate('approve_lines', answer ? { ...input, coverage_answer: answer, expected_coverage_id: coverageVersion.current } : input)
+    const choices = review?.accounts.flatMap(row => !row.approved && row.choices && !row.needs_choice ? [{
+      source_account_id: row.source_account_id, expected_tracked_account_id: row.suggested?.id ?? null,
+    }] : []) ?? []
+    const request = !input.accounts && choices.length ? { ...input, accounts: choices } : input
+    const saved = await mutation.mutate('approve_lines', answer ? { ...request, coverage_answer: answer, expected_coverage_id: coverageVersion.current } : request)
     if (!saved) focusAfter.current = undefined
     else changedCallback.current?.()
     return saved
@@ -107,6 +149,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   // The question is hers to answer. If every line is already saved the answer is saved now; otherwise it goes with the next save.
   function answerCoverage(value: CoverageAnswer) {
     coverageVersion.current = plan?.coverage.version_id ?? null
+    keepCoverage(review?.actor_scope ? coverageKey(review.actor_scope, importId, revisionId) : null, value)
     setCoverageAnswer(value)
     setCoverageFailed(false)
     if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value }).then((saved) => setCoverageFailed(!saved))
@@ -127,31 +170,35 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   function retryUnsaved() {
     if (unsavedAnswer) void save(unsavedAnswer.input, unsavedAnswer.index).then((saved) => { if (saved) setUnsavedAnswer(null) })
   }
-  async function answerSign(negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual') {
+  /** Resolves true once the answer is saved, so a question she is changing stays open after a failed save. */
+  async function answerSign(negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual', sourceAccountId?: number): Promise<boolean> {
     const actor = review?.actor_scope
-    if (!actor || !isStatementReviewActor(actor)) return
+    if (!actor || !isStatementReviewActor(actor)) return false
     const assertContext = captureApiOperation()
     setSignBusy(true); setSignError(null)
     try {
-      const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut)
+      const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut, sourceAccountId)
       assertContext()
-      if (!isStatementReviewActor(actor)) return
+      if (!isStatementReviewActor(actor)) return false
       focusAfter.current = null
       setAnsweredRevision(result.revision_id)
       onSignAnswered?.(result.revision_id)
       changedCallback.current?.()
+      return true
     } catch (failure) {
       setSignError(participantErrorMessage(failure, 'We couldn’t save that answer. Please try again.'))
+      return false
     } finally { setSignBusy(false) }
   }
   function reload() { setAttempt((value) => value + 1) }
   function resetAndReload() {
     setUnsavedAnswer(null); setCoverageAnswer(null); setCoverageFailed(false); coverageVersion.current = null
+    keepCoverage(review?.actor_scope ? coverageKey(review.actor_scope, importId, revisionId) : null, null)
     reload()
   }
 
   return {
-    data, error, refreshing, review, plan, categories, names, needBasis, counts, mutation, busy: mutation.busy || signBusy,
+    data, error, refreshing, review, plan, categories, names, needBasis, needsAccountChoice, needsAccount, counts, mutation, busy: mutation.busy || signBusy,
     answerSign, signError,
     coverage: { ask: askCoverage, said, recorded, failed: coverageFailed, answer: answerCoverage, answerAgain: () => { if (coverageAnswer) answerCoverage(coverageAnswer) } },
     finished, savingLines, unsavedAnswer, focusAfterRef: focusAfter,

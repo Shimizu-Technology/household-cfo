@@ -322,3 +322,7 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .ui-period select { width
 .category-pressure-row .ui-row__body { flex: 1 1 160px; }
 .category-pressure-row .ui-row > small { flex-basis: 100%; }
 .expense-group-categories li > small { grid-column: 1 / -1; }
+/* Status colours (Mrs. Mel's method): always beside the word. */
+.ui-dot.ui-dot--green { background: var(--color-success); }
+.ui-dot.ui-dot--yellow { background: var(--color-warning); }
+.ui-dot.ui-dot--red { background: var(--color-danger); }

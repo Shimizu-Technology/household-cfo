@@ -3,7 +3,10 @@ module Scorecard
     # Compare each error separately: one better month must not conceal another
     # worse month; category, income, receipt and analyzer regressions count too.
     def self.regressions(actual, baseline, path = [])
-      raise ArgumentError, "Baseline shape changed" unless actual.class == baseline.class || [ true, false ].include?(actual) && [ true, false ].include?(baseline)
+      # An unknown figure (nil) where the baseline had a number is a regression; a number where it had nil is not.
+      unknown = [ actual, baseline ].any?(&:nil?) && [ actual, baseline ].all? { |value| value.nil? || value.is_a?(Numeric) }
+      raise ArgumentError, "Baseline shape changed" unless actual.class == baseline.class || [ true, false ].include?(actual) && [ true, false ].include?(baseline) || unknown
+      return baseline.nil? ? [] : [ path.join(".") ] if unknown
       case baseline
       when Hash
         if %w[decisions_by_kind corrections_by_field questions_by_kind].include?(path.last)

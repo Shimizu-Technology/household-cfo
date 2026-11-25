@@ -5,10 +5,7 @@ module HouseholdFinance
   # provider, draft, or annual-plan creation. Advice and ambiguous scope remain
   # with the appropriate household/challenge coaching route.
   class SavedFinancialRecordsAnswerer
-    PARTICIPANT_STACK_LABELS = {
-      "non_discretionary" => "must-pay bills", "discretionary" => "flexible spending",
-      "sinking_expected" => "planned yearly costs", "sinking_unexpected" => "surprise fund"
-    }.freeze
+    PARTICIPANT_STACK_LABELS = ExpenseGroups::PHRASES.fetch("plain")
 
     Result = Struct.new(:answer, :metadata, keyword_init: true)
     attr_reader :decline_reason
@@ -17,7 +14,7 @@ module HouseholdFinance
     TOPICS = {
       income: /\b(?:income|pay|salary)(?:\s+sources?)?\b/i,
       debts: /\b(?:debts?|credit cards?)\b/i,
-      accounts: /\b(?:accounts?|assets?)\b/i,
+      accounts: /\b(?:accounts?|assets?|checking)\b/i,
       goals: /\b(?:goals?)\b/i,
       spending: /\b(?:spending|budget|planned amounts?|categor(?:y|ies)|expense stacks?)\b/i
     }.freeze
@@ -31,6 +28,11 @@ module HouseholdFinance
     def initialize(household, message:, year:, month:)
       @household, @message = household, message.to_s.squish
       @reference_date = Date.new(Integer(year), Integer(month), 1)
+    end
+
+    # The program's group names: plain words, or Mrs. Mel's terms.
+    def group_phrase(stack_key)
+      ExpenseGroups::PHRASES.fetch(ExpenseGroups.names(CohortExperience::MethodSettings.for_household(@household))).fetch(stack_key.to_s, "spending")
     end
 
     def call
@@ -143,7 +145,7 @@ module HouseholdFinance
       rows = plan.fetch(:rows)
       matches = @read_text.match?(/\b(?:categories|expense stacks?|by category)\b/i) ? [] : spending_category_matches(rows)
       if matches.length > 1
-        names = matches.first(10).map { |row| "#{label(row[:name])} (#{PARTICIPANT_STACK_LABELS.fetch(row[:stack_key], "spending")})" }
+        names = matches.first(10).map { |row| "#{label(row[:name])} (#{group_phrase(row[:stack_key])})" }
         qualification = matches.length > names.length ? " Showing #{names.length} of #{matches.length} matching names." : ""
         return result(:spending, "More than one household spending category matches that request: #{names.join(', ')}.#{qualification} Name one exact category or ask for all spending categories. No records changed.", total_count: matches.length, shown_count: names.length, coverage: "ambiguous_category")
       end
@@ -175,7 +177,7 @@ module HouseholdFinance
         else
           "spent so far is not known in this plan preview"
         end
-        blocks << "#{label(row[:name])} — #{PARTICIPANT_STACK_LABELS.fetch(row[:stack_key], "spending")}#{row[:active] ? '' : ' (archived category retained for history)'}: #{planned}; #{actual}; #{money(Money.dollars(pending))} waiting for review, separate from spent so far."
+        blocks << "#{label(row[:name])} — #{group_phrase(row[:stack_key])}#{row[:active] ? '' : ' (archived category retained for history)'}: #{planned}; #{actual}; #{money(Money.dollars(pending))} waiting for review, separate from spent so far."
         { id: row[:id], name: row[:name], stack_key: row[:stack_key], active: row[:active], allocation_known: allocation_known,
           planned_amount: allocation_known ? cell[:planned] : nil, starting_estimate: estimate,
           confirmed_actual_amount: available && actual_known ? cell[:actual] : nil, pending_amount: Money.dollars(pending) }
@@ -282,7 +284,7 @@ module HouseholdFinance
       end
       scope = @household.debts.active.order(:debt_type, :label, :id)
       rows = scope.limit(MAX_RECORDS).map do |debt|
-        "#{label(debt.label)} (#{debt.debt_type.humanize}): balance #{known_money(debt.balance_known?, debt.balance_cents)}, monthly minimum #{known_money(debt.minimum_payment_known?, debt.minimum_payment_cents)}, APR #{debt.interest_rate_percent.nil? ? 'unknown' : "#{debt.interest_rate_percent.to_s('F')}%"}."
+        "#{label(debt.label)} (#{debt.debt_type.humanize}): balance #{known_money(debt.balance_known?, debt.balance_cents)}#{statement_date(debt)}, monthly minimum #{known_money(debt.minimum_payment_known?, debt.minimum_payment_cents)}, APR #{debt.interest_rate_percent.nil? ? 'unknown' : "#{debt.interest_rate_percent.to_s('F')}%"}."
       end
       # The total covers every active debt, including any beyond the rows shown; it is not itself a row.
       known = scope.select(&:minimum_payment_known?)
@@ -296,10 +298,29 @@ module HouseholdFinance
 
     def answer_accounts
       scope = @household.accounts.active.order(:account_type, :label, :id)
+      # "What's in my checking?" answers for checking accounts when she has one.
+      named = scope.where(account_type: "checking") if @read_text.match?(/\bchecking\b/i) && !@read_text.match?(/\bsavings?\b/i)
+      scope = named if named&.exists?
       rows = scope.limit(MAX_RECORDS).map do |account|
-        "#{label(account.label)} (#{account.account_type.humanize}): balance #{known_money(account.balance_known?, account.balance_cents)}#{account.balance_as_of_on ? " as of #{account.balance_as_of_on.iso8601}" : ', balance date unknown'}."
+        "#{label(account.label)} (#{account.account_type.humanize}): balance #{known_money(account.balance_known?, account.balance_cents)}#{balance_date(account)}."
       end
       inventory_result(:accounts, scope.count, rows, "Balances are approved household snapshots, not verified live bank balances. Account savings balances do not automatically count toward challenge savings.")
+    end
+
+    # A card or loan balance has no date of its own; it is dated only while it is still the statement's amount.
+    def statement_date(debt)
+      on = StatementBalanceOffers.statement_balance_on(debt)
+      on ? " as of #{BalanceDate.label(on)} from your approved statement" : ""
+    end
+
+    def balance_date(account)
+      return ", balance date unknown" unless account.balance_known? && account.balance_as_of_on
+
+      applied = account.source_metadata.is_a?(Hash) ? account.source_metadata["statement_balance"] : nil
+      # Only while the balance is still the statement's: a manual edit keeps its date but is hers.
+      statement = account.source_type == "document_import" && applied.is_a?(Hash) && applied["period_end_on"] == account.balance_as_of_on.iso8601 &&
+        applied["closing_balance_cents"] == account.balance_cents
+      " as of #{BalanceDate.label(account.balance_as_of_on)}#{' from your approved statement' if statement}"
     end
 
     def answer_goals

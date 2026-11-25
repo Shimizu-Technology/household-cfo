@@ -1,5 +1,10 @@
-export type SavingsFundingSource = 'earned_income' | 'gift' | 'bonus' | 'new_money_reserved' | 'preexisting' | 'borrowed' | 'cash_advance' | 'existing_internal_money' | 'withdrawal'
-export type SavingsEnrollment = { accepted_cohort_release_id: number; id: number; cohort_id: number; starts_on: string; ends_on: string; time_zone: string; status: string; policy_version: string; late_start_accepted: boolean; current_accepted_plan_version_id: number | null; approval_sequence: number; lock_version: number }
+export type SavingsFundingSource = 'earned_income' | 'gift' | 'bonus' | 'new_money_reserved' | 'preexisting' | 'borrowed' | 'cash_advance' | 'existing_internal_money' | 'extra_debt_payment' | 'withdrawal'
+/** What counts toward the goal: new money set aside, or that plus extra debt payments. */
+export type ChallengeGoalCounts = 'savings' | 'savings_and_debt'
+/** The rules an enrollment started with (or an offer would start with). Older payloads read as today's defaults. */
+export type ChallengeRules = { length_days: number; checkpoint_days: number[]; suggested_goal_cents: number; goal_counts: ChallengeGoalCounts }
+export const defaultChallengeRules: ChallengeRules = { length_days: 90, checkpoint_days: [30, 60, 90], suggested_goal_cents: 50_000, goal_counts: 'savings' }
+export type SavingsEnrollment = { accepted_cohort_release_id: number; id: number; cohort_id: number; starts_on: string; ends_on: string; time_zone: string; status: string; policy_version: string; late_start_accepted: boolean; current_accepted_plan_version_id: number | null; approval_sequence: number; lock_version: number; challenge_length_days?: number; checkpoint_days?: number[]; suggested_goal_cents?: number; goal_counts?: ChallengeGoalCounts }
 export type SavingsSpendingChange = { budget_category_id: number | null; category_name?: string | null; description: string; recurrence: 'unknown' | 'recurring' | 'one_off' | 'seasonal' | 'annual'; planned_reduction_cents: number | null }
 export type SavingsPlanContext = { financial_baseline_version_id?: number | null; baseline_digest?: string | null; spending_changes?: SavingsSpendingChange[]; baseline_context?: { window_start_on: string; window_end_on: string; coverage_status: 'complete' | 'partial' | 'manual' } | null }
 export type SavingsPlanContextInput = { financial_baseline_version_id: number | null; baseline_digest: string | null; spending_changes: Omit<SavingsSpendingChange, 'category_name'>[] }
@@ -9,10 +14,10 @@ export type SavingsEntryVersion = { id: number; savings_entry_id: number; previo
 export type SavingsEntry = { id: number; current_approved_version_id: number | null; lock_version: number; current_approved_version: SavingsEntryVersion | null }
 export type SavingsEntryDraft = { replaced?: boolean; id: number; savings_entry_id: number; base_version_id: number | null; base_entry_lock_version: number; approved_version_id: number | null; signed_cents: number; effective_on: string; funding_source: SavingsFundingSource; reason: string; status: string; lock_version: number }
 export type SavingsProjection = { calculation_version: number; cutoff_on: string; reporting_known: boolean; zero_attested: boolean; reported_cents: number | null; evidence_supported_cents: number | null; target_cents: number | null; achieved: boolean | null; progress_basis_points: number | null; contribution_cents: number | null; withdrawal_cents: number | null; included_entry_count: number; excluded_entry_count: number; pending_entry_count: number; included_version_ids: string[]; approval_sequence: number; accepted_plan_version_id: number | null; zero_attestation_id: number | null }
-export type SavingsCalendar = { local_today: string; time_zone: string; starts_on: string; ends_on: string; phase: 'upcoming' | 'active' | 'window_ended'; day: number | null; checkpoints: Record<'30' | '60' | '90', string> }
-export type SavingsOffer = { cohort_release_id: number; acceptance_digest: string; policy_version: string; time_zone: string; cohort_label: string; local_today: string; configured_starts_on: string | null; configured_ends_on: string | null; personal_starts_on: string | null; personal_ends_on: string | null; late_start_acceptance_required: boolean | null; accepting_enrollments: boolean }
+export type SavingsCalendar = { local_today: string; time_zone: string; starts_on: string; ends_on: string; phase: 'upcoming' | 'active' | 'window_ended'; day: number | null; checkpoints: Record<string, string>; length_days?: number; checkpoint_days?: number[]; suggested_goal_cents?: number; goal_counts?: ChallengeGoalCounts }
+export type SavingsOffer = { cohort_release_id: number; acceptance_digest: string; policy_version: string; time_zone: string; cohort_label: string; local_today: string; configured_starts_on: string | null; configured_ends_on: string | null; personal_starts_on: string | null; personal_ends_on: string | null; late_start_acceptance_required: boolean | null; accepting_enrollments: boolean; challenge_length_days?: number; checkpoint_days?: number[]; suggested_goal_cents?: number; goal_counts?: ChallengeGoalCounts }
 export type ChallengeTimeline = { days: { day: number; local_on: string; future: boolean; check_in: 'unknown' | 'spending' | 'no_spend'; purchase_count: number; deposit_cents: number | null }[]; checkpoints_due: number[] }
-export type SavingsChallenge = { timeline?: ChallengeTimeline; offer?: SavingsOffer; enrollment: SavingsEnrollment | null; accepted_plan: SavingsPlanVersion | null; projection: SavingsProjection | null; calendar?: SavingsCalendar; pending_entry_count?: number; pending_plan_count?: number; suggested_target_cents?: number }
+export type SavingsChallenge = { timeline?: ChallengeTimeline; offer?: SavingsOffer; enrollment: SavingsEnrollment | null; accepted_plan: SavingsPlanVersion | null; projection: SavingsProjection | null; calendar?: SavingsCalendar; pending_entry_count?: number; pending_plan_count?: number; suggested_target_cents?: number; extra_debt_payment_cents?: number; extra_debt_payment_count?: number }
 export type SavingsPage<T> = { records: T[]; next_cursor: number | null; actor_scope?: import('./financialBaseline').BaselineScope; enrollment_id?: number | null; cohort_id?: number | null }
 export type SavingsMutation<T> = { record: T; replayed: boolean; challenge: SavingsChallenge }
 export type SavingsPlanInput = Partial<SavingsPlanContextInput> & { target_cents: number | null; expected_plan_version_id: number | null; reason?: string }
@@ -55,8 +60,37 @@ export const savingsFundingOptions: { value: SavingsFundingSource; label: string
   { value: 'cash_advance', label: 'Credit / cash advance — excluded', eligible: false },
   { value: 'existing_internal_money', label: 'Transfer, refund, or existing money — excluded', eligible: false },
 ]
+/** The choices for her challenge: an extra debt payment is tracked alongside, and counts only when her rules say so. */
+export function savingsFundingChoices(counts: ChallengeGoalCounts = 'savings'): typeof savingsFundingOptions {
+  return [...savingsFundingOptions.slice(0, 4), { value: 'extra_debt_payment', label: counts === 'savings_and_debt' ? 'Extra payment on a card or loan, beyond the minimum' : 'Extra payment on a card or loan — tracked separately', eligible: counts === 'savings_and_debt' }, ...savingsFundingOptions.slice(4)]
+}
 export function savingsFundingLabel(value: SavingsFundingSource): string {
+  if (value === 'extra_debt_payment') return 'Extra payment on a card or loan'
   return value === 'withdrawal' ? 'Withdrawal from challenge savings' : savingsFundingOptions.find((option) => option.value === value)?.label ?? value
+}
+
+/** The rules from an enrollment, calendar or offer; anything that predates them reads as 90 days, Day 30, 60 and 90, $500, savings only. */
+export function challengeRules(source?: { challenge_length_days?: number; length_days?: number; checkpoint_days?: number[]; suggested_goal_cents?: number; goal_counts?: ChallengeGoalCounts } | null): ChallengeRules {
+  const length = source?.length_days ?? source?.challenge_length_days
+  return {
+    length_days: length ?? defaultChallengeRules.length_days,
+    checkpoint_days: source?.checkpoint_days?.length ? source.checkpoint_days : length ? [Math.round(length / 3), Math.round((length * 2) / 3), length] : defaultChallengeRules.checkpoint_days,
+    suggested_goal_cents: source?.suggested_goal_cents ?? defaultChallengeRules.suggested_goal_cents,
+    goal_counts: source?.goal_counts ?? defaultChallengeRules.goal_counts,
+  }
+}
+
+/** What counts toward her goal, in her words. */
+export function challengeCountsText(rules: ChallengeRules): string {
+  return rules.goal_counts === 'savings_and_debt'
+    ? 'New money you set aside counts toward your goal, and so do extra payments on a card or loan beyond the minimum.'
+    : 'Only new money you set aside counts toward your goal. Extra debt payments are tracked alongside but don’t count.'
+}
+
+/** The check-in days and their dates, in order. Older calendars without checkpoint_days use the dates' keys. */
+export function calendarCheckpoints(calendar: SavingsCalendar): Array<{ day: number; date: string }> {
+  const days = calendar.checkpoint_days?.length ? calendar.checkpoint_days : Object.keys(calendar.checkpoints).map(Number).sort((a, b) => a - b)
+  return days.filter(day => calendar.checkpoints[String(day)]).map(day => ({ day, date: calendar.checkpoints[String(day)] }))
 }
 
 export function checkedSavingsChallenge(value: SavingsChallenge): SavingsChallenge {

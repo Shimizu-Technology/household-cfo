@@ -10,11 +10,12 @@ class ScorecardTest < ActiveSupport::TestCase
       full = ENV["SCORECARD_FULL"] == "1"
       report = Scorecard::Runner.new(document_paths: full ? nil : Scorecard::Runner::FAST_PATHS).call
       baseline = JSON.parse(Scorecard::Runner::TALUN.join(full ? "baseline.json" : "baseline-fast.json").read)
-      assert_empty Scorecard::Ratchet.regressions(report, baseline)
+      assert_empty baseline_ratchet.regressions(report, baseline)
       assert_equal full ? 79 : Scorecard::Runner::FAST_PATHS.length, report.fetch("document_count")
       assert_equal report.dig("annual", "decisions_by_kind").values.sum, report.dig("annual", "decisions")
-      assert_equal full ? 298 : Scorecard::Runner::FAST_CSV_ROWS, report.dig("annual", "questions_by_kind", "direction")
-      assert_equal full ? 298 : Scorecard::Runner::FAST_CSV_ROWS, report.dig("annual", "decisions_by_kind", "direction")
+      # The multi-account CSV asks money in or out once per account it holds, not once per line.
+      assert_equal full ? 5 : 2, report.dig("annual", "questions_by_kind", "direction")
+      assert_equal full ? 5 : 2, report.dig("annual", "decisions_by_kind", "direction")
       assert_equal users, User.count
       assert_equal households, Household.count
     end
@@ -30,6 +31,27 @@ class ScorecardTest < ActiveSupport::TestCase
     assert_includes Scorecard::Ratchet.regressions(improved, baseline), "months.2026-01.total_spending.error_cents"
   end
 
+  test "an unknown income month is never a $0 match and losing a known month is a regression" do
+    report = Scorecard::Report.allocate
+    assert_equal({ "actual_cents" => nil, "expected_cents" => 750_000, "error_cents" => -750_000, "absolute_error_percent" => 100.0, "known" => false }, report.send(:known_metric, nil, 750_000))
+    assert_equal [ 0, true ], report.send(:known_metric, 750_000, 750_000).values_at("error_cents", "known")
+    baseline = { "app_actual_income" => { "actual_cents" => 750_000, "error_cents" => 0, "known" => true } }
+    unknown = { "app_actual_income" => { "actual_cents" => nil, "error_cents" => -750_000, "known" => false } }
+    assert_equal %w[app_actual_income.actual_cents app_actual_income.error_cents app_actual_income.known], Scorecard::Ratchet.regressions(unknown, baseline).sort
+    assert_empty Scorecard::Ratchet.regressions(baseline, { "app_actual_income" => { "actual_cents" => nil, "error_cents" => 0, "known" => false } })
+  end
+
+  test "round4 partial income subtotals are not known" do
+    report = Scorecard::Report.allocate
+    assert_equal false, report.send(:known_metric, 12_000, 20_000, partial: true)["known"]
+    assert_equal true, report.send(:known_metric, 20_000, 20_000, partial: false)["known"]
+    months = JSON.parse(Scorecard::Runner::TALUN.join("baseline.json").read).fetch("months").values
+    months.each { |month| month["app_actual_income"] = report.send(:known_metric, 20_000, 20_000, partial: false) }
+    assert_equal true, report.send(:aggregate, months).dig("app_actual_income", "known")
+    months.first["app_actual_income"] = report.send(:known_metric, 12_000, 20_000, partial: true)
+    assert_equal false, report.send(:aggregate, months).dig("app_actual_income", "known")
+  end
+
   test "private mode rejects repository inputs" do
     assert_raises(ArgumentError) { Scorecard::Runner.new(private_mode: true) }
   end
@@ -43,15 +65,26 @@ class ScorecardTest < ActiveSupport::TestCase
       %w[manifest.json checking-2026-01.pdf recorded_responses/checking-2026-01.pdf.json].each do |name|
         FileUtils.cp(source.join(name), root.join(name))
       end
-      before = Dir.glob(Rails.root.join("storage/**/*").to_s).sort
+      # Point this process's storage at an empty folder of its own. Parallel
+      # workers upload into the shared api/storage, so comparing that folder
+      # races with them; anything this run kept would land here instead.
+      outer = root.join("outer-storage")
+      outer.mkpath
+      previous = ENV.to_h.slice("STORAGE_BACKEND", "LOCAL_STORAGE_ROOT")
+      ENV["STORAGE_BACKEND"], ENV["LOCAL_STORAGE_ROOT"] = "local", File.realpath(outer)
       users = User.count
-      result = without_network do
-        Scorecard::Runner.new(family_dir: root, answer_key: root.join("manifest.json"), private_mode: true, document_limit: 1).call
-      end
+      runner = Scorecard::Runner.new(family_dir: root, answer_key: root.join("manifest.json"), private_mode: true, document_limit: 1)
+      result = without_network { runner.call }
       assert_equal 1, result.fetch("document_count")
       assert_equal users, User.count
-      assert_equal before, Dir.glob(Rails.root.join("storage/**/*").to_s).sort
+      assert_empty Dir.children(outer)
+      run_storage = runner.instance_variable_get(:@storage)
+      assert run_storage.present?
+      refute Dir.exist?(run_storage), "the run's own storage folder must be removed"
+      assert_equal({ "STORAGE_BACKEND" => "local", "LOCAL_STORAGE_ROOT" => File.realpath(outer) }, ENV.to_h.slice("STORAGE_BACKEND", "LOCAL_STORAGE_ROOT"))
       refute_includes JSON.generate(result), directory
+    ensure
+      %w[STORAGE_BACKEND LOCAL_STORAGE_ROOT].each { |key| previous.key?(key) ? ENV[key] = previous[key] : ENV.delete(key) } if previous
     end
   end
 
@@ -83,10 +116,43 @@ class ScorecardTest < ActiveSupport::TestCase
     end
   end
 
+  test "baseline_ratchet reads the base commit's ratchet when CI provides it, in its own namespace" do
+    Dir.mktmpdir("scorecard-base-ratchet-") do |directory|
+      path = Pathname.new(directory).join("ratchet.rb")
+      path.write("module Scorecard\n  class Ratchet\n    def self.regressions(*) = [ \"base rules\" ]\n  end\nend\n")
+      with_env("SCORECARD_BASE_RATCHET" => path.to_s) do
+        assert_equal [ "base rules" ], baseline_ratchet.regressions({}, {})
+      end
+      # CI sets the variable for the whole run, so clear it to see the default.
+      with_env("SCORECARD_BASE_RATCHET" => nil) { assert_equal Scorecard::Ratchet, baseline_ratchet }
+      assert_empty Scorecard::Ratchet.regressions({ "decisions" => 1 }, { "decisions" => 1 })
+    end
+  end
+
   private
 
   def without_network
     Scorecard::Offline.call { yield }
+  end
+
+  # The ratchet that judges the committed baseline. On a pull request CI sets SCORECARD_BASE_RATCHET to the
+  # base commit's lib/scorecard/ratchet.rb, so a PR can't loosen the rules and worsen the baseline together.
+  # It loads into an anonymous module and leaves the PR's Scorecard::Ratchet (and its own tests) alone.
+  def baseline_ratchet
+    path = ENV["SCORECARD_BASE_RATCHET"].to_s
+    return Scorecard::Ratchet if path.empty?
+
+    namespace = Module.new
+    namespace.module_eval(File.read(path), path)
+    namespace::Scorecard::Ratchet
+  end
+
+  def with_env(values)
+    saved = values.keys.index_with { |key| ENV[key] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    saved.each { |key, value| ENV[key] = value }
   end
 end
 

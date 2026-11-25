@@ -11,8 +11,12 @@ module HouseholdFinance
     REALISTIC = /\b(?:is|are)\s+(?:our|my|the|this)\s+(?:monthly\s+)?(?:budget|plan)\s+(?:realistic|doable|workable|enough|working|sustainable|ok(?:ay)?)\b(?!\s+(?:to|for)\b)|\bdoes\s+(?:our|my|the|this)\s+(?:monthly\s+)?(?:budget|plan)\s+(?:work|add\s+up|make\s+sense)\b|\bcan\s+(?:we|i)\s+(?:really\s+)?(?:live\s+on|stick\s+to|keep\s+to|manage\s+on)\s+(?:our|my|this|the)\s+(?:budget|plan)\b/i
     QUESTION = /\bhow much (?:do (?:i|we) have|is) left(?: (?:this|last) month\b|(?=[.!?]*\s*\z))|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b|#{REALISTIC.source}/i
 
+    STATUS_QUESTION = /\A\s*(?:are we|am i) (?:green|yellow|red)\s*[?.!]*\s*\z/i
+
     def self.question?(message)
       return false if MessageReplyIntent.purchase_question?(message) || MiaIncomeAnswer.topic?(message) || SpendingPatterns::Answerer.subscriptions_question?(message)
+
+      return true if STATUS_QUESTION.match?(message.to_s)
 
       excluded = /\b(?:bank|account|grocer(?:y|ies)|food|week)\b/i
       if (question = message.to_s.match(QUESTION))
@@ -39,17 +43,19 @@ module HouseholdFinance
       Date.new(year, month, 1)
     end
 
-    def self.for_question(household, message, annual_plan: nil)
+    def self.for_question(household, message, annual_plan: nil, method: nil)
       date = question_date(message)
       return new(household, annual_plan: {}, invalid_period: true) unless date
 
       plan = annual_plan if annual_plan && (annual_plan[:year] || annual_plan["year"]).to_i == date.year
       plan ||= AnnualBudgetManager.new(household, year: date.year).read_only_plan_data
-      new(household, annual_plan: plan, month: date.month)
+      new(household, annual_plan: plan, month: date.month, method: method)
     end
 
-    def initialize(household, annual_plan:, month: Date.current.month, invalid_period: false)
+    # method: the program's coaching method; nil reads the household's own program.
+    def initialize(household, annual_plan:, month: Date.current.month, invalid_period: false, method: nil)
       @invalid_period = invalid_period
+      @method = method
       @household = household
       @plan = annual_plan.deep_symbolize_keys
       @month = month.to_i.clamp(1, 12)
@@ -86,11 +92,15 @@ module HouseholdFinance
         # These cells are uncapped SQL aggregates of approved category splits,
         # independent of the capped recent/pending transaction lists.
         actual = approved || before_start ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
-        actual = nil unless household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: Date.new(year, month, 1).all_month).exists?
+        # A month with only an approved refund is known: Budget shows the money that came back.
+        actual = nil unless household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: Date.new(year, month, 1).all_month).exists? ||
+          RefundCredits.new(household, from: Date.new(year, month, 1), to: Date.new(year, month, 1).end_of_month).counted.any?
         pending = Array(plan[:pending_transaction_drafts]).select { |draft| draft[:occurred_on].to_s.start_with?(format("%04d-%02d", year, month)) }
         truncated = plan.dig(:pending_transaction_drafts_meta, :truncated) == true
         pending_unknown = truncated
-        snapshot = SnapshotBuilder.new(household, reference_date: Date.new(year, month, 1), ensure_plan: false).call
+        snapshot = SnapshotBuilder.new(household, reference_date: Date.new(year, month, 1), ensure_plan: false, method: @method).call
+        left = income && planned ? income - planned : nil
+        rule = snapshot.fetch(:status_rule)
         readiness_known = income && planned && snapshot[:liquid_assets_known] && SetupStatus.new(household).complete?
         {
           plan_available: approved, plan_starts_on: PlanCoverage.new(household).starts_on.iso8601, before_plan_start: before_start,
@@ -98,6 +108,7 @@ module HouseholdFinance
           missing_plan_inputs: missing_plan_inputs(income, categories, debt),
           cushion_missing_inputs: cushion_missing_inputs(snapshot, income, categories, debt),
           year: year, month: month, period_label: Date.new(year, month, 1).strftime("%B %Y"),
+          actual_income: actual_income,
           money_in_cents: income, planned_out_cents: planned, category_plan_cents: categories,
           before_debt_payments: !!before_debt,
           before_debt_out_cents: before_debt ? categories : nil,
@@ -110,13 +121,32 @@ module HouseholdFinance
           pending_count: pending_unknown ? nil : pending.length, pending_unknown: pending_unknown, pending_list_truncated: truncated,
           readiness_tone: readiness_known ? snapshot[:readiness_tone] : nil,
           runway_months: readiness_known ? snapshot[:runway_months] : nil,
-          readiness_guidance: readiness_known ? cushion_guidance(snapshot[:readiness_tone], income && planned ? income - planned : nil) : missing_cushion_guidance(snapshot, income, categories, debt),
+          target_runway_months: snapshot[:target_runway_months],
+          emergency_fund_gap_cents: readiness_known ? snapshot[:emergency_fund_gap_cents] : nil,
+          months_to_target: readiness_known ? snapshot[:months_to_target] : nil,
+          # The program's colour for this month's planned surplus; unknown stays unknown.
+          surplus_tone: left.nil? ? nil : surplus_tone(left, rule),
+          status_rule: rule,
+          readiness_guidance: readiness_known ? cushion_guidance(snapshot, rule) : missing_cushion_guidance(snapshot, income, categories, debt),
           readiness_meaning: readiness_known ? snapshot[:readiness_label] : missing_cushion_guidance(snapshot, income, categories, debt),
           safe_to_spend_cents: readiness_known ? snapshot[:safe_to_spend_cents] : nil,
           spent_basis: "purchases you approved; debt payments are separate",
           left_basis: "the plan after planned spending; not a bank balance or permission to spend"
         }
       end
+    end
+
+    def status_response
+      facts = call
+      surplus = facts[:plan_left_cents]
+      surplus_line = if surplus.nil?
+        "The planned surplus is not known yet."
+      elsif surplus.negative?
+        "Your planned surplus is #{facts[:surplus_tone].capitalize}, with a #{money(-surplus)} shortfall."
+      else
+        "Your planned surplus is #{facts[:surplus_tone].capitalize} at #{money(surplus)}."
+      end
+      "For #{facts[:period_label]}: #{facts[:readiness_guidance]} #{surplus_line}"
     end
 
     def response(next_move: nil)
@@ -174,14 +204,29 @@ module HouseholdFinance
       review ? "#{next_move.sub(/[.!?]\z/, '')}; #{review.sub(/\A./, &:downcase)}" : next_move
     end
 
-    def cushion_guidance(tone, left)
-      case tone
+    # Mrs. Mel's rule: how many months this surplus needs to reach the emergency fund target.
+    def cushion_guidance(snapshot, rule)
+      months = snapshot[:months_to_target]
+      pace = months && "at this pace your emergency fund target is about #{months_text(months)} away"
+      case snapshot[:readiness_tone]
+      when "green"
+        months.to_i.zero? ? "Green: your emergency fund target is reached; keep essentials and upcoming costs protected." : "Green: #{pace}, within #{months_text(rule.fetch('target_green_months'))}; keep the transfer going."
+      when "yellow" then "Yellow: #{pace}, within #{months_text(rule.fetch('target_yellow_months'))}; keep strengthening it before adding new commitments."
       when "red"
-        left&.positive? ? "Your emergency cushion needs building, so give that breathing room a job first." : "Protect food, housing, utilities, and required payments while you rebuild your cushion."
-      when "yellow" then "You have some cushion; keep strengthening it before adding new commitments."
-      when "green" then "Your cushion is in a stronger place; keep essentials and upcoming costs protected."
+        months ? "Red: #{pace}, more than #{months_text(rule.fetch('target_yellow_months'))}, so give your surplus a job for it first." : "Red: protect food, housing, utilities, and required payments while you bring planned costs within income."
       else missing_cushion_guidance(nil, nil, nil, nil)
       end
+    end
+
+    def surplus_tone(left, rule)
+      return "green" if left >= rule.fetch("surplus_green_cents")
+      return "yellow" if left >= rule.fetch("surplus_yellow_cents")
+
+      "red"
+    end
+
+    def months_text(count)
+      "#{count} #{'month'.pluralize(count)}"
     end
 
     def missing_plan_inputs(income, categories, debt)
@@ -208,6 +253,14 @@ module HouseholdFinance
 
     def year
       plan.fetch(:year, Date.current.year).to_i
+    end
+
+    # The plan's own months, so Home and Mia read the approved lines once. A plan that came back from JSON is read again.
+    def actual_income
+      months = plan[:actual_income]
+      return months[month] if months.is_a?(ActualIncome::Months)
+
+      ActualIncome.new(household).month(Date.new(year, month, 1))
     end
 
     def cell(row)

@@ -127,21 +127,15 @@ module Demo
           target_runway_months: facts.fetch(:target_runway_months),
           protected_liquid_amount: facts.fetch(:protected_liquid),
           monthly_surplus: facts.fetch(:baseline_surplus),
-          yellow: {
-            tone: "yellow",
-            runway_months: 3,
-            protected_liquid_target: facts.fetch(:yellow_runway_target),
-            protected_liquid_gap: facts.fetch(:yellow_runway_gap),
-            cash_flow_requirement: "Nonnegative monthly cash flow",
-            reached: true
+          target_runway_source: "household",
+          emergency_fund: {
+            tone: facts.fetch(:readiness_tone), label: facts.fetch(:readiness_label), target: facts.fetch(:green_runway_target),
+            gap: facts.fetch(:green_runway_gap), months_to_target: facts.fetch(:months_to_target)
           },
-          green: {
-            tone: "green",
-            runway_months: 6,
-            protected_liquid_target: facts.fetch(:green_runway_target),
-            protected_liquid_gap: facts.fetch(:green_runway_gap),
-            cash_flow_requirement: "Positive monthly cash flow",
-            reached: false
+          surplus: { tone: facts.fetch(:surplus_tone), label: facts.fetch(:surplus_label) },
+          status_rule: {
+            target_green_months: facts.dig(:status_rule, "target_green_months"), target_yellow_months: facts.dig(:status_rule, "target_yellow_months"),
+            surplus_green: dollars(facts.dig(:status_rule, "surplus_green_cents")), surplus_yellow: dollars(facts.dig(:status_rule, "surplus_yellow_cents"))
           }
         },
         accounts: [
@@ -275,11 +269,36 @@ module Demo
           upcoming_spikes: [ december ],
           next_irregular_month: outlook_months.find { |month| Date.iso8601(month[:starts_on]) >= on.beginning_of_month }
         },
+        year_forecast: year_forecast(outlook_months, rows, on: on),
         pending_transaction_drafts: [],
         pending_mia_action_drafts: [],
         recent_transactions: [],
         archived_categories: []
       }
+    end
+
+    # The demo family's cash through December, from balances dated at the end of last month. No saved bills, so each
+    # category counts its plan, the way a real plan does before bills are added.
+    def self.year_forecast(outlook_months, rows, on: Date.current)
+      cash = HouseholdFinance::Money.cents(PROTECTED_LIQUID)
+      starting = cash
+      months = outlook_months.select { |month| Date.iso8601(month[:starts_on]) >= on.beginning_of_month }.map do |month|
+        income = HouseholdFinance::Money.cents(month[:income])
+        out = HouseholdFinance::Money.cents(month[:planned_outflow])
+        opening = cash
+        cash += income - out
+        index = month[:period_id] - 1
+        { label: Date.iso8601(month[:starts_on]).strftime("%B"), starts_on: month[:starts_on], from_on: nil,
+          opening_cents: opening, income_cents: income, income_basis: "planned", approved_so_far_cents: nil,
+          outflow_cents: out, spending_plan_known: true, ending_cents: cash, bills: [],
+          reasons: rows.sort_by { |row| -row[:months][index][:planned] }.first(3).map { |row| row[:name] },
+          includes_estimates: false, estimate_reasons: [], higher_costs: HouseholdFinance::Money.cents(month[:planned_outflow]) > HouseholdFinance::Money.cents(CATEGORY_PLAN + MONTHLY_DEBT_MINIMUMS) }
+      end
+      short = months.find { |month| month[:ending_cents].negative? }
+      { starting_cash_cents: starting, starting_on: (on.beginning_of_month - 1).iso8601,
+        starting_note: "Starting from your cash balances on #{(on.beginning_of_month - 1).strftime('%B %-d')}.",
+        months: months, first_short_month: short, status: short ? "short" : "no_short_month", estimate_reasons: [], missing: [], bills: [],
+        debt_bills: [ { name: "Monthly debt payments", amount_cents: HouseholdFinance::Money.cents(MONTHLY_DEBT_MINIMUMS) } ] }
     end
 
     def self.financial_facts(on: Date.current)
@@ -305,10 +324,13 @@ module Demo
         readiness_tone: result.fetch(:readiness_tone),
         readiness_label: result.fetch(:readiness_label),
         safe_to_spend: dollars(result.fetch(:safe_to_spend_cents)),
-        yellow_runway_target: dollars(result.fetch(:yellow_runway_target_cents)),
-        yellow_runway_gap: dollars(result.fetch(:yellow_runway_gap_cents)),
-        green_runway_target: dollars(result.fetch(:green_runway_target_cents)),
-        green_runway_gap: dollars(result.fetch(:green_runway_gap_cents))
+        surplus_kept_for_tone: result.fetch(:surplus_kept_for_tone_cents)&.then { |cents| dollars(cents) },
+        green_runway_target: dollars(result.fetch(:emergency_fund_target_cents)),
+        green_runway_gap: dollars(result.fetch(:emergency_fund_gap_cents)),
+        months_to_target: result.fetch(:months_to_target),
+        surplus_tone: result.fetch(:surplus_tone),
+        surplus_label: result.fetch(:surplus_label),
+        status_rule: result.fetch(:status_rule)
       }
     end
 

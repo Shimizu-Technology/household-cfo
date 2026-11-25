@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccountRecord, AssetPortfolio } from '../api'
 import { AccountManager } from './AccountManager'
 import { accountSummaryText } from './accountSummary'
+import { guamTodayIso } from '../lib/householdDate'
 
 const apiMocks = vi.hoisted(() => ({
   fetchPlaidOverview: vi.fn(),
@@ -461,5 +462,25 @@ describe('AccountManager', () => {
     expect(dirty).toHaveBeenLastCalledWith(true)
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(dirty).toHaveBeenLastCalledWith(false)
+  })
+  it('dates a new amount typed over a saved one as today unless she changes the date too', async () => {
+    const user = userEvent.setup()
+    const original = account({ id: 4, balance: 6787.15, balance_as_of_on: '2026-10-31' })
+    apiMocks.updateAccount.mockResolvedValue({ ...original, balance: 5000 })
+    render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={vi.fn().mockResolvedValue(undefined)} />)
+    await user.click(screen.getByRole('button', { name: /^Edit / }))
+    const amount = screen.getByLabelText(/Approved balance/)
+    await user.clear(amount); await user.type(amount, '5000')
+    await user.click(screen.getByRole('button', { name: /^Save/ }))
+    await waitFor(() => expect(apiMocks.updateAccount).toHaveBeenCalledTimes(1))
+    expect(apiMocks.updateAccount.mock.calls[0][1]).toMatchObject({ balance: 5000, balance_as_of_on: guamTodayIso() })
+
+    await user.click(await screen.findByRole('button', { name: /^Edit / }))
+    const again = screen.getByLabelText(/Approved balance/)
+    await user.clear(again); await user.type(again, '4000')
+    fireEvent.change(screen.getByLabelText('Balance date'), { target: { value: '2026-11-02' } })
+    await user.click(screen.getByRole('button', { name: /^Save/ }))
+    await waitFor(() => expect(apiMocks.updateAccount).toHaveBeenCalledTimes(2))
+    expect(apiMocks.updateAccount.mock.calls[1][1]).toMatchObject({ balance: 4000, balance_as_of_on: '2026-11-02' })
   })
 })

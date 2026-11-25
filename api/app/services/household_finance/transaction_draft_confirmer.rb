@@ -1,6 +1,28 @@
 module HouseholdFinance
   class TransactionDraftConfirmer
     InvalidDraftCorrection = Class.new(StandardError)
+    # The purchase looks like one she already has. Confirming would count it
+    # twice, so nothing changes until she says whether it is the same purchase
+    # (accept the match) or a different one (confirm with different_purchase).
+    class PossibleDuplicate < ArgumentError
+      attr_reader :matches
+
+      def initialize(message, matches)
+        super(message)
+        @matches = matches
+      end
+    end
+    # She paid in cash and there is cash she took out that it could have come from. Confirming without her answer
+    # would count the cash twice, so nothing changes until she says which withdrawal it came from (or that it didn't).
+    class CashWithdrawalQuestion < ArgumentError
+      attr_reader :question
+
+      def initialize(message, question)
+        super(message)
+        @question = question
+      end
+    end
+    ELSEWHERE = CashPayment::ELSEWHERE
     MERCHANT_RULE_INITIAL_CONFIDENCE = BigDecimal("0.83")
     MERCHANT_RULE_UPSERT_SQL = Arel.sql(<<~SQL.squish)
       confidence = LEAST(0.95, merchant_category_rules.confidence + 0.03),
@@ -10,25 +32,65 @@ module HouseholdFinance
       active = EXCLUDED.active,
       updated_at = EXCLUDED.updated_at
     SQL
-    Result = Struct.new(:success?, :draft, :transaction, :errors, keyword_init: true)
+    Result = Struct.new(:success?, :draft, :transaction, :errors, :possible_matches, :cash_question, keyword_init: true)
 
-    def initialize(draft, attributes = {}, reconcile_import: true)
+    def self.possible_duplicate_message(matches, today: Date.current)
+      first = matches.first.household_transaction
+      others = matches.length - 1
+      date = first.occurred_on.year == today.year ? first.occurred_on.strftime("%b %-d") : first.occurred_on.strftime("%b %-d, %Y")
+      amount = ActiveSupport::NumberHelper.number_to_currency(Money.dollars(first.total_amount_cents))
+      also = others.positive? ? " or #{others} other #{'purchase'.pluralize(others)}" : ""
+      "This looks like #{store_name(first.merchant)} on #{date} (#{amount})#{also}, which you already have. Is it the same purchase or a different one? Nothing was added to your spending."
+    end
+
+    # The store as she knows it, without bank wording ("Purchase authorized on 06/23 … Tamuning Gum").
+    def self.store_name(merchant)
+      SpendingPatterns::MerchantName.call(merchant).presence || merchant
+    end
+
+    def self.cash_question_message(question)
+      "#{question.fetch(:question)} Choose on the purchase. Nothing was added to your spending."
+    end
+
+    # A confirm asks one question at a time ("Same purchase?", then "Paid with the $100 you took out?", or the other
+    # way round) and the card sends one answer each time. When a refusal asks the next question, the answer she just
+    # gave is kept on the pending purchase, so she isn't asked it again. Nothing counts until the last answer.
+    # different_purchase rejects the suggestions she was asked about; cash_withdrawal keeps her Yes (or No).
+    def self.keep_answers!(draft, different_purchase: false, cash_withdrawal: nil)
+      return unless draft.pending?
+
+      draft.transaction_draft_matches.proposed.update_all(status: "rejected", updated_at: Time.current) if different_purchase
+      return if cash_withdrawal.blank? || !CashPayment.paid_in_cash?(draft)
+
+      draft.update!(draft_payload: CashPayment.with_answer(draft.draft_payload, cash_withdrawal == ELSEWHERE ? ELSEWHERE : cash_withdrawal.to_i))
+    end
+
+    # different_purchase: she answered "Different purchase" to "Same purchase as …?".
+    # cash_withdrawal: her answer to "Paid with the $100 you took out on Aug 3?": that withdrawal's event id (Yes), or
+    # ELSEWHERE (No: the cash came from somewhere else, so it counts as its own purchase).
+    def initialize(draft, attributes = {}, reconcile_import: true, different_purchase: false, cash_withdrawal: nil, user: nil)
       @draft = draft
       @attributes = attributes.to_h.symbolize_keys
       @reconcile_import = reconcile_import
+      @different_purchase = different_purchase == true
+      @cash_withdrawal = cash_withdrawal == ELSEWHERE ? ELSEWHERE : cash_withdrawal.presence&.to_i
+      @user = user
     end
 
     def call
       transaction = nil
-      ApplicationRecord.transaction do
+      # A savepoint, so a refusal leaves nothing changed even inside a caller's transaction.
+      ApplicationRecord.transaction(requires_new: true) do
         draft.with_lock do
           if draft.financial_source_event_id.present?
             raise ArgumentError, "Review this statement row in Statements before adding it to your spending."
           end
           if draft.pending?
             corrected = apply_corrections!
+            settle_possible_duplicates!
+            cash_event_id = settle_cash_question!
             transaction = create_transaction!
-            clear_unaccepted_match_suggestions!
+            CashDrawdowns.link!(draft.household, transaction, event_id: cash_event_id, cents: CashPayment.cash_cents(draft), user: user) if cash_event_id
             draft.update!(status: corrected ? "corrected" : "confirmed", confirmed_transaction: transaction)
             if reconcile_import && draft.financial_document_import
               HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call
@@ -40,6 +102,12 @@ module HouseholdFinance
       return Result.new(success?: true, draft: draft.reload, transaction: transaction, errors: []) if transaction
 
       Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ "Transaction draft is not pending" ])
+    rescue PossibleDuplicate => e
+      keep_for_review!
+      Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ e.message ], possible_matches: e.matches)
+    rescue CashWithdrawalQuestion => e
+      keep_for_review!
+      Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ e.message ], cash_question: e.question)
     rescue InvalidDraftCorrection, ArgumentError => e
       Result.new(success?: false, draft: draft.reload, transaction: transaction, errors: [ e.message ])
     rescue ActiveRecord::RecordInvalid => e
@@ -48,9 +116,88 @@ module HouseholdFinance
 
     private
 
-    attr_reader :draft, :attributes, :reconcile_import
+    attr_reader :draft, :attributes, :reconcile_import, :different_purchase, :cash_withdrawal, :user
 
-    def apply_corrections!
+    # A cash purchase names cash she already took out, so it adds nothing (decision 3). Ask which withdrawal it came
+    # from before it counts; never link one for her. With no withdrawal that has cash left, it counts on its own.
+    # Returns the withdrawal she chose, or nil.
+    def settle_cash_question!
+      cents = CashPayment.cash_cents(draft)
+      return unless cents.positive?
+
+      if cash_withdrawal == ELSEWHERE
+        draft.update!(draft_payload: CashPayment.with_answer(draft.draft_payload, ELSEWHERE))
+        return
+      end
+      return cash_withdrawal if cash_withdrawal
+      return if CashPayment.payload(draft)["answer"] == ELSEWHERE
+
+      drawdowns = CashDrawdowns.new(draft.household)
+      # Her Yes, given while she was also asked "Same purchase?". Asked again if that cash has gone since.
+      chosen = CashPayment.chosen_withdrawal_id(draft)
+      return chosen if chosen && drawdowns.candidate(chosen, on: draft.occurred_on)
+
+      candidates = drawdowns.candidates(on: draft.occurred_on)
+      return if candidates.empty?
+
+      question = { question: CashPayment.question(candidates, cents), cash_cents: cents,
+        candidates: candidates.map { |candidate| CashPayment.candidate_payload(candidate, cents) } }
+      raise CashWithdrawalQuestion.new(self.class.cash_question_message(question), question)
+    end
+
+    # Look again just before it counts: a bank line approved since she logged
+    # this, or a corrected amount, date or merchant, can make it match a
+    # purchase she already has. Matches she already rejected stay rejected.
+    def settle_possible_duplicates!
+      TransactionDraftMatcher.new(draft.reload).call
+      proposed = draft.transaction_draft_matches.proposed.best_first.includes(:household_transaction).to_a
+      return if proposed.empty?
+
+      unless different_purchase
+        raise PossibleDuplicate.new(self.class.possible_duplicate_message(proposed), proposed.map { |match| possible_match_payload(match) })
+      end
+
+      # She said it is a different purchase. Keep her answer so the same
+      # suggestion is not asked again if this purchase is reopened.
+      draft.transaction_draft_matches.proposed.update_all(status: "rejected", updated_at: Time.current)
+    end
+
+    # Refused, but her correction is hers to keep: save it on the purchase,
+    # which stays pending, and keep the suggestions so its card can ask
+    # "Same purchase as …?". Nothing counts. A caller's own transaction (an
+    # operation, a group confirm) can still roll this back; the confirm
+    # endpoint then saves the correction through transaction.draft.update.
+    def keep_for_review!
+      draft.reload
+      ApplicationRecord.transaction(requires_new: true) do
+        draft.with_lock do
+          next unless draft.pending?
+
+          if corrections_requested?
+            apply_corrections!(keep_pending: true)
+            # Suggestions for the amount she corrected away no longer apply.
+            draft.transaction_draft_matches.proposed.destroy_all
+          end
+          TransactionDraftMatcher.new(draft.reload).call
+          self.class.keep_answers!(draft, different_purchase: different_purchase, cash_withdrawal: cash_withdrawal)
+        end
+      end
+    rescue InvalidDraftCorrection, ArgumentError, ActiveRecord::RecordInvalid => e
+      Rails.logger.warn("Possible duplicate kept without its correction draft_id=#{draft.id}: #{e.class}: #{e.message}")
+    end
+
+    def corrections_requested?
+      attributes.slice(:occurred_on, :merchant, :amount, :budget_category_id, :splits).values.any?(&:present?)
+    end
+
+    def possible_match_payload(match)
+      transaction = match.household_transaction
+      { transaction_id: transaction.id, merchant: transaction.merchant, store_name: self.class.store_name(transaction.merchant), occurred_on: transaction.occurred_on.iso8601,
+        amount_cents: transaction.total_amount_cents, confidence: match.confidence&.to_f }
+    end
+
+    # keep_pending: save her correction on a purchase that is not being confirmed.
+    def apply_corrections!(keep_pending: false)
       original_signature = correction_signature
       draft.assign_attributes(
         occurred_on: parsed_date(attributes[:occurred_on]) || draft.occurred_on,
@@ -61,7 +208,7 @@ module HouseholdFinance
       draft.save! if draft.changed?
       apply_split_corrections!
       corrected = correction_signature != original_signature
-      draft.status = "corrected" if corrected
+      draft.status = "corrected" if corrected && !keep_pending
       draft.save! if draft.changed?
       corrected
     end
@@ -234,10 +381,6 @@ module HouseholdFinance
       date
     rescue ArgumentError
       nil
-    end
-
-    def clear_unaccepted_match_suggestions!
-      draft.transaction_draft_matches.where.not(status: "accepted").destroy_all
     end
 
     def remember_merchant_category_rules!(splits)

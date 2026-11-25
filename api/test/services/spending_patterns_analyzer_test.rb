@@ -9,6 +9,40 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "the bills-excluded claim requires every named part of the list to be bill free" do
+    ordinary = [ { label: "Talun Demo Market" } ]
+    assert SpendingPatterns::Answerer.bill_free_list?(ordinary, [ "Optional shopping" ], [], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?([ { label: "Talun Demo Power" } ], [], [], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?(ordinary, [ "Electricity" ], [], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?(ordinary, [ "Internet" ], [], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?(ordinary, [], [ { merchant: "Talun Demo Water" } ], nil)
+    refute SpendingPatterns::Answerer.bill_free_list?(ordinary, [], [], { label: "Talun Demo Sewer" })
+  end
+
+  test "utility companies stay protected while ordinary stores and fuel stay ordinary" do
+    protected = [ "Tasi Demo Power", "Island Water Co", "Demo Electric Company", "Guam Power Authority", "Talun Electricity Services", "Talun Gas Co", "Island Gas Company", "Gas Authority", "Island Water Co., Ltd.", "Talun Sewer Inc", "Talun Telecom", "Talun Internet", "Talun Telephone Company LLC" ]
+    ordinary = [ "Power Mart", "Powerhouse Gym", "Water World Toys", "Gas Station", "Talun Gas Station", "Costco Gas", "Shell Gas" ]
+    protected.each { |name| assert SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    ordinary.each { |name| refute SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      (protected + ordinary).each { |name| purchase(date, name, 3000) }
+    end
+    result = analyze
+    assert_empty(result[:candidate_changes].pluck(:merchant) & protected)
+    ordinary.each { |name| assert_includes result[:discretionary_merchants].pluck(:label), name }
+  end
+
+  test "fuel retailers ending in gas can be recurring cut choices" do
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      [ "Costco Gas", "Shell Gas" ].each { |name| purchase(date, name, 3000) }
+    end
+    result = analyze
+    [ "Costco Gas", "Shell Gas" ].each do |name|
+      assert_includes result[:discretionary_merchants].pluck(:label), name
+      assert_includes result[:candidate_changes].pluck(:merchant), name
+    end
+  end
+
   test "household and challenge pattern references answer the question focus" do
     observed = "I only see purchases for Oct: Ross ($300) was your biggest flexible spending stop."
     messages = [ "what do you notice in my spending", "what stands out on the statement i just did", "where can i cut back", "any small buys adding up" ]
@@ -51,6 +85,241 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_equal 41_000 * 2 + 30_000 * 2 + 9_000 * 2 + 69_000 + 50_000 + (12_000 + 8_000 + 6_000) * 2, result[:observed_spending_cents]
   end
 
+  test "the core categories are always protected; a program can add more; store names and insurance stay protected" do
+    analyzer = SpendingPatterns::Analyzer
+    assert analyzer.protected_category?("Family outings")
+    assert analyzer.protected_category?("Family outings", %w[housing utilities]), "family support is core; a list cannot drop it"
+    assert analyzer.protected_category?("Car payment", [])
+    assert analyzer.protected_category?("Car insurance", [])
+    refute analyzer.protected_category?("Groceries")
+    assert analyzer.protected_category?("Groceries", %w[groceries])
+    assert analyzer.protected_category?("Church tithes", %w[giving])
+    assert analyzer.protected_category?("Fiesta and community", %w[community])
+    refute analyzer.protected_category?("Eating out", %w[groceries giving community])
+    family = @household.budget_categories.create!(name: "Family outings", stack_key: "discretionary", sort_order: 2)
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 3)
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      purchase(date, "Island Fun Center", 12_000, category: family)
+      purchase(date, "Talofofo Prenatal Clinic", 20_500, category: family)
+      purchase(date, "Payless Market", 15_000, category: groceries)
+    end
+    default = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2)).call
+    assert_equal [ "Payless Market" ], default[:candidate_changes].pluck(:merchant)
+    assert_equal CohortExperience::MethodSettings::CORE_PROTECTED, default[:protected_categories]
+    added = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), protected: %w[groceries]).call
+    assert_empty added[:candidate_changes]
+    assert_equal CohortExperience::MethodSettings::CORE_PROTECTED + %w[groceries], added[:protected_categories]
+  end
+
+  test "a clinic, pharmacy, daycare, insurer or money for family filed as flexible spending is never a cut" do
+    family = @household.budget_categories.create!(name: "Sent to Nana", stack_key: "discretionary", sort_order: 2)
+    cover = @household.budget_categories.create!(name: "Car insurance", stack_key: "discretionary", sort_order: 3)
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      # "Optional shopping" names nothing protected; the store names do.
+      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Talofofo Prenatal Clinic Talofofo GU S····5237 Card 5237", 20_500)
+      purchase(date, "Coral Reef Pharmacy", 4_200)
+      purchase(date, "Little Tasi Daycare", 30_000)
+      purchase(date, "Zelle to Tia Rosa", 15_000)
+      purchase(date, "Remittance to Nana Talun", 10_000, category: family)
+      purchase(date, "Harbor Mutual Insurance", 9_000, category: cover)
+      purchase(date, "Seabreeze Snack Bar", 3_000)
+    end
+    result = analyze
+    assert_equal [ "Seabreeze Snack Bar" ], result[:candidate_changes].pluck(:merchant)
+    assert_equal [ "Seabreeze Snack Bar" ], result[:discretionary_merchants].pluck(:label)
+    assert_equal [ "Optional shopping" ], result[:discretionary_categories].pluck(:label)
+    assert_equal 3_000 * 2, result[:discretionary_categories].first[:total_cents]
+    # They still count as spending, and "where does it go" still sees them.
+    assert_equal (20_500 + 4_200 + 30_000 + 15_000 + 10_000 + 9_000 + 3_000) * 2, result[:observed_spending_cents]
+    assert_includes result[:merchants].pluck(:label), "Talofofo Prenatal Clinic"
+    assert_equal [ "Optional shopping", "Sent to Nana", "Car insurance" ], result[:categories].pluck(:label)
+  end
+
+  test "remittances, childcare, pharmacies and doctors filed as flexible spending are never a cut" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+        [ "WESTERN UNION 1234", "Remittance to Nana Talun", "Island Nursery", "WALGREENS #1234", "GUAM OB/GYN ASSOCIATES",
+          "Sent to Tia Rosa", "MONEYGRAM 5521", "Island Eye Care", "Dr. Ana Cruz", "Ana Cruz MD", "Island Rx" ].each { |name| purchase(date, name, 10_000) }
+        # Ordinary stores whose names only look close: still flexible spending.
+        purchase(date, "Rx Pizza", 4_000)
+        purchase(date, "Seabreeze Snack Bar", 3_000)
+      end
+      result = analyze
+      assert_equal [ "Rx Pizza", "Seabreeze Snack Bar" ], result[:candidate_changes].pluck(:merchant)
+      assert_equal [ "Rx Pizza", "Seabreeze Snack Bar" ], result[:discretionary_merchants].pluck(:label)
+      assert_equal (10_000 * 11 + 4_000 + 3_000) * 2, result[:observed_spending_cents]
+      assert(result[:merchants].select { |row| row[:label].match?(/WESTERN UNION|Remittance|Sent to|MONEYGRAM/) }.all? { |row| row[:transfer_to_person] })
+
+      cut = SpendingPatterns::Answerer.new(household: @household, message: "What should I cut first?", persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      refute_match(/WESTERN|Remittance|Nursery|WALGREENS|OB\/GYN|Tia Rosa|MONEYGRAM|Eye Care|Cruz|Island Rx/i, cut)
+      assert_includes cut, "I left out stores and categories that look like rent, bills, medical care, childcare or money for family."
+      refute_includes cut, "aren’t on this list"
+    end
+  end
+
+  test "a store whose name only looks like care, rent or a bill can still be a cut" do
+    stores = [ "Dr Juice Bar", "Whole Health Foods", "Vision Buffet", "Rent-A-Center", "Utility Trailer Sales", "Island Garden Nursery", "TARGET 1234 BALTIMORE MD" ]
+    stores.each { |name| refute SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    [ "Ana Cruz MD", "ANA CRUZ MD", "Cruz, M.D.", "Dr. Ana Cruz", "DR LEON GUERRERO", "Little Stars Daycare", "Island Nursery", "Island Pediatric Clinic",
+      "Island Vision Center", "Guam Health Care", "Tamuning Apartments Rent", "Monthly rent", "Guam Power Authority", "City Utilities", "UTILITY PAYMENT",
+      "Guam Waterworks", "Harbor Mutual Insurance", "Coral Reef Pharmacy" ].each { |name| assert SpendingPatterns::Analyzer.protected_merchant?(name), name }
+    refute SpendingPatterns::Analyzer.protected_category?("Health and beauty")
+    refute SpendingPatterns::Analyzer.protected_category?("Health & fitness")
+    [ "Health", "Healthcare", "Medical", "Childcare", "Rent", "Utilities", "Car insurance", "Family support" ].each { |name| assert SpendingPatterns::Analyzer.protected_category?(name), name }
+
+    beauty = @household.budget_categories.create!(name: "Health and beauty", stack_key: "discretionary", sort_order: 2)
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      stores.each { |name| purchase(date, name, 4_000) }
+      purchase(date, "Island Beauty Supply", 3_000, category: beauty)
+      purchase(date, "Little Stars Daycare", 30_000)
+      purchase(date, "Zelle to Tia Rosa", 15_000)
+    end
+    result = analyze
+    flexible = result[:discretionary_merchants].pluck(:label)
+    assert_includes flexible, "Dr Juice Bar"
+    assert_includes flexible, "Island Garden Nursery"
+    assert_includes flexible, "Island Beauty Supply"
+    assert_equal stores.length + 1, flexible.length
+    refute_includes flexible, "Little Stars Daycare"
+    refute_includes flexible, "Zelle to Tia Rosa"
+    assert_includes result[:discretionary_categories].pluck(:label), "Health and beauty"
+  end
+
+  test "a family support category is protected, other support is not" do
+    assert SpendingPatterns::Analyzer.protected_category?("Family support")
+    assert SpendingPatterns::Analyzer.protected_category?("Child support")
+    assert SpendingPatterns::Analyzer.protected_category?("Support for Nana")
+    refute SpendingPatterns::Analyzer.protected_category?("Tech support")
+  end
+
+  test "two purchases of different sizes are never a monthly cut" do
+    # $250 in September and $690 in October: maybe two one-offs, never "about $235 a month".
+    purchase(Date.new(2026, 9, 27), "Coral Crib Outlet", 25_000)
+    purchase(Date.new(2026, 10, 20), "Coral Crib Outlet", 69_000)
+    # Two months of about the same size are still a habit.
+    purchase(Date.new(2026, 9, 6), "Reef Coffee Co", 4_000)
+    purchase(Date.new(2026, 10, 6), "Reef Coffee Co", 5_000)
+    result = analyze
+    assert_equal [ "Reef Coffee Co" ], result[:candidate_changes].pluck(:merchant)
+    refute_includes result[:recurring_discretionary_merchants].pluck(:label), "Coral Crib Outlet"
+    # Still counted where the money went.
+    assert_equal 94_000, result[:merchants].find { |row| row[:label] == "Coral Crib Outlet" }[:total_cents]
+
+    snapshot = HouseholdFinance::MiaEvalLedger.new(@household, today: Date.new(2026, 11, 2)).snapshot({})
+    assert_includes snapshot["one_month_merchants"].pluck("label"), "Coral Crib Outlet"
+    refute_includes snapshot["one_month_merchants"].pluck("label"), "Reef Coffee Co"
+    assert_equal [ "one_month_saving" ], HouseholdFinance::MiaEvalRules.violations(prompt: "What should I cut first?",
+      response: "Spending half as much at Coral Crib Outlet could free about $235 a month.", ledger: snapshot).pluck("rule")
+  end
+
+  test "a one-off split across categories is still one payment, and three times usual is not yet a one-off" do
+    toys = @household.budget_categories.create!(name: "Toys", stack_key: "discretionary", sort_order: 2)
+    gifts = @household.budget_categories.create!(name: "Gifts", stack_key: "discretionary", sort_order: 3)
+    purchase(Date.new(2026, 8, 6), "Seabreeze Snack Bar", 6_000)
+    purchase(Date.new(2026, 9, 6), "Seabreeze Snack Bar", 7_000)
+    split = purchase(Date.new(2026, 10, 6), "Seabreeze Snack Bar", 69_000)
+    split.transaction_splits.sole.update!(amount_cents: 23_000)
+    [ toys, gifts ].each { |category| split.transaction_splits.create!(budget_category: category, amount_cents: 23_000) }
+    # Exactly three times the middle of the others ($65) stays a usual payment.
+    purchase(Date.new(2026, 8, 9), "Reef Coffee Co", 6_000)
+    purchase(Date.new(2026, 9, 9), "Reef Coffee Co", 7_000)
+    purchase(Date.new(2026, 10, 9), "Reef Coffee Co", 19_500)
+    result = analyze
+    seabreeze = result[:discretionary_merchants].find { |row| row[:label] == "Seabreeze Snack Bar" }
+    assert_equal 3, seabreeze[:purchase_count]
+    assert_equal 82_000, seabreeze[:total_cents]
+    assert_equal 3_250, result[:candidate_changes].find { |row| row[:merchant] == "Seabreeze Snack Bar" }[:monthly_impact_cents]
+    assert_equal (6_000 + 7_000 + 19_500) / 3 / 2, result[:candidate_changes].find { |row| row[:merchant] == "Reef Coffee Co" }[:monthly_impact_cents]
+    # Category totals still read each split.
+    assert_equal 23_000, result[:discretionary_categories].find { |row| row[:label] == "Toys" }[:total_cents]
+  end
+
+  test "stores that are care are protected names in the eval ledger" do
+    [ Date.new(2026, 9, 12), Date.new(2026, 10, 12) ].each do |date|
+      purchase(date, "Island Nursery", 30_000)
+      purchase(date, "WESTERN UNION 1234", 10_000)
+      purchase(date, "Seabreeze Snack Bar", 3_000)
+    end
+    snapshot = HouseholdFinance::MiaEvalLedger.new(@household, today: Date.new(2026, 11, 2)).snapshot({})
+    assert_includes snapshot["protected_names"], "Island Nursery"
+    assert_includes snapshot["protected_names"], "WESTERN UNION"
+    refute_includes snapshot["protected_names"], "Seabreeze Snack Bar"
+    assert_equal [ "protected_cut" ], HouseholdFinance::MiaEvalRules.violations(prompt: "What should I cut first?",
+      response: "Spending half as much at Island Nursery could free about $150 a month.", ledger: snapshot).pluck("rule")
+  end
+
+  test "a one-off payment is never averaged into a monthly saving" do
+    # Bought once: never a monthly habit, whatever the months recorded.
+    purchase(Date.new(2026, 9, 27), "Coral Crib Outlet", 69_000)
+    # A $690 one-off at a store she visits for $20 leaves only one regular month: no cut.
+    purchase(Date.new(2026, 9, 3), "Hafa Home Goods", 2_000)
+    purchase(Date.new(2026, 10, 18), "Hafa Home Goods", 69_000)
+    # A store she keeps going back to: the one-off is left out of its monthly figure.
+    purchase(Date.new(2026, 8, 6), "Seabreeze Snack Bar", 6_000)
+    purchase(Date.new(2026, 9, 6), "Seabreeze Snack Bar", 7_000)
+    purchase(Date.new(2026, 10, 6), "Seabreeze Snack Bar", 69_000)
+    result = analyze
+    assert_equal [ "Seabreeze Snack Bar" ], result[:candidate_changes].pluck(:merchant)
+    # Half of the $65 regular months, not half of ($60 + $70 + $690) / 3.
+    assert_equal 3_250, result[:candidate_changes].first[:monthly_impact_cents]
+    assert_equal [ "Seabreeze Snack Bar" ], result[:recurring_discretionary_merchants].pluck(:label)
+    refute_includes result[:recurring_discretionary_merchants].pluck(:label), "Coral Crib Outlet"
+    # Totals are unchanged: the one-offs were spent.
+    assert_equal 82_000, result[:discretionary_merchants].find { |row| row[:label] == "Seabreeze Snack Bar" }[:total_cents]
+  end
+
+  test "cut first and where the money goes are different answers" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      rent = @household.budget_categories.create!(name: "Rent", stack_key: "non_discretionary", sort_order: 2)
+      [ 9, 10 ].each do |month|
+        purchase(Date.new(2026, month, 1), "Harbor View Apartments", 150_000, category: rent)
+        purchase(Date.new(2026, month, 8), "Purchase authorized on #{month}/08 Seabreeze Snack Bar Hagatna GU S····5237 Card 5237", 6_000)
+        purchase(Date.new(2026, month, 14), "Talofofo Prenatal Clinic", 20_500)
+      end
+      purchase(Date.new(2026, 10, 20), "Coral Crib Outlet", 69_000)
+      reply = ->(message) { SpendingPatterns::Answerer.new(household: @household, message: message, persona: Mia::Persona.neutral, history: [], approved_content: []).call }
+      assert SpendingPatterns::Answerer.observation_question?("What should I cut first?")
+      assert SpendingPatterns::Answerer.observation_question?("Where is my money going?")
+      [ "What should we cut first?", "Where can I cut back on spending?", "What can I cut?" ].each { |message| assert SpendingPatterns::Answerer.cut_question?(message), message }
+      [ "What if I cut dining out to cover it?", "where can we cut back weekend shifts" ].each { |message| refute SpendingPatterns::Answerer.cut_question?(message), message }
+      [ "Which of these should I cut?", "What else can we cut?" ].each { |message| assert SpendingPatterns::Answerer.cut_question?(message), message }
+      # Work, not spending: never routed to the spending answer with the reader unavailable.
+      [ "Which weekend shifts should we cut?", "Where can we cut back weekend shifts?" ].each do |message|
+        refute SpendingPatterns::Answerer.cut_question?(message), message
+        refute SpendingPatterns::Answerer.matches?(message), message
+      end
+      cut = reply.call("What should I cut first?")
+      where = reply.call("Where is my money going?")
+      refute_equal cut, where
+      assert_includes cut, "Seabreeze Snack Bar ($120)"
+      assert_includes cut, "could free about $30 a month"
+      assert_includes cut, "medical care, childcare or money for family"
+      refute_match(/Prenatal|Crib|Harbor View|Purchase authorized|S····/, cut)
+      assert_includes where, "most of your money went to Rent ($3,000)"
+      assert_includes where, "Harbor View Apartments ($3,000)"
+      assert_includes where, "Coral Crib Outlet ($690)"
+      refute_match(/could free|cut|Purchase authorized|S····/i, where)
+    end
+  end
+
+  test "a plan for money still to come is not a where-it-went question, and a named month is read" do
+    [ "Where should my tax refund money go?", "Where should the extra cash go, savings or debt?",
+      "Where is the money for rent going to come from?", "Where will my bonus go?" ].each do |message|
+      refute SpendingPatterns::WhereMoneyGoes.question?(message), message
+      refute SpendingPatterns::Answerer.observation_question?(message), message
+    end
+    [ "Where is my money going?", "Where did my money go in August?", "Where does my money go?", "Where am I spending the most?", "Where did it all go?" ].each do |message|
+      assert SpendingPatterns::WhereMoneyGoes.question?(message), message
+    end
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      purchase(Date.new(2026, 8, 6), "Seabreeze Snack Bar", 6_000)
+      purchase(Date.new(2026, 10, 6), "Coral Crib Outlet", 69_000)
+      reply = SpendingPatterns::Answerer.new(household: @household, message: "Where did my money go in August?", persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      assert_includes reply, "For August 2026 in your reviewed purchases, most of your money went to Optional shopping ($60)."
+      refute_includes reply, "Coral Crib"
+    end
+  end
+
   test "R2 current month reviewed purchases are visible without claiming a complete month" do
     purchase(Date.new(2026, 11, 3), "Ross", 6000)
     result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 7)).call
@@ -84,6 +353,37 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
       assert_includes answer, "largest flexible spending categories"
       assert_includes answer, "biggest flexible spending stops"
     end
+  end
+
+  test "a real category named Discretionary survives method group naming" do
+    travel_to Time.zone.local(2026, 11, 5, 12) do
+      @category.update!(name: "Discretionary")
+      catch_all = @household.budget_categories.create!(name: "Flexible spending", stack_key: "discretionary", sort_order: 2)
+      dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 3)
+      purchase(Date.new(2026, 10, 3), "Talun Demo Market", 20_000, category: catch_all)
+      purchase(Date.new(2026, 10, 4), "Talun Demo Cafe", 15_000, category: dining)
+      purchase(Date.new(2026, 10, 5), "Ross", 10_000)
+      settings = CohortExperience::MethodSettings.for_household(@household).merge("group_names" => "method")
+      CohortExperience::MethodSettings.use_viewer(@household.id) { { method: settings } }
+      begin
+        answer = SpendingPatterns::Answerer.new(household: @household, message: "What spending patterns do you see?",
+          persona: Mia::Persona.neutral, history: [], approved_content: []).call
+        assert_includes answer, "largest Discretionary categories were Dining Out and Discretionary"
+      ensure
+        CohortExperience::MethodSettings::Current.reset
+      end
+    end
+  end
+
+  test "pattern provider must use the selected phrase in the merchant observation" do
+    reference = "In Oct, Ross ($100) was your biggest Discretionary stop. Look at what you bought. Would you feel comfortable looking at Ross?"
+    packet = { fallback_response: reference, verified_facts: { group_phrase: "Discretionary", merchants: [ { label: "Ross", total_cents: 10_000 } ], choices: [] } }
+    narrator = SpendingPatterns::Narrator.new(user_message: "What spending patterns do you see?", answer_packet: packet, persona: Mia::Persona.neutral)
+    assert_includes narrator.send(:narrator_contract), "biggest Discretionary stops"
+    refute_match(/flexible (?:categories|spends|spending)/i, narrator.send(:narrator_contract).split("For this spending-patterns answer").last)
+    assert_nil narrator.send(:patterns_rejection, reference)
+    assert_equal :missing_pattern_group_phrase, narrator.send(:patterns_rejection, reference.sub("Discretionary", "flexible spending"))
+    assert_equal :missing_pattern_group_phrase, narrator.send(:patterns_rejection, reference.sub("Discretionary stop", "flexible spending stop").sub("Look at what you bought", "Discretionary is your group"))
   end
 
   test "partial pattern coverage joins the merchant clause grammatically for one or several months" do

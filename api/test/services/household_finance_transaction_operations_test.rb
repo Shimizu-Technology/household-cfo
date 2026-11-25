@@ -280,7 +280,7 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
   test "bulk confirm is atomic audited and replay safe" do
     travel_to Date.new(2026, 10, 1) do
       first = create_draft("bulk-confirm-first")
-      second = create_draft("bulk-confirm-second", merchant: "Second Confirm")
+      second = create_draft("bulk-confirm-second", merchant: "Second Confirm", amount: "18.60")
       input = {
         draft_ids: [ first.id, second.id ], source_type: "manual_ui", year: 2026,
         confirmation: "CONFIRM 2"
@@ -295,6 +295,22 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
       execution = @household.household_operation_executions.find_by!(idempotency_key: "bulk-confirm")
       assert_equal "transaction.drafts.bulk_confirm", execution.operation_key
       assert_equal [ first.id, second.id ].sort, execution.normalized_input.fetch("draft_ids")
+    end
+  end
+
+  test "bulk confirm stops when two purchases in the group look like the same one" do
+    travel_to Date.new(2026, 10, 1) do
+      first = create_draft("bulk-twin-first")
+      second = create_draft("bulk-twin-second", merchant: "Village Market Guam")
+      input = { draft_ids: [ first.id, second.id ], source_type: "manual_ui", year: 2026, confirmation: "CONFIRM 2" }
+
+      error = assert_raises(ArgumentError) do
+        @runner.run(operation_key: "transaction.drafts.bulk_confirm", input: input, idempotency_key: "bulk-twins")
+      end
+
+      assert_equal "Village Market Guam for $42.17 looks like Village Market in the same group. Confirm them one at a time so you can say if they're the same purchase. Nothing changed.", error.message
+      assert_equal %w[pending pending], [ first.reload.status, second.reload.status ]
+      assert_empty @household.household_transactions
     end
   end
 
@@ -639,10 +655,10 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
     )
   end
 
-  def create_draft(key, merchant: "Village Market")
+  def create_draft(key, merchant: "Village Market", amount: "42.17")
     @runner.run(
       operation_key: "transaction.draft.create",
-      input: { occurred_on: "2026-09-30", merchant: merchant, amount: "42.17", budget_category_id: @category.id, source_type: "manual_ui" },
+      input: { occurred_on: "2026-09-30", merchant: merchant, amount: amount, budget_category_id: @category.id, source_type: "manual_ui" },
       idempotency_key: key
     ).subject
   end

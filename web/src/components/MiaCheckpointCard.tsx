@@ -4,13 +4,13 @@ import { dailyApproval, dailyContextMatches, dailyResponseMatches, type Checkpoi
 import type { BaselineScope } from '../lib/financialBaseline'
 import { bibaSentence } from '../lib/bibaSentence'
 import { formatDay } from '../lib/plainDates'
-import { savingsDollars, savingsTargetDollars } from '../lib/savingsChallenge'
+import { challengeRules, savingsDollars, savingsTargetDollars } from '../lib/savingsChallenge'
 import { readDailyRecovery } from '../lib/dailyRecovery'
 import { useDailyMutation, type DailyCommitted } from '../lib/useDailyMutation'
 import { BibaCard } from './BibaCard'
 import './MiaDailyCheckIn.css'
 
-type Day = 30 | 60 | 90
+type Day = number
 type Props = { actor: BaselineScope; cohortId: number; refreshKey?: number; onDone: () => void; onOpenCheckpoints: () => void }
 
 const freshKeys = () => ({ stage: crypto.randomUUID(), approve: crypto.randomUUID() })
@@ -18,7 +18,7 @@ const dismissKey = (actor: BaselineScope, day: Day, localToday: string) => `hcfo
 const readDismissed = (key: string) => { try { return window.sessionStorage.getItem(key) === '1' } catch { return false } }
 const writeDismissed = (key: string) => { try { window.sessionStorage.setItem(key, '1') } catch { /* private mode: the card just comes back */ } }
 
-// Day 30, 60 or 90, offered in the chat once it is due. She looks at what she
+// A check-in day (Day 30, 60 or 90 by default), offered in the chat once it is due. She looks at what she
 // set aside and noticed, then approves it. Nothing is saved before that, and
 // fixing a past review stays on the Checkpoints screen.
 export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onOpenCheckpoints }: Props) {
@@ -38,6 +38,8 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   // New request keys for each milestone and each fresh look; kept only to retry the same request after a dropped connection.
   const keys = useRef(freshKeys())
   const milestone = useRef<Day | null>(null)
+  // The last check-in day and length of the challenge she joined (90 by default).
+  const [challengeShape, setChallengeShape] = useState({ finalDay: 90, length: 90 })
   const heading = useRef<HTMLHeadingElement>(null)
   const card = useRef<HTMLElement>(null)
   const mutation = useDailyMutation(due?.scope, committed => { if (committed) settleCommitted(committed) })
@@ -49,7 +51,9 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
       setLoadFailed(false)
       if (!challenge.enrollment || !dailyContextMatches(context, actor, cohortId, challenge.enrollment.id)) return
       const day = challenge.timeline?.checkpoints_due?.[0]
-      if (day !== 30 && day !== 60 && day !== 90) { setDue(null); return }
+      const challengeDays = challengeRules(context.calendar)
+      if (!day || !challengeDays.checkpoint_days.includes(day)) { setDue(null); return }
+      setChallengeShape({ finalDay: challengeDays.checkpoint_days[challengeDays.checkpoint_days.length - 1], length: challengeDays.length_days })
       const localToday = context.calendar.local_today
       // A different milestone starts clean: its own request keys, its own checkbox.
       if (milestone.current !== day) { milestone.current = day; keys.current = freshKeys(); setDraft(null); setChecked(false); setFinalDone(false); setError(''); setStale(false) }
@@ -66,7 +70,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   useEffect(() => { if (shown) card.current?.scrollIntoView?.({ block: 'nearest' }) }, [shown, snapshot])
   const lines = useMemo(() => snapshot ? facts(snapshot) : [], [snapshot])
   if (celebrate) {
-    return <BibaCard title={celebrate.milestone_day === 90 && celebrate.final_confirmation_status !== 'confirmed' ? 'Biba! Your Day 90 review is saved.' : `Biba! Day ${celebrate.milestone_day} is done.`} actionLabel="Keep going" onAction={() => { setCelebrate(null); setDue(null); onDone() }}>{bibaSentence(celebrate)}</BibaCard>
+    return <BibaCard title={celebrate.milestone_day === challengeShape.finalDay && celebrate.final_confirmation_status !== 'confirmed' ? `Biba! Your Day ${challengeShape.finalDay} review is saved.` : `Biba! Day ${celebrate.milestone_day} is done.`} actionLabel="Keep going" onAction={() => { setCelebrate(null); setDue(null); onDone() }}>{bibaSentence(celebrate)}</BibaCard>
   }
   if (!due && loadFailed) {
     return <section className="mia-daily-card mia-action-card ui-card" aria-label="Checkpoint review"><p role="alert">I couldn’t check whether a review is due. Nothing changed.</p><div className="mia-daily-actions ui-actions"><button type="button" className="secondary-button ui-btn ui-btn--tonal" onClick={() => { setLoadFailed(false); setAttempt(value => value + 1) }}>Try again</button></div></section>
@@ -85,7 +89,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
       if (!dailyResponseMatches(heads, scope) || heads.next_cursor !== null) throw new Error('We couldn’t check your earlier reviews. Nothing changed.')
       const head = heads.records.find(row => row.milestone_day === day)
       if (head?.current_version) { setFinishedDay(day); onDone(); return }
-      const record = await mutation.mutate('checkpoint_stage', { milestone_day: day, expected_version_id: head?.current_version_id ?? null, expected_head_lock_version: head?.lock_version ?? 0, reason: '', final_confirmation_accepted: day === 90 && finalDone }, undefined, keys.current.stage) as DailyCheckpointDraft | null
+      const record = await mutation.mutate('checkpoint_stage', { milestone_day: day, expected_version_id: head?.current_version_id ?? null, expected_head_lock_version: head?.lock_version ?? 0, reason: '', final_confirmation_accepted: day === challengeShape.finalDay && finalDone }, undefined, keys.current.stage) as DailyCheckpointDraft | null
       if (record) showDraft(record)
       else if (!readDailyRecovery(scope)) keys.current = freshKeys()
     } catch (failure) {
@@ -162,7 +166,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
     return <section ref={card} className="mia-daily-card mia-action-card ui-card" aria-label={`Day ${day} review`} aria-busy={busy}>
       <h3 ref={heading} tabIndex={-1}>Day {day} is ready to look back on</h3>
       <p>I can show what you set aside and what you noticed through {formatDay(scope && due.localToday, { year: false })}, next to your target. Nothing is saved until you approve it.</p>
-      {day === 90 && <label className="mia-card-check ui-check"><input type="checkbox" checked={finalDone} disabled={busy} onChange={event => setFinalDone(event.target.checked)} /><span>I’m finished reporting my 90 days. If you’re still checking, leave this blank; your saved amounts still count.</span></label>}
+      {day === challengeShape.finalDay && <label className="mia-card-check ui-check"><input type="checkbox" checked={finalDone} disabled={busy} onChange={event => setFinalDone(event.target.checked)} /><span>I’m finished reporting my {challengeShape.length} days. If you’re still checking, leave this blank; your saved amounts still count.</span></label>}
       {shownError && <p role="alert">{shownError}</p>}
       {recovery}
       <div className="mia-daily-actions ui-actions">

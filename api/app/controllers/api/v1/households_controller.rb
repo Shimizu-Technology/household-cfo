@@ -17,22 +17,45 @@ module Api
         render json: budget_presenter.budget
       end
 
+      def monthly_close
+        service = HouseholdFinance::MonthlyClose.new(
+          current_household,
+          year: params[:year],
+          month: params[:month],
+          method: CohortExperience::MethodSettings.from_capabilities(current_experience_capabilities)
+        )
+        render json: { monthly_close: service.call }
+      rescue HouseholdFinance::MonthlyClose::InvalidPeriod => error
+        render json: { errors: [ error.message ] }, status: :unprocessable_entity
+      end
+
       def wealth
         render json: presenter.wealth
       end
 
       def optionality
-        render json: presenter.optionality
+        render json: params[:scenario] == "1" ? presenter.optionality_scenario(scenario_inputs(%w[savings_cents monthly_costs_cents replacement_income_cents monthly_draw_cents])) : presenter.optionality
       end
 
       def cfo_filter
-        render json: presenter.cfo_filter
+        render json: params[:scenario] == "1" ? presenter.cfo_filter_scenario(**scenario_inputs(%w[spend_cents windfall_cents lift_cents])) : presenter.cfo_filter
       end
 
       private
 
+      def scenario_inputs(keys)
+        keys.each_with_object({}) do |key, result|
+          next unless params.key?(key)
+
+          value = params[key].to_s
+          raise ActionController::BadRequest, "Enter a nonnegative amount in cents" unless value.match?(/\A\d{1,9}\z/) && value.to_i <= HouseholdFinance::Money::MAX_AMOUNT_CENTS
+
+          result[key.to_sym] = value.to_i
+        end
+      end
+
       def presenter
-        @presenter ||= current_data_presenter
+        @presenter ||= current_data_presenter(initialize_missing_plan: params[:scenario] != "1")
       end
 
       def budget_presenter

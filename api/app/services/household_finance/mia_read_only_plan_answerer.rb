@@ -15,7 +15,9 @@ module HouseholdFinance
       "pending_drafts" => "Pending reviews"
     }.freeze
 
-    def initialize(household, plan:, annual_budget_manager:, annual_plan:, reference_month:, conversation_messages: [])
+    def initialize(household, plan:, annual_budget_manager:, annual_plan:, reference_month:, conversation_messages: [], user: nil, experience_capabilities: nil)
+      @experience_capabilities = experience_capabilities
+      @user = user
       @household = household
       @plan = plan.to_h.deep_symbolize_keys
       @annual_budget_manager = annual_budget_manager
@@ -71,6 +73,8 @@ module HouseholdFinance
       if item.fetch(:kind) == "scenario"
         scenario = MiaHypotheticalScenarioAnswerer.new(
           household,
+          user: @user,
+          experience_capabilities: @experience_capabilities,
           scenario_type: item.fetch(:scenario_type),
           amount: item.fetch(:amount),
           label: item.fetch(:scenario_label),
@@ -96,7 +100,9 @@ module HouseholdFinance
         annual_plan: prepared_annual_plan,
         reference_month: reference_month,
         conversation_messages: conversation_messages,
-        ensure_plan: false
+        ensure_plan: false,
+        user: @user,
+        experience_capabilities: @experience_capabilities
       ).call.presence || "You also asked: #{question.to_s.truncate(300)} I need a little more information to answer that part. Could you tell me more?"
     end
 
@@ -122,7 +128,9 @@ module HouseholdFinance
         annual_plan: prepared_annual_plan,
         reference_month: reference_month,
         conversation_messages: conversation_messages,
-        ensure_plan: false
+        ensure_plan: false,
+        user: @user,
+        experience_capabilities: @experience_capabilities
       ).call.presence ||
         BudgetQuestionAnswerer.new(question, annual_plan: prepared_annual_plan, reference_month: reference_month).call
     end

@@ -5,7 +5,7 @@ module HouseholdFinance
     # Internal snapshot/rollover engine. Public facades must authorize and hold
     # the household lock before creating, applying or canceling a review.
     class Core
-      ROOTS = %w[income_sources expense_items debts accounts goals budget_years budget_categories household_transactions transaction_drafts mia_action_drafts merchant_category_rules].freeze
+      ROOTS = %w[income_sources expense_items debts accounts goals budget_years budget_categories household_transactions transaction_drafts mia_action_drafts merchant_category_rules bills].freeze
       ROW_DIGESTS = {
         "income_sources" => Arel.sql("encode(sha256(convert_to(row_to_json(income_sources.*)::text, 'UTF8')), 'hex')"),
         "expense_items" => Arel.sql("encode(sha256(convert_to(row_to_json(expense_items.*)::text, 'UTF8')), 'hex')"),
@@ -18,6 +18,7 @@ module HouseholdFinance
         "transaction_drafts" => Arel.sql("encode(sha256(convert_to(row_to_json(transaction_drafts.*)::text, 'UTF8')), 'hex')"),
         "mia_action_drafts" => Arel.sql("encode(sha256(convert_to(row_to_json(mia_action_drafts.*)::text, 'UTF8')), 'hex')"),
         "merchant_category_rules" => Arel.sql("encode(sha256(convert_to(row_to_json(merchant_category_rules.*)::text, 'UTF8')), 'hex')"),
+        "bills" => Arel.sql("encode(sha256(convert_to(row_to_json(bills.*)::text, 'UTF8')), 'hex')"),
         "income_schedule_entries" => Arel.sql("encode(sha256(convert_to(row_to_json(income_schedule_entries.*)::text, 'UTF8')), 'hex')"),
         "financial_document_imports" => Arel.sql("encode(sha256(convert_to(row_to_json(financial_document_imports.*)::text, 'UTF8')), 'hex')"),
         "plaid_items" => Arel.sql("encode(sha256(convert_to(row_to_json(plaid_items.*)::text, 'UTF8')), 'hex')"),
@@ -101,7 +102,7 @@ module HouseholdFinance
         { household_id: household.id, household_name: household.name, financial_generation: household.financial_generation,
           shared_member_count: shared_member_count, counts: rows.transform_values(&:length),
           version_fingerprint: fingerprint(rows.merge(setup: household.attributes.slice("confirmed_setup_fields", "primary_goal"), profile: household.household_profile.attributes, memberships: household.household_memberships.order(:id).pluck(:id, :user_id, :role), eligibility: SetupHelp::Eligibility.new(household).snapshot)),
-          reset_fields: [ "Financial setup and confirmations", "Income (including historical and future schedules)", "Spending categories, plans and actuals", "Debts, accounts and goals", "Active Mia conversations for every household member (earlier conversations move to each person’s private history)" ],
+          reset_fields: [ "Financial setup and confirmations", "Income (including historical and future schedules)", "Spending categories, plans and actuals", "Debts, accounts, goals and saved bills", "Active Mia conversations for every household member (earlier conversations move to each person’s private history)" ],
           preserved: PRESERVED, paused: PAUSED, clears_chat: true, clears_memories: false }
       end
 

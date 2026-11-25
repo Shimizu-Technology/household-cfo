@@ -1,31 +1,46 @@
 import { formatMonthRange } from './plainDates'
 import type { SourceAccount, SourceEvent } from './sourceReview'
+import type { ReviewedSourceAccount } from './participantSourceReview'
 import { statementCents } from './participantSourceReview'
 
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
-export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in'
-export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null }
+export type PlanAnswerId = 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in' | 'own_account' | 'someone_else' | 'pair_transfer'
+export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null; pending_digest?: string | null }
+/** A purchase she already confirmed (a receipt, chat, form or linked-account purchase) that this bank line may be. */
+export type PurchaseMatch = { transaction_id: number; merchant: string; occurred_on: string; amount_cents: number; source_type: string; categories: string[] }
 export type PlanAttention = {
+  disposition?: string | null
+  purchase_amount_cents?: number | null
+  raw_description?: string | null
+  recipient_question?: boolean
+  transfer_pair?: { event_id: number; approved_version_id: number | null; account_version_id: number; account: string; description?: string; posted_on: string; signed_amount_cents: number }
   event_id: number
   amount_cents?: number | null
-  kind: 'direction' | 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'
+  kind: 'correction' | 'person_payment_duplicate' | 'person_payment' | 'money_in_source' | 'transfer_pair' | 'direction' | 'unclear' | 'duplicate' | 'same_purchase' | 'transfer' | 'card_payment' | 'refund' | 'refund_category' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
   merchant: string | null
+  editable_merchant?: string | null
   posted_on: string | null
   signed_amount_cents: number | null
   category_id: number | null
   category_name: string | null
   expected_head?: ExpectedLineHead
+  /** Only on "Same purchase as …?": the purchase "Same purchase" counts this line as. */
+  purchase_match?: PurchaseMatch
 }
 /** A line that looks right: the kind and category the server will save for it, exactly as she is shown them. */
-export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
+export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; editable_merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
 export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 /** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
-export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number }
+export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number; refund_count?: number; refund_cents?: number }
+/** A file with several accounts asks money in or out once for each account the file leaves unclear. choice is null until she answers; lines is how many lines her answer set. */
+export type AccountSignQuestion = { source_account_id: number; label: string; account_basis: 'asset' | 'liability' | 'unknown'; single_sign: boolean; choice: SignChoice | null; answerable: boolean; lines: number; effect: string | null }
+export type SignChoice = boolean | 'all_out' | 'all_in' | 'individual'
 export type StatementPlan = {
+  account_sign_questions?: AccountSignQuestion[]
   signed_amount_single_sign?: boolean
   signed_amount_balance_factor?: number | null
   signed_amount_answerable?: boolean
@@ -41,6 +56,9 @@ export type StatementPlan = {
   totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
+  store_groups?: Array<Array<PlanAttention & { revision_id: number; statement_name?: string }>>
+  repeated_line_ids?: number[]
+  category_groups?: number[][]
   attention: PlanAttention[]
 }
 
@@ -48,9 +66,9 @@ export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 're
 export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
-export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
-export type AccountChange = { source_account_id: number; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
-export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
+export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'same_purchase' | 'leave_out' | 'edited' | 'own_account' | 'someone_else' | 'pair_transfer' | 'unpair_transfer'; transfer_pair?: PlanAttention['transfer_pair']; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead; match_transaction_id?: number }
+export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; expected_tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
+export type ApproveLinesInput = { store_lines?: Array<LineDecision & { revision_id: number }>; leave_repeats_out?: boolean; expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
 
@@ -76,20 +94,26 @@ export function answerInput(item: PlanAttention, id: PlanAnswerId, categoryId?: 
       ? { event_id: item.event_id, decision: 'edited', edit: attentionEdit(item, categoryId) }
       : id === 'leave_out'
         ? { event_id: item.event_id, decision: id }
+        // "Same purchase" names the purchase she was shown; the server refuses it if that purchase changed.
+        : id === 'same_purchase'
+          ? { event_id: item.event_id, decision: id, shown, match_transaction_id: item.purchase_match?.transaction_id }
         // Every answer that saves the line as the statement reads it says what she was shown, so the server can check it.
         : { event_id: item.event_id, decision: id, shown }
+  entry.transfer_pair = item.transfer_pair
   entry.expected_head = item.expected_head
   return { lines: [entry] }
 }
 
 /** The line as the statement reads it, with the category she picked: the same facts the line sheet would open on. */
 export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdit {
-  return { kind: lineKindFor(item.event_type, item.signed_amount_cents), merchant: item.merchant ?? '', posted_on: item.posted_on ?? '',
+  return { kind: lineKindFor(item.event_type, item.signed_amount_cents), merchant: item.editable_merchant ?? item.merchant ?? '', posted_on: item.posted_on ?? '',
     amount_cents: item.signed_amount_cents == null ? 0 : Math.abs(item.signed_amount_cents), category_id: categoryId ?? item.category_id }
 }
 
 /** What the line sheet opens on. */
 export type SheetLine = {
+  rawDescription?: string | null
+  recipientQuestion?: boolean
   directionRequired?: boolean
   moneyDirection?: 'in' | 'out'
   expectedHead?: ExpectedLineHead
@@ -110,8 +134,8 @@ export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'o
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
-  return { directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
-    kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
+  return { rawDescription: item.raw_description, recipientQuestion: item.recipient_question || item.kind === 'person_payment' || item.kind === 'person_payment_duplicate', directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.editable_merchant ?? item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
+    kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: item.disposition === 'exclude' }
 }
 
 /** The sheet her answer opens. "No" to "Did this move between your own accounts?", "Is this a payment on your own card or loan?"
@@ -174,8 +198,14 @@ export function accountSentence(label: AccountLabel | undefined): string {
 }
 
 export function describeAccounts(accounts: SourceAccount[], names: Record<number, AccountLabel>): string {
-  if (accounts.length > 1) return `${accounts.length} accounts`
-  return (accounts.length === 1 && accountSentence(names[accounts[0].id])) || 'your statement'
+  const distinct = new Map<string | number, AccountLabel | undefined>()
+  for (const { id } of accounts) {
+    const label = names[id]
+    const key = label?.name || label?.last4 ? JSON.stringify([label.name.trim().toLowerCase(), label.last4]) : id
+    if (!distinct.has(key)) distinct.set(key, label)
+  }
+  if (distinct.size > 1) return `${distinct.size} accounts`
+  return accountSentence(distinct.values().next().value) || 'your statement'
 }
 
 export function statementPeriodText(accounts: SourceAccount[], plan: StatementPlan): string {
@@ -200,7 +230,7 @@ export function statementProgressStatus(progress: StatementProgress): string {
 }
 
 export function statementCounts(plan: StatementPlan): { open: number; page: number; attention: number; sentence: string; action: string | null } {
-  const attention = plan.attention.length
+  const attention = plan.attention.length - (plan.category_groups ?? []).reduce((count, group) => count + group.length - 1, 0)
   const open = plan.ready.length
   const page = Math.min(open, APPROVE_PAGE)
   const look = `${attention} ${attention === 1 ? 'needs' : 'need'} a quick look.`
@@ -210,6 +240,9 @@ export function statementCounts(plan: StatementPlan): { open: number; page: numb
   }
   if (open > 0 && attention > 0) return { open, page, attention, sentence: `${open} look right. ${look}`, action: open === 1 ? 'Approve the other one' : `Approve the other ${open}` }
   if (open > 0) return { open, page, attention, sentence: open === 1 ? 'It looks right.' : `All ${open} look right.`, action: open === 1 ? 'Approve it' : `Approve all ${open}` }
+  if (attention > 0 && plan.done === plan.total && plan.without_category === attention) {
+    return { open, page, attention, sentence: `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved. ${attention === 1 ? '1 has no category yet, so it doesn’t' : `${attention} have no category yet, so they don’t`} count toward your spending.`, action: null }
+  }
   if (attention > 0) return { open, page, attention, sentence: `${plan.done} saved. ${attention === 1 ? '1 still needs' : `${attention} still need`} a quick look.`, action: null }
   return { open, page, attention, sentence: plan.total === 0 ? 'No lines to review.' : `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved.${plan.without_category ? ` ${plan.without_category} ${plan.without_category === 1 ? 'has' : 'have'} no category yet.` : ''}`, action: null }
 }
@@ -229,8 +262,27 @@ export function asBeforeNote(plan: StatementPlan): string | null {
   return `${before.length} ${before.length === 1 ? 'uses' : 'use'} a category you chose before: ${names.join(', ')}.`
 }
 
+/** The coverage question, or a re-ask when she said something was missing and the statement no longer asks on its own. */
+export function coverageQuestionText(plan: Pick<StatementPlan, 'coverage'>): string {
+  return plan.coverage.question ?? 'You said something may be missing from this statement. Is anything still missing?'
+}
+
+/** Files that run across a new year show the year on every date, so "Nov 3" is never ambiguous. */
+export function spansYears(plan: Pick<StatementPlan, 'first_on' | 'last_on'>): boolean {
+  return Boolean(plan.first_on && plan.last_on && plan.first_on.slice(0, 4) !== plan.last_on.slice(0, 4))
+}
+
 export function coverageMissingNote(): string {
   return 'Your lines are saved. We’ll keep this statement marked as not finished, because something may be missing.'
+}
+
+export function accountMatchNote(accounts: ReviewedSourceAccount[]): string {
+  const [first] = accounts
+  const trackedId = (row: ReviewedSourceAccount) => row.approved?.tracked_account.id ?? row.suggested?.id
+  const id = first && trackedId(first)
+  const last4 = first?.approved ? first.last4 : first?.suggested?.last4
+  if (id == null || !last4 || accounts.some(row => trackedId(row) !== id)) return ''
+  return accounts.every(row => row.approved) ? `Saved with your account ending ${last4}` : `We’ll use your account ending ${last4}`
 }
 
 export function accountsNeedingBasis(accounts: SourceAccount[], reviewed: Array<{ source_account_id: number; approved: unknown }>): SourceAccount[] {

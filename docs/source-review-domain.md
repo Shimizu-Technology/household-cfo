@@ -70,7 +70,7 @@ Focused tests cover immutable facts/head pointers, strict amounts/dates, permiss
 
 ```sh
 cd api
-PATH=/Users/leonshimizu/.rbenv/versions/3.3.7/bin:$PATH RAILS_ENV=test DATABASE_TEST_NAME=bog_source_review_domain_test PARALLEL_WORKERS=1 bin/rails test test/services/financial_documents_source_review_domain_test.rb
+PATH=$HOME/.rbenv/versions/$(cat .ruby-version)/bin:$PATH RAILS_ENV=test DATABASE_TEST_NAME=bog_source_review_domain_test PARALLEL_WORKERS=1 bin/rails test test/services/financial_documents_source_review_domain_test.rb
 ```
 
 Controller routes, pagination/presenters, participant UI confirmation, operation registry contracts, actor-aware Runner integration, legacy typed-confirm guards, enrollment/baseline logic, sponsor exports, retention policy, and end-to-end tests belong to subsequent integration slices. No private statements or source-row oracle are included here.

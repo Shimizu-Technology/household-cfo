@@ -18,6 +18,9 @@ import { Button } from './Button'
 import './ProgramSettingsFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import { confirmAction, confirmDiscard } from '../lib/confirmAction'
+import { defaultMethod, methodOf, methodProblems } from '../lib/methodSettings'
+import type { MethodSettings } from '../api'
+import { MethodSettingsEditor } from './MethodSettingsEditor'
 
 const coreModules = [
   ['Home', 'See the household status and next action.'],
@@ -36,9 +39,11 @@ const optionalModules = [
 const defaultModuleOrder: ExperienceModuleId[] = ['home', 'review', 'ask_mia', 'budget', 'profile', 'wealth', 'cfo_filter', 'optionality', 'statements']
 const moduleLabels = { home: 'Home', ask_mia: 'Ask Mia', ...Object.fromEntries(optionalModules.map(([id, label]) => [id, label])) } as Record<ExperienceModuleId, string>
 
+// Any edit saves the current schema (5). Older drafts keep their tools and order and read as the usual method.
 function configurableDraft(draft: CohortExperienceDraft): ConfigurableCohortExperienceDraft {
-  if (draft.schema_version === 4) return draft
-  return { schema_version: 4, experience_mode: experienceModeOf(draft), module_order: [], optional_modules: {
+  if (draft.schema_version === 5) return draft
+  if (draft.schema_version === 4) return { ...draft, schema_version: 5, method: defaultMethod }
+  return { schema_version: 5, experience_mode: experienceModeOf(draft), module_order: [], method: defaultMethod, optional_modules: {
     review: true, budget: true, profile: true, statements: true, wealth: true, ...draft.optional_modules,
   } }
 }
@@ -61,8 +66,8 @@ const experienceModes: Array<{ mode: ExperienceMode; title: string; description:
   },
   {
     mode: 'savings_challenge',
-    title: '90-day Savings Challenge',
-    description: 'A guided challenge: join, set a comfortable target, and record money set aside.',
+    title: 'Savings Challenge',
+    description: 'A guided challenge: join, set a comfortable target, and record money set aside. Set its length and check-in days in Method below.',
     detail: 'Participants land on Savings with Today check-ins, Ask Mia and Statements. Review becomes Transactions.',
   },
 ]
@@ -180,7 +185,7 @@ export function CohortExperienceStudio({
   function chooseMode(mode: ExperienceMode) {
     setDraft((current) => {
       if (!current || experienceModeOf(current) === mode) return current
-      if (current.schema_version === 4) return { ...current, experience_mode: mode }
+      if (current.schema_version >= 4) return { ...current, experience_mode: mode }
       return mode === 'savings_challenge'
         ? { schema_version: 3, experience_mode: 'savings_challenge', optional_modules: { cfo_filter: false, optionality: false } }
         : { schema_version: 1, optional_modules: current.optional_modules }
@@ -209,13 +214,18 @@ export function CohortExperienceStudio({
     setNotice(null)
   }
 
+  function changeMethod(method: MethodSettings) {
+    setDraft(current => current ? { ...configurableDraft(current), method } : current)
+    setNotice(null)
+  }
+
   function resetModuleOrder() {
     setDraft(current => current ? { ...configurableDraft(current), module_order: [] } : current)
     setNotice(null)
   }
 
   async function saveDraft() {
-    if (!configuration || !draft || pendingAction || !configuration.permissions.edit) return
+    if (!configuration || !draft || pendingAction || !configuration.permissions.edit || methodProblems(methodOf(draft)).length > 0) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('save')
     setError(null)
@@ -291,7 +301,7 @@ export function CohortExperienceStudio({
                 {experienceModes.map((option) => (
                   <label key={option.mode} className={`experience-mode-option${experienceModeOf(draft) === option.mode ? ' is-selected' : ''}`}>
                     <input type="radio" name="experience-mode" value={option.mode} checked={experienceModeOf(draft) === option.mode} onChange={() => chooseMode(option.mode)} />
-                    <span><strong>{option.title}</strong><small>{option.description}</small><small>{option.detail}</small></span>
+                    <span><strong>{option.mode === 'savings_challenge' ? `${methodOf(draft).challenge.length_days}-day ${option.title}` : option.title}</strong><small>{option.description}</small><small>{option.detail}</small></span>
                   </label>
                 ))}
               </div>
@@ -321,8 +331,10 @@ export function CohortExperienceStudio({
             {!configuration.permissions.edit && <p className="coach-read-only" role="note">{closedGroup ? 'Finished and archived groups are read-only.' : 'Your role can see these tools but can’t change them.'}</p>}
           </article>
 
+          <MethodSettingsEditor method={methodOf(draft)} disabled={!configuration.permissions.edit || pendingAction !== null} onChange={changeMethod} />
+
           <article className="panel experience-save">
-            <Button disabled={!dirty || pendingAction !== null || !configuration.permissions.edit} onClick={() => void saveDraft()}>{pendingAction === 'save' ? 'Saving…' : 'Save draft'}</Button>
+            <Button disabled={!dirty || pendingAction !== null || !configuration.permissions.edit || methodProblems(methodOf(draft)).length > 0} onClick={() => void saveDraft()}>{pendingAction === 'save' ? 'Saving…' : 'Save draft'}</Button>
             <p>Review these saved choices in Go live before your people receive them.</p>
           </article>
 
@@ -356,7 +368,7 @@ function navigationFor(enabledIds: string[], savingsChallenge: boolean, order: s
 /** Live view of the tabs the current choice gives participants. */
 function NavigationSummary({ draft }: { draft: CohortExperienceDraft }) {
   const savingsChallenge = experienceModeOf(draft) === 'savings_challenge'
-  const { primary, secondary } = navigationFor(enabledModules(draft), savingsChallenge, draft.module_order, draft.schema_version === 4)
+  const { primary, secondary } = navigationFor(enabledModules(draft), savingsChallenge, draft.module_order, draft.schema_version >= 4)
   return (
     <p className="experience-nav-summary" aria-label="Navigation participants will see">
       <span>Participants will see:</span> {primary.map((label) => <b key={label}>{label}</b>)}{secondary.length > 0 && <b>More · {secondary.join(', ')}</b>}

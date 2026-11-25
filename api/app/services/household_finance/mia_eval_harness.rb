@@ -5,9 +5,10 @@ require "yaml"
 module HouseholdFinance
   class MiaEvalHarness
     # Checks a known gap can name, besides the rules in MiaEvalRules::RULES. A
-    # crash or an empty reply is never a gap.
+    # crash or an empty reply is never a gap, and neither is a safety rule
+    # (MiaEvalRules::SAFETY_RULES): a reply that breaks one is wrong, not a known gap.
     CHECKS = %w[expected_phrases forbidden_phrases expected_amounts strict_amounts].freeze
-    GAP_CHECKS = (CHECKS + MiaEvalRules::RULES).freeze
+    GAP_CHECKS = (CHECKS + MiaEvalRules::RULES - MiaEvalRules::SAFETY_RULES).freeze
     MODES = %w[deterministic live].freeze
 
     CaseResult = Struct.new(
@@ -56,7 +57,7 @@ module HouseholdFinance
 
       # Failed checks the case's known gap doesn't name. Any of them fails the run.
       def unexpected_failures
-        failed_checks - (known_gap ? Array(gap_checks) : [])
+        failed_checks - (known_gap ? Array(gap_checks) - MiaEvalRules::SAFETY_RULES : [])
       end
 
       # Checks the gap names that pass now: that part of the gap has closed.
@@ -116,6 +117,7 @@ module HouseholdFinance
 
       skips.each do |rule, reason|
         raise ArgumentError, "#{id}: unknown rule #{rule.inspect}; rules are #{MiaEvalRules::RULES.join(', ')}" unless MiaEvalRules::RULES.include?(rule.to_s)
+        raise ArgumentError, "#{id}: #{rule} is a safety rule and can't be skipped; fix the reply or the rule instead" if MiaEvalRules::SAFETY_RULES.include?(rule.to_s)
         raise ArgumentError, "#{id}: skipping #{rule} needs a reason" if reason.to_s.strip.empty?
       end
     end
@@ -127,6 +129,9 @@ module HouseholdFinance
 
       checks = Array(gap["checks"]).map(&:to_s)
       raise ArgumentError, "#{id}: a known_gap names the checks it expects to fail" if checks.empty?
+      (checks & MiaEvalRules::SAFETY_RULES).each do |rule|
+        raise ArgumentError, "#{id}: #{rule} is a safety rule and can't be a known gap check; fix the reply or the rule instead"
+      end
       unknown = checks - GAP_CHECKS
       raise ArgumentError, "#{id}: a known_gap can't name #{unknown.join(', ')}; it can name #{GAP_CHECKS.join(', ')}" if unknown.any?
       raise ArgumentError, "#{id}: a known_gap needs a reason" if gap["reason"].to_s.strip.empty?
@@ -202,7 +207,7 @@ module HouseholdFinance
     # Each reply is checked with the message it answered, so an income question in
     # turn one is judged by turn one's reply.
     def rule_violations(eval_case, replies, ledger)
-      skip = eval_case.fetch("skip_rules", {}).keys.map(&:to_s)
+      skip = eval_case.fetch("skip_rules", {}).keys.map(&:to_s) - MiaEvalRules::SAFETY_RULES
       replies.each_with_index.flat_map do |reply, index|
         MiaEvalRules.violations(prompt: reply["prompt"], response: reply["response"], ledger: ledger, skip: skip).map do |violation|
           replies.length > 1 ? violation.merge("detail" => "turn #{index + 1}: #{violation['detail']}") : violation

@@ -40,14 +40,31 @@ module HouseholdFinance
     READ_ONLY_AMOUNT_EDIT_PATTERN = /(?:\A|[.!?;])\s*(?:(?:please|can you|could you|would you)\s+)?(?:set|change|update|adjust|increase|raise|decrease|lower|reduce|cut)\s+[^.!?;]{1,120}?\b(?:to|at|by)\s*\$?\s*\d/i.freeze
     FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b|\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
-    JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop|reduce\s+hours?|cut\s+hours?)\b.*\b(?:job|work|hours?)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
+    TRANSITION_INTENT_PATTERN = /\b(?:leave|quit)(?:\s+(?:my|our|the|a))?\s+(?:job|work)\b|\bstop\s+work(?:ing)?\b|\b(?:reduce|cut)\s+(?:my\s+)?hours?\b|\b(?:run|focus on|go full[ -]time (?:on|in|with))\s+(?:(?:my|our|the)\s+)?business\b|\breplace\s+(?:(?:my|our|the)\s+)?salary\b/i.freeze
+    JOB_TRANSITION_PATTERN = /\b(?:leave|quit)(?:\s+(?:my|our|the|a))?\s+(?:job|work)\b|\bstop\s+work(?:ing)?\b|\b(?:reduce|cut)\s+(?:my\s+)?hours?\b|\b(?:run|focus on|go full[ -]time (?:on|in|with))\s+(?:(?:my|our|the)\s+)?business\b|\breplace\s+(?:(?:my|our|the)\s+)?salary\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
     OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first|hide from bills)\b/i.freeze
     EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|(?:i am|im|i['’]m) (?:(?:so|really|very|just|such|an?|total|complete|absolute|completely)\s+){0,4}stupid|spouse|fighting about money)\b/i.freeze
     BUDGET_FRUSTRATION_PATTERN = /\b(?:stupid|annoying|frustrat\w*|hate)\b.{0,35}\b(?:budget|challenge)\b|\b(?:budget|challenge)\b.{0,35}\b(?:stupid|dumb|annoying|frustrat\w*)\b/i.freeze
     BILL_TRIAGE_PATTERN = /\b(?:bills?|payday|due before payday|only\s+\$?\d|pay first|what do i pay first)\b/i.freeze
+    WINDFALL_STEP_WORDS = {
+      "emergency_fund" => "fill the emergency fund gap",
+      "consumer_debt" => "pay down consumer debt (cards and loans, not the mortgage)",
+      "surplus" => "keep the rest as surplus"
+    }.freeze
+    WINDFALL_SPLIT_WORDS = { "emergency_fund" => "to the emergency fund", "consumer_debt_catch_up" => "to catch up what you are behind on",
+      "consumer_debt" => "to consumer debt", "surplus" => "kept as surplus" }.freeze
+    WINDFALL_UNKNOWN_WORDS = {
+      "emergency_fund" => "emergency fund step: add your savings balances and planned monthly costs in My Money so I can size the gap",
+      "consumer_debt" => "debt step: list your cards and loans (not the mortgage) in My Money so I can size it"
+    }.freeze
+    # A raise or new job and a question about where the new monthly money goes. Not "raise the category".
+    # Read against normalized_message, where "$5,000" reads "$5 000".
+    NEW_INCOME_PATTERN = /\b(?:a|my|our|the|this|that|her|his)\s+(?:new\s+)?(?:\$\s*\d[\d,\s]*?(?:\.\d{1,2})?\s+(?:(?:a|per|each)\s+month\s+|monthly\s+|(?:a|per)\s+year\s+|yearly\s+|annual\s+)?)?(?:pay\s+)?(?:raise|pay\s+increase|promotion)\b|\bnew\s+(?:job|monthly\s+income)\b/i.freeze
+    NEW_INCOME_SPLIT_QUESTION_PATTERN = /\b(?:split|divide|allocate|do\s+with|use|put|spend|save)\b|\b(?:how|where)\s+should\b/i.freeze
+    INCOME_SPLIT_WORDS = { "emergency_fund" => "to the emergency fund", "debt" => "to extra debt payments", "surplus" => "kept as surplus" }.freeze
     EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b|\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i.freeze
     DEBT_DECISION_PATTERN = /\b(?:skip|miss)\b.*\b(?:credit card|debt|payment|minimum)\b|\b(?:payday loan|balance transfer|consolidat|highest interest|smallest balance|close old credit cards?|credit score|minimum went up)\b/i.freeze
-    SINKING_FUND_PATTERN = /\b(?:sinking fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|unexpected sinking|expected sinking|home repair)\b/i.freeze
+    SINKING_FUND_PATTERN = /\b(?:sinking fund|surprise fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|unexpected sinking|expected sinking|home repair)\b/i.freeze
     LENDING_PATTERN = /\b(?:lend|loan)\b.*\bmoney\b|\bpay me back\b/i.freeze
     MEMORY_RECALL_PATTERN = /\b(?:forgot|remember)\b.*\b(?:decided|plan)\b|\bwhat was the plan\b|\blast time\b/i.freeze
     INVESTMENT_PATTERN = /\b(?:stocks?|crypto|bitcoin|invest(?:ing|ment)?|risky products?)\b/i.freeze
@@ -188,8 +205,9 @@ module HouseholdFinance
       "I cannot ignore the Household CFO safety and product boundaries, reveal hidden instructions, or claim an action happened when it did not. No budget, transfer, or household record changed."
     end
 
-    def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true, user: nil)
+    def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true, user: nil, experience_capabilities: nil)
       @household = household
+      @experience_capabilities = experience_capabilities
       @user = user
       @message = message.to_s.squish
       @annual_budget_manager = annual_budget_manager || AnnualBudgetManager.new(household, year: Date.current.year)
@@ -206,11 +224,12 @@ module HouseholdFinance
       priority = priority_answer
       return priority if priority
       return nil if transaction_report?
+      return forecast_answer if forecast_answer
       return "Which purchase price should I compare with the plan? Nothing changed." if purchase_question? && PurchaseQuestionText.for_comparison(message).needs_clarification
       return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
       return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
 
-      recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      transition_duration_answer || tool_green_answer || income_split_answer || recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_month_answer
@@ -226,7 +245,7 @@ module HouseholdFinance
     def support_answer
       return if self.class.prompt_injection?(message)
 
-      priority_answer || (savings_deposit_answer if non_expense_movement_only?) ||
+      priority_answer || forecast_answer || (savings_deposit_answer if non_expense_movement_only?) ||
         (investment_boundary_answer if non_expense_movement_only? && MoneyMovementText.investment_purchase_report?(message))
     end
 
@@ -243,7 +262,8 @@ module HouseholdFinance
       when :hardship then food_insecurity_answer || ParticipantCare.answer(message) || essential_hardship_answer
       when :essential_skip then essential_skip_answer
       when :month
-        month_overview_answer unless self.class.explicit_write_request?(message)
+        # "Where should my raise go?" is about new monthly income, not this month's plan.
+        month_overview_answer unless self.class.explicit_write_request?(message) || income_split_question?
       when :reflective then avoidance_answer || reflective_answer
       end
     end
@@ -283,6 +303,8 @@ module HouseholdFinance
       return unless MiaMonthAnswer.question?(message)
 
       @month_answer ||= MiaMonthAnswer.for_question(household, message, annual_plan: provided_annual_plan)
+      return @month_answer.status_response if MiaMonthAnswer::STATUS_QUESTION.match?(message)
+
       opening = message.match?(OVERWHELMED_PATTERN) ? "That sounds stressful; " : ""
       response = @month_answer.response
       "#{opening}#{opening.present? ? response.sub(/\AYour/, "your") : response}"
@@ -395,6 +417,12 @@ module HouseholdFinance
       purchase_question? || readiness_coaching || debt_strategy || matched_guardrail || tax_context || conditional_monthly_income_question?
     end
 
+    # A debt she is behind on is the first thing to pay, whatever the payoff order.
+    def arrears_first_answer
+      DebtStrategyPlanner.new(household, message, conversation_messages: conversation_messages, ensure_plan: ensure_plan,
+        debt_order: method_settings.fetch("debt_order")).arrears_first_answer
+    end
+
     def debt_strategy_answer
       return nil if normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
       return nil if normalized_message.match?(/balance transfer/i)
@@ -403,7 +431,8 @@ module HouseholdFinance
         household,
         message,
         conversation_messages: conversation_messages,
-        ensure_plan: ensure_plan
+        ensure_plan: ensure_plan,
+        debt_order: method_settings.fetch("debt_order")
       ).call
     end
 
@@ -457,8 +486,8 @@ module HouseholdFinance
 
       amount_cents = MoneyMovementText.savings_deposit_cents(message)
       opening = "Putting #{amount_cents ? money(amount_cents) : 'money'} into savings counts as saving, not spending, so I did not add it as an expense or count it against your budget."
-      where_to_log = if user && SavingsEnrollment.exists?(household: household, user: user, status: "active")
-        "To count it toward your 90-day savings challenge, open Home and review it as a contribution; it counts once you approve it."
+      where_to_log = if challenge_enrollment
+        "To count it toward your #{challenge_rules.label} savings challenge, open Home and review it as a contribution; it counts once you approve it."
       else
         "If you track that account here, you can update its saved balance in My Money when you are ready."
       end
@@ -532,16 +561,44 @@ module HouseholdFinance
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
       return nil if readiness_follow_up?
 
+      arrears_first = arrears_first_answer
+      return arrears_first if arrears_first
+
       "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and monthly debt payments outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
+    end
+
+    # The program's split for new monthly income; for a named amount Rails gives every dollar figure.
+    def income_split_answer
+      return nil unless income_split_question?
+
+      split = method_settings.fetch("income_split")
+      rule = "Your program splits new monthly income #{split.reject { |_key, percent| percent.zero? }.map { |key, percent| "#{percent}% #{INCOME_SPLIT_WORDS.fetch(key)}" }.to_sentence}."
+      basis = "Use the take-home increase, after taxes, and keep every bill and minimum payment covered first."
+      amount_cents = amount_from_message_cents
+      if amount_cents.nil? || !amount_cents.positive? || normalized_message.match?(/\b(?:an?|per)\s+hour\b|\bhourly\b/i)
+        return "Congratulations on the new income. #{rule} #{basis} Next CFO move: tell me how much more lands in your account each month, and I'll put dollars on each part."
+      end
+
+      yearly = normalized_message.match?(/\b(?:(?:a|per|each)\s+year|yearly|annual(?:ly)?)\b/i)
+      monthly_cents = yearly ? (amount_cents / 12.0).round : amount_cents
+      named = yearly ? "a #{money(amount_cents)} yearly raise, about #{money(monthly_cents)} a month," : "#{money(monthly_cents)} more a month"
+      shares = IncomeSplit.new(amount_cents: monthly_cents, split: split).call
+      parts = shares.map { |key, cents| "#{money(cents)} #{INCOME_SPLIT_WORDS.fetch(key)}" }
+      first = shares.first
+      "Congratulations on the new income. #{rule} For #{named} that is #{parts.to_sentence}. #{basis} Next CFO move: when the first bigger paycheck lands, set up the #{money(first.last)} transfer #{INCOME_SPLIT_WORDS.fetch(first.first)} so it happens on its own."
+    end
+
+    def income_split_question?
+      normalized_message.match?(NEW_INCOME_PATTERN) && normalized_message.match?(NEW_INCOME_SPLIT_QUESTION_PATTERN) &&
+        !normalized_message.match?(CATEGORY_PLAN_QUESTION_PATTERN) && !conditional_monthly_income_question?
     end
 
     def extra_money_answer
       return nil unless normalized_message.match?(EXTRA_MONEY_PATTERN)
 
-      yellow_gap = runway_gap_cents(yellow_runway_target_cents)
       amount_cents = amount_from_message_cents
       amount_line = amount_cents&.positive? ? " The amount you named is #{money(amount_cents)}." : ""
-      "Treat the extra money like a stabilizer, not a permission slip.#{amount_line} Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and the yellow runway gap is #{money(yellow_gap)}. Protect any due expected sinking-fund bill first, then send the rest toward runway before extra debt unless a minimum payment is at risk. Next CFO move: name the due date for #{normalized_message.match?(/\b(?:car|vehicle|auto|truck)\s+(?:registration|tags?)\b/i) ? 'car registration' : 'your next planned yearly cost'} and the next debt minimum, then split the extra dollars only after those two facts are clear."
+      "Treat the extra money like a stabilizer, not a permission slip.#{amount_line} Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and the emergency fund gap is #{money(emergency_fund_gap_cents)}. Protect any bill already due and every minimum payment first. #{windfall_line(amount_cents)} Next CFO move: name the due date for #{normalized_message.match?(/\b(?:car|vehicle|auto|truck)\s+(?:registration|tags?)\b/i) ? 'car registration' : 'your next planned yearly cost'} and the next debt minimum, then split the extra dollars only after those two facts are clear."
     end
 
     def purchase_impact_answer
@@ -568,6 +625,14 @@ module HouseholdFinance
       end
       if snapshot.fetch(:readiness_tone) == "red"
         return "Your monthly safe-to-spend guardrail is $0. #{basis} Although the baseline surplus is positive, Red readiness holds safe-to-spend at $0 until protected runway reaches Yellow; the #{rate}% rule is not active yet. It is not a purchase amount or account balance. Next CFO move: direct the available surplus toward essential bills, expected expenses, and protected runway."
+      end
+
+      kept = snapshot[:surplus_kept_for_tone_cents]
+      rate_cents = (surplus * ReadinessCalculator::SAFE_TO_SPEND_RATE).round
+      if kept && safe < rate_cents
+        tone = snapshot.fetch(:readiness_tone)
+        line = status_rule.fetch(tone == "green" ? "target_green_months" : "target_yellow_months")
+        return "Your #{money(safe)} monthly safe-to-spend guardrail is what your #{money(surplus)} positive baseline surplus leaves after keeping your #{tone.capitalize}: #{basis} #{tone.capitalize} needs about #{money(kept)} a month toward the #{money(snapshot.fetch(:emergency_fund_gap_cents))} emergency fund gap to reach it within #{months_text(line)}, so #{money(surplus)} − #{money(kept)} = #{money(safe)}, less than #{rate}% (#{money(rate_cents)}). It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
       end
 
       "Your #{money(safe)} monthly safe-to-spend guardrail is #{rate}% of your #{money(surplus)} positive baseline surplus: #{basis} #{money(surplus)} × #{rate}% = #{money(safe)}. It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. The guardrail is available only in Yellow or Green with a positive surplus; Red returns $0. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
@@ -681,23 +746,29 @@ module HouseholdFinance
       unexpected_cents = sum_month(active_rows(plan).select { |row| row.fetch(:stack_key) == "sinking_unexpected" }, target_month, :planned)
       month_name = month_label(plan, target_month)
 
-      if normalized_message.match?(/pause.*unexpected/i)
-        return "Only pause the unexpected sinking fund as a named one-month triage move, not as an invisible cut. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or monthly debt payments, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
+      expected, unexpected, flexible = group_phrase("sinking_expected"), group_phrase("sinking_unexpected"), group_phrase("discretionary")
+      if normalized_message.match?(/\bpause.*(?:unexpected|\bsurprise fund\b)/i)
+        return "Only pause the #{unexpected} as a named one-month triage move, not as an invisible cut. Based on your active annual plan, #{month_name} has #{money(unexpected_cents)} planned for the #{unexpected} while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or monthly debt payments, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
       end
 
       if normalized_message.match?(/gifts?/i)
-        return "Planned gifts belong in planned yearly costs; surprise gifts belong in Discretionary. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and discretionary money should not jump ahead of readiness #{snapshot.fetch(:readiness_label)}. Next CFO move: create or use one gift category for known birthdays/holidays, then put last-minute gifts through the normal discretionary approval rule."
+        return "Planned gifts belong in #{expected}; surprise gifts belong in #{flexible}. Based on your active annual plan, #{month_name} has #{money(expected_cents)} planned for #{expected}, and #{flexible} should not jump ahead of readiness #{snapshot.fetch(:readiness_label)}. Next CFO move: create or use one gift category for known birthdays/holidays, then put last-minute gifts through the normal #{flexible} approval rule."
       end
 
       if normalized_message.match?(/fridge|appliance|home repair/i)
-        return "A likely fridge or home repair belongs in a surprise fund until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and purchases waiting for review are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
+        return "A likely fridge or home repair belongs in the #{unexpected} until you have a real quote. Based on your active annual plan, #{month_name} has #{money(unexpected_cents)} planned for the #{unexpected}, and purchases waiting for review are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what #{flexible} category pauses while you build or protect that amount."
       end
 
       if normalized_message.match?(/insurance renewal|renewal/i)
-        return "Insurance renewal belongs in planned yearly costs because you know it is coming. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned, but I still need the renewal amount to calculate the monthly set-aside. Next CFO move: divide the real renewal amount by the months left, then add or update the expected sinking-fund category before approving wants."
+        return "Insurance renewal belongs in #{expected} because you know it is coming. Based on your active annual plan, #{month_name} has #{money(expected_cents)} planned for #{expected}, but I still need the renewal amount to calculate the monthly set-aside. Next CFO move: divide the real renewal amount by the months left, then add or update a #{expected} category before approving wants."
       end
 
-      "This belongs in planned yearly costs if the date is known, and a surprise fund if the amount or timing is still uncertain. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and unexpected sinking funds have #{money(unexpected_cents)} planned. Next CFO move: send me the amount and due date, then place it in the right stack before discretionary spending gets approved."
+      "This belongs in #{expected} if the date is known, and the #{unexpected} if the amount or timing is still uncertain. Based on your active annual plan, #{month_name} has #{money(expected_cents)} planned for #{expected} and #{money(unexpected_cents)} planned for the #{unexpected}. Next CFO move: send me the amount and due date, then place it in the right group before any #{flexible} purchase gets approved."
+    end
+
+    # The program's expense group names (plain words or Mrs. Mel's terms), for a sentence.
+    def group_phrase(stack_key)
+      ExpenseGroups.phrase(stack_key, method_settings)
     end
 
     def car_registration_answer
@@ -739,13 +810,14 @@ module HouseholdFinance
         return "#{verdict.capitalize} for #{month_label}, based on your active annual plan. I can see #{money(planned_cents)} planned for car registration and #{money(remaining_cents)} remaining, while the registration amount you gave me is #{money(amount_cents)}. Purchases waiting for review and anything you have not reported are not counted in that answer. Next CFO move: confirm the due date and keep this funded before approving discretionary wants."
       end
 
-      "Car registration is an expected sinking-fund bill, not a random want. Based on your active annual plan for #{month_label}, I can see #{money(planned_cents)} planned and #{money(remaining_cents)} remaining for car registration, but I still need the actual amount and due date before I can say yes as a fact. Next CFO move: send me the registration amount and due date, then we will compare it to this category before touching discretionary money."
+      "Car registration belongs in #{group_phrase('sinking_expected')}; it is not a random want. Based on your active annual plan for #{month_label}, I can see #{money(planned_cents)} planned and #{money(remaining_cents)} remaining for car registration, but I still need the actual amount and due date before I can say yes as a fact. Next CFO move: send me the registration amount and due date, then we will compare it to this category before touching discretionary money."
     end
 
     def car_registration_without_category(plan, month_index, expected_total_cents, amount_cents)
       month_label = month_label(plan, month_index)
       amount_line = amount_cents&.positive? ? " The amount you gave me is #{money(amount_cents)}, so that needs to be protected before discretionary wants." : " I do not have the registration amount or due date yet, so I cannot honestly say yes/no as a fact."
-      "Car registration belongs in planned yearly costs; it should not be treated like a discretionary shoe or coffee decision. Based on your active annual plan for #{month_label}, I can see #{money(expected_total_cents)} planned across expected sinking funds, but I do not see a specific car registration line.#{amount_line} Next CFO move: add or rename a car registration category under planned yearly costs, then set the monthly amount from the real due amount divided by the months left."
+      expected = group_phrase("sinking_expected")
+      "Car registration belongs in #{expected}; it should not be treated like a discretionary shoe or coffee decision. Based on your active annual plan for #{month_label}, I can see #{money(expected_total_cents)} planned across #{expected}, but I do not see a specific car registration line.#{amount_line} Next CFO move: add or rename a car registration category under #{expected}, then set the monthly amount from the real due amount divided by the months left."
     end
 
     def readiness_plan_answer
@@ -758,14 +830,12 @@ module HouseholdFinance
       end
 
       surplus_cents = snapshot.fetch(:baseline_surplus_cents)
-      yellow_gap = runway_gap_cents(yellow_runway_target_cents)
-      green_gap = runway_gap_cents(green_runway_target_cents)
       transfer_cents = recommended_runway_transfer_cents(surplus_cents)
-      return readiness_execution_plan(surplus_cents, transfer_cents, yellow_gap, green_gap) if readiness_follow_up?
-      return weekly_readiness_plan(surplus_cents, transfer_cents, yellow_gap) if normalized_message.match?(/\b(this week|do first|first step|start)\b/i)
-      return green_readiness_plan(surplus_cents, transfer_cents, green_gap) if normalized_message.match?(/\bgreen\b/i) && !normalized_message.match?(/\b(?:red|yellow)\b/i)
+      return readiness_execution_plan(surplus_cents, transfer_cents) if readiness_follow_up?
+      return weekly_readiness_plan(surplus_cents, transfer_cents) if normalized_message.match?(/\b(this week|do first|first step|start)\b/i)
+      return green_readiness_plan(surplus_cents) if normalized_message.match?(/\bgreen\b/i) && !normalized_message.match?(/\b(?:red|yellow)\b/i)
 
-      red_to_yellow_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+      red_to_yellow_plan(surplus_cents, transfer_cents)
     end
 
     def readiness_status_answer
@@ -782,11 +852,12 @@ module HouseholdFinance
       else
         "Your approved readiness is #{actual_tone.capitalize}, not #{claimed_tone.capitalize}."
       end
+      status_line += BalanceDate.liquid_sentence(household)
 
       surplus = facts.fetch(:baseline_surplus_cents)
       runway = facts.fetch(:runway_months)
+      gap = emergency_fund_gap_cents
       if actual_tone == "red"
-        yellow_gap = runway_gap_cents(yellow_runway_target_cents)
         cash_flow_read = if surplus.positive?
           "positive by #{money(surplus)}"
         elsif surplus.negative?
@@ -795,21 +866,25 @@ module HouseholdFinance
           "at breakeven"
         end
         stability_read = if surplus.positive?
-          "mainly a runway problem"
+          "mainly an emergency fund pace problem"
         elsif surplus.negative?
-          "a cash-flow and runway problem"
+          "a cash-flow and emergency fund problem"
         else
-          "a cash-flow margin and runway problem"
+          "a cash-flow margin and emergency fund problem"
         end
-        return "#{status_line} Monthly cash flow is #{cash_flow_read}, but runway is #{runway} months and Yellow requires about #{yellow_runway_months.round(1)} months. That makes this #{stability_read}, with #{money(yellow_gap)} still needed for the Yellow threshold. Next CFO move: pause new wants, review pending activity, and protect available surplus for essential bills, expected expenses, and runway."
+        reach = surplus.positive? ? "At that surplus it is about #{months_text(months_to_reach(gap, surplus))} away" : "Without a monthly surplus it cannot be reached yet"
+        return "#{status_line} Monthly cash flow is #{cash_flow_read}, runway is #{runway} months, and the #{emergency_fund_target_line} still needs #{money(gap)}. #{reach}. #{colour_rule_line} Yellow needs about #{money(surplus_needed_cents(gap, 'target_yellow_months'))} a month. That makes this #{stability_read}. Next CFO move: pause new wants, review pending activity, and protect available surplus for essential bills, expected expenses, and the emergency fund."
       end
 
       if actual_tone == "yellow"
-        green_gap = runway_gap_cents(green_runway_target_cents)
-        return "#{status_line} Monthly cash flow is nonnegative and runway is #{runway} months, which covers the Yellow threshold without yet reaching the #{target_runway_months.round(1)}-month Green target. The remaining Green runway gap is #{money(green_gap)}. Next CFO move: keep expected expenses funded and route planned surplus toward that runway gap before expanding wants."
+        return "#{status_line} Monthly cash flow is positive by #{money(surplus)} and runway is #{runway} months. The #{emergency_fund_target_line} still needs #{money(gap)}, about #{months_text(months_to_reach(gap, surplus))} away at that surplus: inside your program's #{line_text(status_rule.fetch('target_yellow_months'))} Yellow line, beyond its #{line_text(status_rule.fetch('target_green_months'))} Green line. Green needs about #{money(surplus_needed_cents(gap, 'target_green_months'))} a month. Next CFO move: keep expected expenses funded and route planned surplus to the emergency fund before expanding wants."
       end
 
-      "#{status_line} Monthly cash flow is positive and runway is #{runway} months, meeting the saved #{target_runway_months.round(1)}-month target. Green means protect the result rather than treating it as permission for a permanent spending increase. Next CFO move: reconcile current actuals and keep expected expenses funded before adding a new commitment."
+      if gap.positive?
+        return "#{status_line} Monthly cash flow is positive by #{money(surplus)} and runway is #{runway} months. The #{emergency_fund_target_line} still needs #{money(gap)}, about #{months_text(months_to_reach(gap, surplus))} away: inside your program's #{line_text(status_rule.fetch('target_green_months'))} Green line. Green means keep the transfer going rather than treating it as permission for a permanent spending increase. Next CFO move: reconcile current actuals and keep expected expenses funded before adding a new commitment."
+      end
+
+      "#{status_line} Runway is #{runway} months, meeting the #{emergency_fund_target_line}. Green means protect the result rather than treating it as permission for a permanent spending increase. Next CFO move: reconcile current actuals and keep expected expenses funded before adding a new commitment."
     end
 
     def monthly_focus_answer
@@ -846,17 +921,19 @@ module HouseholdFinance
         normalized_message.match?(/\b(?:concrete|step by step|actual|specific|detailed)\s+plan\b/i)
     end
 
-    def red_to_yellow_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+    def red_to_yellow_plan(surplus_cents, transfer_cents)
+      gap = emergency_fund_gap_cents
       cash_flow_line = if surplus_cents.positive?
-        "Your monthly cash flow is positive by #{money(surplus_cents)}, so red is mainly a runway problem; protect about #{money(transfer_cents)} for runway before new wants."
+        "Your monthly cash flow is positive by #{money(surplus_cents)}, so the emergency fund is about #{months_text(months_to_reach(gap, surplus_cents))} away; protect about #{money(transfer_cents)} for it before new wants."
       else
         "Your monthly cash flow is short by #{money(surplus_cents.abs)}, so the first target is getting the baseline back to $0 before chasing green."
       end
 
-      "Yes — let’s make the plan from approved household numbers, not vibes. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, liquid assets are #{money(snapshot.fetch(:liquid_assets_cents))}, and baseline surplus is #{money(surplus_cents)} per month. Yellow means nonnegative monthly cash flow and about #{yellow_runway_months.round(1)} months of runway, so the yellow gap is #{money(yellow_gap)}; green means #{target_runway_months.round(1)} months of runway with positive surplus, so the green gap is #{money(green_gap)}. #{cash_flow_line} Next CFO move: ask me for the concrete plan, or send the next three due bills so we can turn this into this week’s moves."
+      "Yes — let’s make the plan from approved household numbers, not vibes. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, liquid assets are #{money(snapshot.fetch(:liquid_assets_cents))}, and baseline surplus is #{money(surplus_cents)} per month. The #{emergency_fund_target_line} still needs #{money(gap)}. #{colour_rule_line} Yellow needs about #{money(surplus_needed_cents(gap, 'target_yellow_months'))} a month and Green about #{money(surplus_needed_cents(gap, 'target_green_months'))} a month. #{cash_flow_line} Next CFO move: ask me for the concrete plan, or send the next three due bills so we can turn this into this week’s moves."
     end
 
-    def readiness_execution_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+    def readiness_execution_plan(surplus_cents, transfer_cents)
+      gap = emergency_fund_gap_cents
       return unavailable_plan_answer unless plan_available?
 
       month_index = reference_month - 1
@@ -865,34 +942,38 @@ module HouseholdFinance
       baseline_step = if surplus_cents.negative?
         "Find #{money(surplus_cents.abs)} per month before adding wants. Start with #{discretionary_line}; if that does not close the gap, renegotiate one fixed bill or debt due date before the next paycheck."
       else
-        "Keep the #{money(surplus_cents)} monthly surplus from leaking. Route about #{money(transfer_cents)} to runway after bills clear, then leave the rest as buffer until yellow is protected."
+        "Keep the #{money(surplus_cents)} monthly surplus from leaking. Route about #{money(transfer_cents)} to the emergency fund after bills clear, then leave the rest as buffer."
       end
-      runway_step = if yellow_gap.positive? && transfer_cents.positive?
-        "At #{money(transfer_cents)} per month, yellow is roughly #{(yellow_gap.to_f / transfer_cents).ceil} month(s) away; green still needs #{money(green_gap)} of runway."
-      elsif yellow_gap.positive?
-        "Yellow still needs #{money(yellow_gap)}, but there is no safe surplus yet, so do not force a runway transfer until cash flow is nonnegative."
+      runway_step = if gap.positive? && surplus_cents.positive?
+        "At your #{money(surplus_cents)} monthly surplus, the #{money(gap)} emergency fund gap is about #{months_text(months_to_reach(gap, surplus_cents))} away; Green needs about #{money(surplus_needed_cents(gap, 'target_green_months'))} a month."
+      elsif gap.positive?
+        "The emergency fund still needs #{money(gap)}, but there is no safe surplus yet, so do not force a transfer until cash flow is nonnegative."
       else
-        "Yellow runway is covered; keep building toward the green gap of #{money(green_gap)} without stealing from expected bills."
+        "The emergency fund target is covered; keep it intact without stealing from expected bills."
       end
 
       "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, check purchases waiting for review, and protect roof, food, utilities, monthly debt payments, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
     end
 
-    def green_readiness_plan(surplus_cents, transfer_cents, green_gap)
-      runway_line = if transfer_cents.positive? && green_gap.positive?
-        "At about #{money(transfer_cents)} per month, green is roughly #{(green_gap.to_f / transfer_cents).ceil} month(s) of protected transfers away."
-      elsif green_gap.positive?
-        "Green needs #{money(green_gap)} more runway, but cash flow has to turn nonnegative before that transfer is safe."
+    def green_readiness_plan(surplus_cents)
+      gap = emergency_fund_gap_cents
+      runway_line = if surplus_cents.positive? && gap.positive?
+        "Green means reaching it within #{months_text(status_rule.fetch('target_green_months'))}: about #{money(surplus_needed_cents(gap, 'target_green_months'))} a month. At your surplus it is about #{months_text(months_to_reach(gap, surplus_cents))} away."
+      elsif gap.positive?
+        "The emergency fund needs #{money(gap)} more, but cash flow has to turn nonnegative before that transfer is safe."
       else
-        "The green runway target is funded on paper; the job is consistency, not a dramatic cut."
+        "The emergency fund target is funded on paper; the job is consistency, not a dramatic cut."
       end
 
-      "To get to green, keep the baseline boring and make runway automatic. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, baseline surplus is #{money(surplus_cents)}, and the green runway gap is #{money(green_gap)}. #{runway_line} Next CFO move: protect expected sinking funds first, then set a recurring runway transfer and do not increase discretionary spending until two clean months are confirmed."
+      "To get to green, keep the baseline boring and make the emergency fund transfer automatic. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, baseline surplus is #{money(surplus_cents)}, and the emergency fund gap is #{money(gap)}. #{runway_line} Next CFO move: protect expected sinking funds first, then set a recurring emergency fund transfer and do not increase discretionary spending until two clean months are confirmed."
     end
 
-    def weekly_readiness_plan(surplus_cents, transfer_cents, yellow_gap)
+    def weekly_readiness_plan(surplus_cents, transfer_cents)
       if surplus_cents.positive?
-        return "This week, the goal is not to solve everything; it is to stop Red from leaking. Based on approved household numbers, your yellow runway gap is #{money(yellow_gap)}, and you have #{money(surplus_cents)} baseline surplus before new approvals. Protect essentials and expected sinking funds first, pause non-essential purchases unless they are already funded in the plan, then route about #{money(transfer_cents)} toward runway. Next CFO move: choose the one discretionary hold you can keep for seven days and make the runway transfer after bills clear."
+        gap = emergency_fund_gap_cents
+        pace = gap.positive? ? " At your program's pace, the gap reaches yellow with about #{money(surplus_needed_cents(gap, 'target_yellow_months'))} a month and green with about #{money(surplus_needed_cents(gap, 'target_green_months'))}." : ""
+        opening = snapshot.fetch(:readiness_tone) == "red" ? "it is to stop Red from leaking" : "it is to keep the emergency fund moving"
+        return "This week, the goal is not to solve everything; #{opening}. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, your emergency fund gap is #{money(gap)}, and you have #{money(surplus_cents)} baseline surplus before new approvals. Protect essentials and expected sinking funds first, pause non-essential purchases unless they are already funded in the plan, then route about #{money(transfer_cents)} to the emergency fund.#{pace} Next CFO move: choose the one discretionary hold you can keep for seven days and make the transfer after bills clear."
       end
 
       "This week, the goal is to stop the shortfall before chasing green. Based on approved household numbers, monthly cash flow is short by #{money(surplus_cents.abs)}, so the first move is to protect roof, food, utilities, and monthly debt payments, then identify one bill or discretionary category to reduce before the next paycheck. Next CFO move: send me the one expense you are willing to cut or renegotiate this week, and we will put that savings toward getting back to yellow."
@@ -909,7 +990,7 @@ module HouseholdFinance
         return "Wanting to help makes sense, and I can't compare #{amount_label} to your safe-to-spend yet because your account balances aren't added in My Money. Keep bill money out of it, and set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
       end
       if amount_cents&.positive? && amount_cents <= snapshot.fetch(:safe_to_spend_cents) && snapshot.fetch(:readiness_tone) != "red"
-        return "Yes, you may be able to help with #{amount_label}, but only as a planned family-support decision, not from bill money. Based on approved household numbers, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, runway is #{snapshot.fetch(:runway_months)} months, and readiness is #{snapshot.fetch(:readiness_label)}. Set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
+        return "Yes, you may be able to help with #{amount_label}, but only as planned family support, never from money meant for rent, food or other must-pay costs. Based on approved household numbers, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, runway is #{snapshot.fetch(:runway_months)} months, and readiness is #{snapshot.fetch(:readiness_label)}. Set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
       end
 
       "I would not give a clean yes to #{amount_label} yet, even though wanting to help makes sense. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; family support cannot jump ahead of roof, food, utilities, monthly debt payments, and expected bills. If you still want to help, choose non-cash help or a smaller number that does not touch the household baseline. Next CFO move: decide the maximum amount you can give once, without creating a repeat obligation."
@@ -953,20 +1034,74 @@ module HouseholdFinance
 
       debt_cents = snapshot.fetch(:total_debt_cents)
       liquid_cents = snapshot.fetch(:liquid_assets_cents)
-      yellow_gap = runway_gap_cents(yellow_runway_target_cents)
-      if yellow_gap.positive?
-        return "Savings comes first until you reach yellow, then extra debt gets more room. Based on approved household numbers, you have #{money(liquid_cents)} liquid, #{money(debt_cents)} debt entered, #{snapshot.fetch(:runway_months)} months of runway, and a yellow runway gap of #{money(yellow_gap)}. Keep paying monthly debt payments, but do not send extra debt payments while the household still needs basic runway. Next CFO move: route the next available surplus to runway until yellow is protected, then split extra dollars between debt and savings."
+      gap = emergency_fund_gap_cents
+      order = method_settings.fetch("priorities")
+      order_line = "Your program's priority order is #{order.each_with_index.map { |key, index| "#{index + 1} #{CohortExperience::MethodSettings.label(key)}" }.join(', ')}."
+      if order.index("debt") < order.index("emergency_fund")
+        return "#{order_line} So extra debt payments come before topping up savings. Based on approved household numbers, you have #{money(liquid_cents)} liquid, #{money(debt_cents)} debt entered, #{snapshot.fetch(:runway_months)} months of runway, and an emergency fund gap of #{money(gap)}. Keep every minimum paid and expected bills funded, then send the next available surplus to the debt. Next CFO move: pick the monthly extra debt amount only after expected bills are funded."
+      end
+      if gap.positive?
+        return "Savings comes first: #{order_line.sub(/\.\z/, '')}. Based on approved household numbers, you have #{money(liquid_cents)} liquid, #{money(debt_cents)} debt entered, #{snapshot.fetch(:runway_months)} months of runway, and an emergency fund gap of #{money(gap)}. Keep paying monthly debt payments, but do not send extra debt payments while the emergency fund still needs money. Next CFO move: route the next available surplus to the emergency fund until its target is reached, then extra debt gets the room."
       end
 
-      "You have enough runway for yellow, so extra debt can start competing with additional savings. Based on approved household numbers, liquid assets are #{money(liquid_cents)}, debt entered is #{money(debt_cents)}, and readiness is #{snapshot.fetch(:readiness_label)}. Keep emergency runway intact, then use a fixed extra-payment amount so debt payoff does not steal from sinking funds. Next CFO move: pick the monthly extra debt amount only after expected bills are funded."
+      "Your emergency fund target is reached, so extra debt is next. #{order_line} Based on approved household numbers, liquid assets are #{money(liquid_cents)}, debt entered is #{money(debt_cents)}, and readiness is #{snapshot.fetch(:readiness_label)}. Keep the emergency fund intact, then use a fixed extra-payment amount so debt payoff does not steal from sinking funds. Next CFO move: pick the monthly extra debt amount only after expected bills are funded."
+    end
+
+    def tool_presenter
+      @tool_presenter ||= DataPresenter.new(household, user: user, ensure_plan: false,
+        experience_capabilities: @experience_capabilities || user && ::Mia::ParticipantRuntimeResolver.new(user: user).call.capabilities)
+    end
+
+    def current_tool_message
+      message.split("Current follow-up:", 2).last.to_s.downcase
+    end
+
+    # A follow-up keeps the earlier tool topic only when it is itself about that topic: a savings draw,
+    # the runway, or an income lift. A bare "what if" is how most purchase questions start.
+    def tool_context_relevant?
+      !message.include?("Current follow-up:") || current_tool_message.match?(/\bdraw(?:s|ing)?\b|\brunway\b|\blift\b|\$[\d,.]+\s+more\b/i)
+    end
+
+    def tool_routing_message
+      tool_context_relevant? ? normalized_message : current_tool_message
+    end
+
+    def tool_green_answer
+      return nil unless tool_routing_message.match?(/what does it take.*green|what.*(?:take|need).*get to green|flip the light/i)
+      return nil unless tool_presenter.tool_enabled?("cfo_filter")
+
+      lines = tool_presenter.cfo_filter_scenario.fetch(:targets).map do |target|
+        needed = target.dig(:green, :surplus_cents)
+        needed.nil? || target.dig(:green, :income_cents).nil? ? "#{target[:label]}: #{target.dig(:green, :reason) || 'add the missing approved balances and plan details'}" :
+          "#{target[:label]}: #{needed.zero? ? 'Already green; $0' : money(needed)} monthly income lift, #{money(target.dig(:green, :income_cents))} total monthly income for green; #{target.dig(:yellow, :extra_cents).nil? ? 'unknown' : target.dig(:yellow, :extra_cents).zero? ? 'Already yellow; $0' : money(target.dig(:yellow, :extra_cents))} monthly lift for yellow"
+      end
+      "To turn each light green independently: #{lines.join('; ')}. The lift first covers any base shortfall. The method splits the remaining positive surplus between emergency savings, extra debt principal and surplus. Debt timing includes known interest and minimum payments, excluding the mortgage. Nothing changed."
+    end
+
+    def transition_duration_answer
+      job_transition_answer if tool_routing_message.match?(TRANSITION_INTENT_PATTERN) && tool_routing_message.match?(/how long|could we last|runway/i)
     end
 
     def job_transition_answer
-      return nil unless normalized_message.match?(JOB_TRANSITION_PATTERN)
+      return nil unless tool_routing_message.match?(JOB_TRANSITION_PATTERN)
+      unless tool_routing_message.match?(/how long|could we last|runway/i)
+        business_cents = business_income_cents
+        return "Not yet as a full leap; this is a runway decision, not a motivation decision. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, business income entered is #{money(business_cents)} per month, and the emergency fund gap is #{money(emergency_fund_gap_cents)}. Keep stable income in the picture until household runway and repeatable business income can carry the baseline without panic. Next CFO move: define the monthly business-income floor and runway number that must be true before you revisit leaving the job."
+      end
 
-      business_cents = business_income_cents
-      green_gap = runway_gap_cents(green_runway_target_cents)
-      "Not yet as a full leap; this is a runway decision, not a motivation decision. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, business income entered is #{money(business_cents)} per month, and the green runway gap is #{money(green_gap)}. Keep stable income in the picture until household runway and repeatable business income can carry the baseline without panic. Next CFO move: define the monthly business-income floor and runway number that must be true before you revisit leaving the job."
+      return nil unless tool_routing_message.match?(TRANSITION_INTENT_PATTERN) && tool_presenter.tool_enabled?("optionality")
+
+      draw_message = message.split("Current follow-up:", 2).last
+      draw_match = draw_message.match(/\bdraw\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+month|a\s+month|monthly|\/mo)/i)
+      return "Enter a monthly savings draw of $0 or more, with up to two decimal places. Nothing changed." if draw_message.match?(/\bdraw\s+[-$\d]/i) && !draw_match
+      return "Enter a savings draw of #{Money::MAX_AMOUNT_TEXT} or less. Nothing changed." if draw_match && Money.cents(draw_match[1].delete(",")) > Money::MAX_AMOUNT_CENTS
+      draw = draw_match && Money.cents!(draw_match[1].delete(","))
+      result = tool_presenter.optionality_scenario(**(draw ? { monthly_draw_cents: draw } : {}))
+      return "Your business must cover #{money(result[:monthly_gap_cents])}/mo from month one. No savings draw is entered. Nothing changed." if result[:no_draw]
+      return "I cannot calculate your transition runway yet. #{result[:label]}. Unknown is not $0. Nothing changed." unless result[:tone]
+
+      duration = result[:months] == 0 ? "has no savings to draw from" : result[:sustainable] ? "lasts indefinitely in this model" : "lasts approximately #{result[:months]} months / #{result[:months] / 12}yr #{result[:months] % 12}mo"
+      "#{result[:sources_cover_need] ? "All sources cover the need — business income is pure upside. " : ""}Your transition runway #{duration}: #{result[:label]}. #{draw_match ? "The requested monthly draw is used." : "The savings draw defaults to the monthly gap."} The monthly gap is #{money(result[:monthly_gap_cents])}, with #{money(result[:monthly_draw_cents])} drawn from savings. #{money(result[:business_required_annual_cents])}/yr your business needs to pay you#{result[:monthly_draw_cents].positive? ? " after the entered draw" : " from month one"}. This assumes 5% yearly savings growth at 0.05/12 per month, compounded monthly before withdrawals, and steady costs and replacement income. Returns are uncertain. Ask me about another savings draw if you want to compare; nothing changed."
     end
 
     def emotional_stress_answer
@@ -1059,6 +1194,18 @@ module HouseholdFinance
       "I can help you plan how long a savings goal will take, and I will not guess at the math from a loose sentence. Protect food, housing, utilities, and required payments first; savings should come from flexible money, and a smaller amount you can keep up beats a big one you skip. Next CFO move: tell me in one short sentence how much you can set aside each paycheck, and in another what the goal is, then we will work out the timeline together. Nothing changed."
     end
 
+    # Her active savings challenge, and the rules it started with; before she joins, the
+    # rules her own program would give her.
+    def challenge_enrollment
+      return @challenge_enrollment if defined?(@challenge_enrollment)
+
+      @challenge_enrollment = user && SavingsEnrollment.where(household: household, user: user, status: "active").order(:id).last
+    end
+
+    def challenge_rules
+      @challenge_rules ||= SavingsChallenge::Rules.for_participant(user: user, enrollment: challenge_enrollment)
+    end
+
     def savings_goal_amount_cents
       amount = /#{AMOUNT_PATTERN}\s+(?:(?:savings|challenge|saving)\s+)?(?:goal|target)\b|\b(?:goal|target)\s+(?:of|is|at|to|for)\s+#{AMOUNT_PATTERN}/i.match(message)
       return unless amount
@@ -1080,9 +1227,10 @@ module HouseholdFinance
       line = "Your approved numbers leave about #{money(surplus_cents)} a month after your planned budget and monthly debt payments."
       return line unless amount_cents&.positive? && normalized_message.match?(/\bchallenge\b/)
 
-      monthly_cents = ((amount_cents / 3.0) / 100).round * 100
+      months = challenge_rules.length_days / 30.0
+      monthly_cents = ((amount_cents / months) / 100).round * 100
       fit = monthly_cents <= surplus_cents ? "fits inside" : "is more than"
-      "#{line} Spread over the 90-day challenge, #{money(amount_cents)} is about #{money(monthly_cents)} a month, which #{fit} that margin on paper."
+      "#{line} Spread over the #{challenge_rules.label} challenge, #{money(amount_cents)} is about #{money(monthly_cents)} a month, which #{fit} that margin on paper."
     end
 
     def conditional_monthly_income_answer
@@ -1176,7 +1324,7 @@ module HouseholdFinance
       end
       item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: item, effective_on: date&.iso8601,
-        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
+        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month, user: user, experience_capabilities: @experience_capabilities).call.body
     end
 
     def purse_decision_answer
@@ -1212,7 +1360,7 @@ module HouseholdFinance
       return unavailable_plan_answer unless plan_available?
 
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: purchase_item,
-        annual_budget_manager: annual_budget_manager, reference_month: reference_month).call.body
+        annual_budget_manager: annual_budget_manager, reference_month: reference_month, user: user, experience_capabilities: @experience_capabilities).call.body
     end
 
     def purchase_decision_answer
@@ -1353,6 +1501,17 @@ module HouseholdFinance
       item.presence unless item.match?(/\A(?:it|them|that|this|one|these|those)\z/i)
     end
 
+    # Year and saved-bill questions only, never ahead of a spending report; the plan is read once for both callers.
+    def forecast_answer
+      return @forecast_answer if defined?(@forecast_answer)
+
+      # Purchase analysis and the Optionality runway scenario take precedence over the plain forecast.
+      @forecast_answer = if YearForecastAnswer.question?(message) && !transaction_report? && !purchase_question? &&
+          !tool_routing_message.match?(TRANSITION_INTENT_PATTERN)
+        YearForecastAnswer.new(household, message, forecast: -> { active_plan[:year] == Date.current.year ? active_plan[:year_forecast] : nil }).call
+      end
+    end
+
     def active_plan
       @active_plan ||= provided_annual_plan || (ensure_plan ? annual_budget_manager.plan_data : annual_budget_manager.read_only_plan_data)
     end
@@ -1441,7 +1600,8 @@ module HouseholdFinance
           household,
           annual_budget_manager: annual_budget_manager,
           reference_date: snapshot_reference_date,
-          ensure_plan: ensure_plan
+          ensure_plan: ensure_plan,
+          method: method_settings
         ).call
         # Never render "readiness is ." when readiness cannot be computed yet.
         built[:readiness_label].to_s.strip.present? ? built : built.merge(readiness_label: "Setup incomplete — finish your starting picture")
@@ -1460,20 +1620,82 @@ module HouseholdFinance
       snapshot.fetch(:target_runway_months).to_f
     end
 
-    def yellow_runway_months
-      target_runway_months / 2.0
+    def method_settings
+      @method_settings ||= CohortExperience::MethodSettings.for_household(household, user: user)
     end
 
-    def yellow_runway_target_cents
-      (snapshot.fetch(:total_outflow_cents) * yellow_runway_months).round
+    def status_rule
+      snapshot.fetch(:status_rule)
     end
 
-    def green_runway_target_cents
+    def emergency_fund_target_cents
       (snapshot.fetch(:total_outflow_cents) * target_runway_months).round
     end
 
-    def runway_gap_cents(target_cents)
-      [ target_cents - snapshot.fetch(:liquid_assets_cents), 0 ].max
+    def emergency_fund_gap_cents
+      [ emergency_fund_target_cents - snapshot.fetch(:liquid_assets_cents), 0 ].max
+    end
+
+    def emergency_fund_target_line
+      "#{line_text(months_text(target_runway_months).split.first)} emergency fund target (#{money(emergency_fund_target_cents)})"
+    end
+
+    def colour_rule_line
+      "Your program calls a target Green when it is within #{months_text(status_rule.fetch('target_green_months'))} at your surplus, Yellow within #{months_text(status_rule.fetch('target_yellow_months'))}, Red beyond."
+    end
+
+    def months_to_reach(gap_cents, surplus_cents)
+      ReadinessCalculator.months_to_reach(gap_cents, surplus_cents)
+    end
+
+    # The monthly surplus that reaches the gap within the program's green or yellow months.
+    # Rounded up to whole dollars so the amount always reaches the line.
+    def surplus_needed_cents(gap_cents, rule_key)
+      (gap_cents.to_f / status_rule.fetch(rule_key) / 100).ceil * 100
+    end
+
+    def line_text(months)
+      "#{months}-month"
+    end
+
+    def months_text(count)
+      count = count.to_f
+      count = count.to_i if count == count.to_i
+      "#{count} #{count == 1 ? 'month' : 'months'}"
+    end
+
+    # The program's windfall order, and for a named amount the dollars at each step.
+    def windfall_line(amount_cents)
+      order = method_settings.fetch("windfall")
+      catch_up_cents = WindfallSplit.consumer_catch_up_cents(household)
+      steps = order.each_with_index.map do |key, index|
+        words = WINDFALL_STEP_WORDS.fetch(key)
+        words = "#{words}, catching up the #{money(catch_up_cents)} past due before any extra principal" if key == "consumer_debt" && catch_up_cents.positive?
+        "#{index + 1}) #{words}"
+      end.join(", ")
+      line = "Your program's order for one-time money: #{steps}."
+      conflicts = DebtArrears.new(household).conflicts
+      if conflicts.any?
+        check_note = catch_up_cents.positive? ? "Check your debts before any extra principal goes to debt." : "Check your debts before any of it goes to debt."
+        line = "#{line} Your debt records do not add up yet: #{conflicts.to_sentence}. #{check_note}"
+      end
+      return line unless amount_cents&.positive?
+
+      split = WindfallSplit.new(amount_cents: amount_cents, order: order, emergency_fund_gap_cents: windfall_emergency_fund_gap_cents,
+        consumer_debt_cents: WindfallSplit.consumer_debt_cents(household), catch_up_cents: catch_up_cents).call
+      parts = split.map do |step|
+        next "#{money(step[:cents])} #{WINDFALL_SPLIT_WORDS.fetch(step[:key])}" if step[:room_known]
+
+        "#{money(step[:cents])} waits on the #{WINDFALL_UNKNOWN_WORDS.fetch(step[:key])}"
+      end
+      "#{line} For #{money(amount_cents)}, that is #{parts.to_sentence}."
+    end
+
+    # The gap only when it is known: saved balances entered and planned costs set.
+    def windfall_emergency_fund_gap_cents
+      return nil unless snapshot[:liquid_assets_known] && snapshot.fetch(:total_outflow_cents).positive?
+
+      emergency_fund_gap_cents
     end
 
     def business_income_cents

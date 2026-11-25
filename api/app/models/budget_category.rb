@@ -3,6 +3,7 @@ class BudgetCategory < ApplicationRecord
   STACK_KEYS = ExpenseItem::STACK_KEYS
 
   belongs_to :household
+  has_many :bills, dependent: :nullify
   has_many :budget_allocations, dependent: :destroy
   has_many :transaction_splits, dependent: :restrict_with_exception
   has_many :transaction_drafts, dependent: :nullify
@@ -24,6 +25,7 @@ class BudgetCategory < ApplicationRecord
   end
 
   def stack_label
-    HouseholdFinance::SnapshotBuilder::STACK_LABELS.fetch(stack_key, stack_key.to_s.humanize.presence || "Custom")
+    # The household program's group names (plain words or Mrs. Mel's terms).
+    HouseholdFinance::ExpenseGroups.label(stack_key, household && CohortExperience::MethodSettings.for_household(household))
   end
 end

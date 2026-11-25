@@ -9,6 +9,8 @@ module ChallengePrivacy
       personal_cutoff = enrollment.starts_on + day - 1
       raise Access::Denied, "Participant window precedes the scheduled cohort window" if personal_cutoff < cutoff
       return unapproved(enrollment, day, cutoff, "withdrawn") if enrollment.status == "withdrawn"
+      # She keeps the check-in days she started with; a group day she does not have is its own state.
+      return unapproved(enrollment, day, cutoff, "other_schedule") unless enrollment.rules.checkpoint?(day)
       return unapproved(enrollment, day, cutoff, "late_window") if personal_cutoff > cutoff
 
       head = SavingsCheckpoint.find_by(savings_enrollment: enrollment, milestone_day: day)
@@ -22,13 +24,14 @@ module ChallengePrivacy
         snapshot: version.snapshot, previous: version.previous_version)
       { enrollment_id: enrollment.id, checkpoint_id: head.id, checkpoint_version: version.version_number,
         cutoff_on: cutoff.iso8601, digest: fingerprint(version_id: version.id, checkpoint_id: head.id,
-          enrollment_id: enrollment.id, version_number: version.version_number, snapshot: version.snapshot), band: band(version.snapshot, day) }
+          enrollment_id: enrollment.id, version_number: version.version_number, snapshot: version.snapshot), band: band(version.snapshot, day, enrollment.rules) }
     rescue ArgumentError, TypeError, ActiveRecord::RecordNotFound
       raise Access::Denied, "The approved checkpoint cannot be verified"
     end
 
     def validate_cutoff!(cohort, checkpoint_day:, cutoff_on:)
-      unless checkpoint_day.in?([ 30, 60, 90 ]) && cohort.starts_on && cutoff_on == cohort.starts_on + checkpoint_day - 1
+      unless checkpoint_day.is_a?(Integer) && checkpoint_day.between?(1, CohortExperience::MethodSettings::CHALLENGE_LENGTHS.end) &&
+          cohort.starts_on && cutoff_on == cohort.starts_on + checkpoint_day - 1
         raise Access::Denied, "Invalid scheduled cohort checkpoint"
       end
       previous = ChallengeSponsorExport.where(cohort: cohort, policy_version: SponsorExports::POLICY_VERSION).order(:checkpoint_day).first
@@ -48,12 +51,12 @@ module ChallengePrivacy
           starts_on: enrollment.starts_on.iso8601, cohort_starts_on: enrollment.cohort.starts_on.iso8601,
           cutoff_on: cutoff.iso8601, status: enrollment.status, unapproved_reason: reason) }
     end
-    def band(snapshot, day)
+    def band(snapshot, day, rules)
       savings = snapshot.fetch("savings")
       return "no_target" if savings["target_cents"].nil?
-      return "custom_target" unless savings["target_cents"] == 50_000
+      return "custom_target" unless savings["target_cents"] == rules.suggested_goal_cents
       return "unknown" unless savings["reporting_known"] == true
-      return "final_pending" if day == 90 && snapshot["final_confirmation_status"] != "confirmed"
+      return "final_pending" if day == rules.final_day && snapshot["final_confirmation_status"] != "confirmed"
       savings["achieved"] == true ? "at_target" : "below_target"
     end
   end

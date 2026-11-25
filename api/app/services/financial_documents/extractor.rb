@@ -21,6 +21,12 @@ module FinancialDocuments
     MAX_SPREADSHEET_BATCHES = 20
     MAX_PDF_PAGES = 60
     MAX_OUTPUT_TOKENS = 24_000
+    # How much of the reader's text is kept. Text past these is cut, and a
+    # receipt draft or summary that was cut says so (see receipt_text_cut?).
+    SUMMARY_MAX = 800
+    DRAFT_EVIDENCE_MAX = 500
+    DRAFT_WARNING_MAX = 240
+    DRAFT_WARNINGS_MAX = 5
     TRANSACTION_CONFIDENCE_DECIMALS = {
       "high" => BigDecimal("0.90"),
       "medium" => BigDecimal("0.65"),
@@ -33,11 +39,11 @@ module FinancialDocuments
     # Participant copy for any provider or service problem. The technical
     # cause (status code, provider message) goes to the attempt record and
     # logs through metadata[:error_detail], never to the participant.
-    PROVIDER_CREDIT_MESSAGE = "Our file-reading service is unavailable because of a billing problem on our side. Your file is saved and nothing changed. Contact your program team; try Reprocess after service is restored."
-    STORAGE_FAILURE_MESSAGE = "We couldn’t open your saved file because our storage service is unavailable. Nothing changed. Try Reprocess in a few minutes."
-    TEMPORARY_FAILURE_MESSAGE = "We couldn't read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes."
+    PROVIDER_CREDIT_MESSAGE = "Our file-reading service is unavailable because of a billing problem on our side. Your file is saved and nothing changed. Contact your program team; open File options and choose Try again after service is restored."
+    STORAGE_FAILURE_MESSAGE = "We couldn’t open your saved file because our storage service is unavailable. Nothing changed. Open File options and choose Try again in a few minutes."
+    TEMPORARY_FAILURE_MESSAGE = "We couldn't read this file right now. This is usually temporary. Your file is saved and nothing changed, so open File options and choose Try again in a few minutes."
     REJECTED_FILE_MESSAGE = "The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed."
-    UNREADABLE_RESULT_MESSAGE = "We couldn't turn this file into reviewable results. Your file is saved and nothing changed. Try Reprocess, or upload a clearer copy, a CSV export or a screenshot."
+    UNREADABLE_RESULT_MESSAGE = "We couldn't turn this file into reviewable results. Your file is saved and nothing changed. Open File options and choose Try again, or upload a clearer copy, a CSV export or a screenshot."
     SPREADSHEET_LIMIT_MESSAGE = "This workbook is too large to read in one pass. Split it into smaller files so every row can be reviewed."
     OUTPUT_LIMIT_MESSAGE = "This document has more rows than Mia can read in one pass. Split it into smaller date ranges so every transaction can be reviewed."
     # Bounded automatic retry for transient provider failures (network errors,
@@ -274,10 +280,10 @@ module FinancialDocuments
       return failure(SPREADSHEET_LIMIT_MESSAGE) if @spreadsheet_event_count > AccountingContract::MAX_EVENTS
 
       unless events.all? { |event| event.dig(:locator, :sheet_index) == sheet[:sheet_index] && rows.pluck(:row).include?(event.dig(:locator, :row)) }
-        return failure("We couldn’t match one workbook section to its source rows. Nothing changed. Try Reprocess or export that worksheet as CSV.")
+        return failure("We couldn’t match one workbook section to its source rows. Nothing changed. Open File options and choose Try again or export that worksheet as CSV.")
       end
       if Array(result.data[:transaction_drafts]).any? && result.data.dig(:source_accounting, :contract_version) != AccountingContract::VERSION
-        return failure("We couldn’t match the workbook transactions to their source rows. Nothing changed. Try Reprocess or export that worksheet as CSV.")
+        return failure("We couldn’t match the workbook transactions to their source rows. Nothing changed. Open File options and choose Try again or export that worksheet as CSV.")
       end
 
       Result.new(success: true, data: [ result ], error: nil, metadata: {})
@@ -437,7 +443,7 @@ module FinancialDocuments
           items: items,
           transaction_drafts: transactions,
           source_accounting: accounting
-        },
+        }.merge(batch_data.one? && batch_data.first[:summary_cut] ? { summary_cut: true } : {}),
         error: nil,
         metadata: {
           extraction_mode: sheet_count ? "spreadsheet_batches" : "pdf_batches",
@@ -854,7 +860,7 @@ module FinancialDocuments
         items: normalized_items,
         transaction_drafts: normalized_transaction_drafts,
         source_accounting: source_accounting
-      }
+      }.merge(cleaned_text(payload["summary"]).length > SUMMARY_MAX ? { summary_cut: true } : {})
     end
 
     def extraction_row_limit_error(data)
@@ -949,12 +955,21 @@ module FinancialDocuments
         category_name: sanitized_text(draft["category_name"], max_length: 120),
         stack_key: normalized_value(draft["stack_key"], ExpenseItem::STACK_KEYS, fallback: nil),
         confidence: normalized_transaction_confidence(draft["confidence"]),
-        evidence: sanitized_text(draft["evidence"], max_length: 500),
+        evidence: sanitized_text(draft["evidence"], max_length: DRAFT_EVIDENCE_MAX),
         raw_description: sanitized_text(draft["raw_description"], max_length: 500),
         external_id: sanitized_text(draft["external_id"], max_length: 120),
-        warnings: Array(draft["warnings"]).filter_map { |warning| sanitized_text(warning, max_length: 240).presence }.first(5),
+        warnings: Array(draft["warnings"]).filter_map { |warning| sanitized_text(warning, max_length: DRAFT_WARNING_MAX).presence }.first(DRAFT_WARNINGS_MAX),
         splits: splits
-      }
+      }.merge(receipt_text_cut?(draft) ? { receipt_text_cut: true } : {})
+    end
+
+    # The receipt's payment reader (HouseholdFinance::ReceiptTenders) only sees
+    # the evidence and warnings kept above. When either was cut, cash back or a
+    # refund could be in the part that was left out, so the draft says so.
+    def receipt_text_cut?(draft)
+      warnings = Array(draft["warnings"]).filter_map { |warning| cleaned_text(warning).presence }
+      cleaned_text(draft["evidence"]).length > DRAFT_EVIDENCE_MAX || warnings.length > DRAFT_WARNINGS_MAX ||
+        warnings.first(DRAFT_WARNINGS_MAX).any? { |warning| warning.length > DRAFT_WARNING_MAX }
     end
 
     def normalize_transaction_splits(draft, total_amount_cents)
@@ -980,7 +995,7 @@ module FinancialDocuments
     end
 
     def extraction_summary(value, normalized_items, normalized_transaction_drafts)
-      sanitized_text(value, max_length: 800).presence || "Mia found #{normalized_items.length} draft value#{'s' unless normalized_items.length == 1} and #{normalized_transaction_drafts.length} transaction draft#{'s' unless normalized_transaction_drafts.length == 1} for review."
+      sanitized_text(value, max_length: SUMMARY_MAX).presence || "Mia found #{normalized_items.length} draft value#{'s' unless normalized_items.length == 1} and #{normalized_transaction_drafts.length} transaction draft#{'s' unless normalized_transaction_drafts.length == 1} for review."
     end
 
     def normalized_item_metadata(metadata)
@@ -1055,7 +1070,11 @@ module FinancialDocuments
     end
 
     def sanitized_text(value, max_length:)
-      value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").gsub(/[<>`]/, "").squish.truncate(max_length, omission: "…")
+      cleaned_text(value).truncate(max_length, omission: "…")
+    end
+
+    def cleaned_text(value)
+      value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").gsub(/[<>`]/, "").squish
     end
 
     def default_label(target_type)

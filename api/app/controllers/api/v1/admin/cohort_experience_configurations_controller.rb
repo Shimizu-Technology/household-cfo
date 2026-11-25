@@ -138,6 +138,9 @@ module Api
             draft_revision: editable_configuration.draft_revision,
             generated_at: editable_configuration.previewed_at,
             challenge_open: cohort.savings_challenge_enabled && !cohort.savings_challenge_release_hold,
+            # People already running a challenge keep their own days, so Go live can say a
+            # schedule change leaves the group with more than one.
+            challenge_running: SavingsEnrollment.counted.where(cohort: cohort, status: "active").exists?,
             module_order: capabilities.fetch(:module_order, []),
             modules: capabilities.fetch(:modules)
           }
@@ -148,7 +151,7 @@ module Api
           return unless action_params[:upgrade_to_current] == true
 
           config = editable_configuration.draft_config
-          return unless config.fetch("schema_version") == 4 && config.dig("optional_modules", "statements")
+          return unless CohortExperience::Schema.configurable?(config) && config.dig("optional_modules", "statements")
 
           release = cohort.active_cohort_release || cohort.cohort_releases.order(release_number: :desc).first
           previous = release&.experience_snapshot&.fetch("config") || editable_configuration.current_published_version&.config

@@ -26,7 +26,7 @@ class CohortReleasesToolContractsTest < ActiveSupport::TestCase
   end
 
   test "only exact complete known catalogs are supported" do
-    [ 1, 2, 3, 4, 5, 6 ].each do |version|
+    [ 1, 2, 3, 4, 5, 6, 7 ].each do |version|
       original = CohortReleases::Contract.tool_registry_snapshot(version: version)
       assert catalogs.supported_snapshot?(original, version: version)
       mutations = [
@@ -81,27 +81,40 @@ class CohortReleasesToolContractsTest < ActiveSupport::TestCase
     assert catalogs.supports_experience?(catalogs::V2, CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     refute catalogs.supports_experience?(catalogs::V1, CohortExperience::Schema::DEFAULT_CONFIG)
     refute catalogs.supports_experience?(catalogs::V2, CohortExperience::Schema::DEFAULT_CONFIG)
-    assert catalogs.supports_experience?(catalogs::V6, CohortExperience::Schema::DEFAULT_CONFIG)
+    refute catalogs.supports_experience?(catalogs::V6, CohortExperience::Schema::DEFAULT_CONFIG)
+    assert catalogs.supports_experience?(catalogs::V7, CohortExperience::Schema::DEFAULT_CONFIG)
     refute catalogs.supports_experience?(catalogs::V2, CohortExperience::Schema::SAVINGS_CONFIG.merge("experience_mode" => "unknown"))
   end
 
   test "configurable modules use a new catalog without rewriting historical catalogs" do
     schema = CohortExperience::Schema
-    config = schema.upgrade(schema::PILOT_SAVINGS_CONFIG)
+    config = schema.upgrade(schema::PILOT_SAVINGS_CONFIG).except("method").merge("schema_version" => 4)
     assert_equal 6, catalogs.version_for_experience(config)
     assert catalogs.supports_experience?(catalogs::V6, config)
     refute catalogs.supports_experience?(catalogs::V5, config)
     assert_equal catalogs::V5.fetch("operations"), catalogs::V6.fetch("operations")
     assert_equal %w[home ask_mia], catalogs::V6.fetch("modules").select { |item| item.fetch("core") }.pluck("id")
     assert_equal CohortExperience::ModuleRegistry::CONFIGURABLE_MODULES.map(&:deep_stringify_keys), catalogs::V6.fetch("modules")
-    [ 1, 2, 3, 4, 5, 6 ].each do |version|
+    [ 1, 2, 3, 4, 5, 6, 7 ].each do |version|
       assert compatible?(version, CohortReleases::Contract.runtime_tool_registry_snapshot)
     end
     runtime = CohortReleases::Contract.runtime_tool_registry_snapshot
     runtime.fetch("modules").find { |item| item["id"] == "profile" }["core"] = false
     refute compatible?(6, runtime)
+    refute compatible?(7, runtime)
     refute catalogs::V5.fetch("modules").any? { |item| item["id"] == "statements" }
     assert_raises(FrozenError) { catalogs::V6.fetch("modules").first["core"] = false }
+  end
+
+  test "schema five method settings use catalog seven, which also carries schema four" do
+    schema = CohortExperience::Schema
+    config = schema.upgrade(schema::PILOT_SAVINGS_CONFIG)
+    assert_equal 5, config.fetch("schema_version")
+    assert_equal 7, catalogs.version_for_experience(config)
+    assert catalogs.supports_experience?(catalogs::V7, config)
+    refute catalogs.supports_experience?(catalogs::V6, config)
+    assert catalogs.supports_experience?(catalogs::V7, config.except("method").merge("schema_version" => 4))
+    assert_equal catalogs::V6.except("schema_version", "experience_schema_versions"), catalogs::V7.except("schema_version", "experience_schema_versions")
   end
 
   private

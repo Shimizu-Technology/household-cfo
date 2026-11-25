@@ -159,7 +159,7 @@ class CohortReleaseContractVersionsTest < ActiveSupport::TestCase
     owner, cohort, participant = governed_cohort
     legacy = seal(cohort, owner, "before-configurable-tools")
     original = legacy.attributes.deep_dup
-    config = CohortExperience::Schema.upgrade(CohortExperience::Schema::DEFAULT_CONFIG)
+    config = CohortExperience::Schema.upgrade(CohortExperience::Schema::DEFAULT_CONFIG).except("method").merge("schema_version" => 4)
     config["optional_modules"] = CohortExperience::Schema::CONFIGURABLE_MODULES.index_with(false)
     config["optional_modules"]["statements"] = true
     config["module_order"] = %w[statements ask_mia home]
@@ -174,6 +174,8 @@ class CohortReleaseContractVersionsTest < ActiveSupport::TestCase
     capabilities = runtime(participant).capabilities
     assert_equal release.id, runtime(participant).release_id
     assert_equal 4, capabilities.fetch(:schema_version)
+    # A schema four release reads as Mrs. Mel's default method.
+    assert_equal CohortExperience::MethodSettings.defaults, capabilities.fetch(:method)
     assert_equal config.fetch("module_order"), capabilities.fetch(:module_order)
     assert_equal %w[statements ask_mia home], capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.pluck(:id)
     assert_equal original, legacy.reload.attributes

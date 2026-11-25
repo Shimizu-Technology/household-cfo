@@ -16,6 +16,8 @@ permissions:
 jobs:
   synthetic_documents:
     runs-on: ubuntu-24.04
+    # Each job's limit is about twice its usual time, so a hung job frees its slot (the org runs at most 20 jobs at once).
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -37,8 +39,9 @@ jobs:
         run: python -m unittest discover -s scripts/synthetic-documents/tests -v
 
   rails_security:
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: api
@@ -59,8 +62,9 @@ jobs:
         run: bin/bundler-audit check --update
 
   rails_lint:
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: api
@@ -89,9 +93,92 @@ jobs:
       - name: Lint Rails code
         run: bin/rubocop -f github
 
-  rails_test:
-    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+  # Judges the committed scorecard baselines with the BASE branch's ratchet rules, not the PR's own, so a
+  # PR can't loosen lib/scorecard/ratchet.rb and worsen the baselines in the same change. It runs once per
+  # PR and the required rails_test job below waits for it.
+  # scorecard-ratchet:begin
+  scorecard_ratchet:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # The check needs Ruby and git only (no gems, Rails or database).
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          working-directory: api
+
+      - name: Ratchet committed scorecard baselines with the base branch's rules
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          merge_base="$(git merge-base HEAD "$BASE_SHA")"
+          check=api/script/check_scorecard_baselines.rb
+          ratchet=api/lib/scorecard/ratchet.rb
+          baselines=api/test/fixtures/files/documents/talun-year
+          if git cat-file -e "$BASE_SHA:$check" 2>/dev/null && git cat-file -e "$BASE_SHA:$ratchet" 2>/dev/null; then
+            # The base commit's own script and ratchet, in a separate tree under RUNNER_TEMP; only the PR's
+            # baseline files are copied over it, so they are judged by rules the PR can't change.
+            tree="$RUNNER_TEMP/base-scorecard"
+            git worktree add --detach "$tree" "$BASE_SHA"
+            for name in baseline.json baseline-fast.json; do
+              if [ -f "$baselines/$name" ]; then cp "$baselines/$name" "$tree/$baselines/$name"; else rm -f "$tree/$baselines/$name"; fi
+            done
+            echo "Judging the PR's baselines with the ratchet and check script from $BASE_SHA (merge base $merge_base)."
+            cd "$tree"
+            ruby "$check" "$merge_base"
+          else
+            echo "::warning title=Scorecard ratchet::The base commit has no $check or $ratchet, so the PR's own copies judge the baselines."
+            ruby "$check" "$merge_base"
+          fi
+
+      - name: Require an explanation when the ratchet itself changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          merge_base="$(git merge-base HEAD "$BASE_SHA")"
+          changed="$(git diff --name-only "$merge_base" HEAD -- api/lib/scorecard/ratchet.rb api/script/check_scorecard_baselines.rb)"
+          # The marked ratchet jobs and steps in this workflow count as part of the ratchet.
+          marked() { awk '/^ *# scorecard-ratchet:begin$/{keep=1} keep{print} /^ *# scorecard-ratchet:end$/{keep=0}'; }
+          if [ "$(git show "$BASE_SHA:.github/workflows/ci.yml" | marked)" != "$(marked < .github/workflows/ci.yml)" ]; then
+            changed="$(printf '%s\n%s\n' "$changed" '.github/workflows/ci.yml (ratchet jobs and steps)')"
+          fi
+          changed="$(printf '%s' "$changed" | sed '/^$/d')"
+          if [ -z "$changed" ]; then
+            echo "The ratchet, its check script and its CI steps are unchanged."
+            exit 0
+          fi
+          reason="$(printf '%s\n' "$PR_BODY" | tr -d '\r' | sed -n 's/^Scorecard ratchet change: *//p' | head -1)"
+          echo "This PR changes the scorecard ratchet:"
+          echo "$changed"
+          if [ "${#reason}" -lt 20 ]; then
+            echo "::error title=Scorecard ratchet change needs an explanation::Add a line to the PR description that starts with 'Scorecard ratchet change: ' and says why the ratchet may change (at least 20 characters), then re-run this job."
+            exit 1
+          fi
+          echo "Explicit ratchet change: $reason"
+  # scorecard-ratchet:end
+
+  # The Rails tests split into two shards that run side by side, each in four processes. Each shard has its own
+  # database; the file split is deterministic (api/lib/ci_test_shards.rb), so every test file runs in exactly
+  # one shard. Two shards finish well before the browser jobs, and every extra job takes one of the org's slots.
+  rails_test_shard:
+    name: rails_test_shard (${{ matrix.shard }}/2)
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 while .ruby-version pins a specific 3.3.x patch.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 1, 2 ]
     defaults:
       run:
         working-directory: api
@@ -117,13 +204,12 @@ jobs:
       DATABASE_TEST_NAME: household_cfo_api_test
     steps:
       - name: Install PostgreSQL client libraries
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev
+        # The runner image usually ships libpq-dev; apt only runs when it doesn't.
+        run: dpkg -s libpq-dev >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev)
         working-directory: .
 
       - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -131,24 +217,119 @@ jobs:
           bundler-cache: true
           working-directory: api
 
-      - name: Ratchet committed scorecard baselines against merge base
+      # The scorecard test compares the report with the committed baseline; on a PR it uses the base commit's
+      # ratchet rules for that comparison.
+      - name: Fetch the base branch's scorecard ratchet
         if: ${{ github.event_name == 'pull_request' }}
+        working-directory: .
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: ruby script/check_scorecard_baselines.rb "$(git merge-base HEAD "$BASE_SHA")"
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          if git show "$BASE_SHA:api/lib/scorecard/ratchet.rb" > "$RUNNER_TEMP/base-ratchet.rb"; then
+            echo "SCORECARD_BASE_RATCHET=$RUNNER_TEMP/base-ratchet.rb" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=Scorecard ratchet::The base commit has no lib/scorecard/ratchet.rb, so the PR's own copy is used."
+          fi
 
       - name: Prepare database
         run: bin/rails db:prepare
 
-      - name: Run Rails tests
-        run: bin/rails test
+      - name: Run this shard's Rails tests
+        run: |
+          files="$(ruby script/ci_test_shard.rb "${{ matrix.shard }}" 2)"
+          echo "$files" | wc -l | xargs echo "Test files in this shard:"
+          bin/rails test -v $files
 
       - name: Check Zeitwerk autoloading
+        if: ${{ matrix.shard == 1 }}
         run: bin/rails zeitwerk:check
+
+  # The required check. Its name stays rails_test so branch protection keeps working; it passes only when
+  # every shard and the scorecard ratchet passed (a skipped ratchet is fine only off pull requests).
+  rails_test:
+    if: ${{ always() }}
+    needs:
+      # scorecard-ratchet:begin
+      - scorecard_ratchet
+      # scorecard-ratchet:end
+      - rails_test_shard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every Rails test shard
+        env:
+          SHARDS_RESULT: ${{ needs.rails_test_shard.result }}
+        run: test "$SHARDS_RESULT" = success
+
+      # scorecard-ratchet:begin
+      - name: Require the scorecard ratchet
+        env:
+          RATCHET_RESULT: ${{ needs.scorecard_ratchet.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then test "$RATCHET_RESULT" = success; else test "$RATCHET_RESULT" = skipped; fi
+      # scorecard-ratchet:end
+
+  # Every browser test mocks the API (web/playwright.config.ts sets VITE_API_BASE_URL=http://api.test), so a
+  # change that touches no web file, no root package file and not this workflow can't break them. The
+  # browser jobs run on every push to main and on pull requests that change one of those paths.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      browser-matrix: ${{ steps.partitions.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether the browser tests need to run
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo "Not a pull request: the browser tests run."
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$(git merge-base HEAD "$BASE_SHA")" HEAD)"
+          echo "Changed files:"
+          echo "$files"
+          if printf '%s\n' "$files" | grep -Eq '^(web/|\.github/workflows/ci\.yml$|package(-lock)?\.json$|(npm|pnpm|yarn)-lock\.|pnpm-lock\.yaml$|yarn\.lock$)'; then
+            echo "A web, workflow or root package file changed: the browser tests run."
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Nothing the browser tests depend on changed: they are skipped."
+            echo "web=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The one list of browser partitions: the web-browser matrix runs it and the web check requires a
+      # report from each. web/scripts/browser-shard.mjs deals each script's tests round-robin across its
+      # partitions, so every test runs in exactly one partition and the partitions take about as long.
+      # The org runs at most 20 jobs at once, so a run uses a few large partitions rather than many small ones:
+      # four Chromium and one WebKit, each about 22 minutes of tests at three workers.
+      - name: List the browser test partitions
+        id: partitions
+        env:
+          CHROMIUM_SHARDS: 4
+          WEBKIT_SHARDS: 1
+        run: |
+          set -euo pipefail
+          matrix="$(jq -cn --argjson chromium "$CHROMIUM_SHARDS" --argjson webkit "$WEBKIT_SHARDS" '
+            [range(1; $chromium + 1) | {target: "chromium-\(.)", browser: "chrome", script: "test:browser:chromium", index: ., total: $chromium}]
+            + [range(1; $webkit + 1) | {target: "mobile-webkit-\(.)", browser: "webkit", script: "test:browser:webkit", index: ., total: $webkit}]')"
+          echo "$matrix" | jq -r '.[] | "\(.target): \(.script), partition \(.index)/\(.total)"'
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   web-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       TZ: UTC
     defaults:
@@ -185,37 +366,25 @@ jobs:
 
   web-browser:
     name: web-browser (${{ matrix.target }})
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
+    # About 25 minutes of tests plus setup; the browser install's apt retries can add up to 20 more in an outage.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: mobile-webkit
-            browser: webkit
-            script: test:browser:webkit
-            shard: 1/1
-          - target: chromium-1
-            browser: chrome
-            script: test:browser:chromium
-            shard: 1/4
-          - target: chromium-2
-            browser: chrome
-            script: test:browser:chromium
-            shard: 2/4
-          - target: chromium-3
-            browser: chrome
-            script: test:browser:chromium
-            shard: 3/4
-          - target: chromium-4
-            browser: chrome
-            script: test:browser:chromium
-            shard: 4/4
+        include: ${{ fromJSON(needs.changes.outputs.browser-matrix) }}
     defaults:
       run:
         working-directory: web
     env:
       TZ: UTC
       PLAYWRIGHT_PORT: 6274
+      # Playwright workers per partition. The standard runner has four vCPUs; one worker's browser and the
+      # shared Vite dev server already use more than one, so three workers run about 1.5 times as many tests
+      # per minute as one, and each test takes about twice as long.
+      PLAYWRIGHT_WORKERS: 3
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -229,6 +398,23 @@ jobs:
 
       - name: Install web dependencies
         run: npm ci
+
+      # CI's Chromium is the runner's branded Chrome, which Playwright installs system-wide, so only WebKit's
+      # download can be cached. Its system libraries still come from apt in the next step.
+      # Playwright downloads a different WebKit build for each Ubuntu release, so the key names the runner image too.
+      - name: Read the Playwright version and runner image
+        if: ${{ matrix.browser == 'webkit' }}
+        id: playwright
+        run: |
+          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright WebKit
+        if: ${{ matrix.browser == 'webkit' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ runner.arch }}-webkit-${{ steps.playwright.outputs.version }}
 
       - name: Install browser dependencies
         # --with-deps installs system libraries through apt. When the runner can't reach the Ubuntu
@@ -277,11 +463,14 @@ jobs:
           echo "::error::Could not install $browser"
           exit 1
 
+      - name: Choose this partition's tests
+        run: node scripts/browser-shard.mjs '${{ matrix.script }}' '${{ matrix.index }}' '${{ matrix.total }}' "$RUNNER_TEMP/browser-tests.txt"
+
       - name: Run browser checks
-        run: npm run ${{ matrix.script }} -- --shard=${{ matrix.shard }} --workers=1 --reporter=github,blob,json
+        run: npm run ${{ matrix.script }} -- --test-list "$RUNNER_TEMP/browser-tests.txt" --workers=$PLAYWRIGHT_WORKERS --reporter=github,blob,json
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: playwright-results.json
-          # WebKit's 1/1 and Chromium's 1/4 would both default to report-1.zip and overwrite each other when merged.
+          # Every partition's blob would default to report.zip and overwrite the others when merged.
           PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.target }}.zip
 
       - name: Preserve browser reports and retry traces
@@ -301,38 +490,55 @@ jobs:
   web:
     # Preserve the existing required-check name, including failed/skipped jobs.
     if: ${{ always() }}
-    needs: [web-quality, web-browser]
+    needs: [changes, web-quality, web-browser]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BROWSER_RAN: ${{ needs.changes.outputs.web == 'true' }}
     steps:
       - name: Checkout code
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.changes.outputs.web == 'true' }}
         uses: actions/checkout@v6
 
+      # The browser jobs may be skipped only when the changes job ran and said nothing they depend on changed.
+      # A failed or cancelled browser job, or a failed changes job, always fails this check.
       - name: Require all web jobs
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           QUALITY_RESULT: ${{ needs.web-quality.result }}
           BROWSER_RESULT: ${{ needs.web-browser.result }}
         run: |
+          test "$CHANGES_RESULT" = success
           test "$QUALITY_RESULT" = success
-          test "$BROWSER_RESULT" = success
+          if [ "$BROWSER_RAN" = true ]; then
+            test "$BROWSER_RESULT" = success
+          else
+            test "$BROWSER_RESULT" = skipped
+            echo "Browser tests skipped: no web, workflow or root package file changed (all browser tests mock the API)."
+          fi
 
       - name: Download browser evidence
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.BROWSER_RAN == 'true' }}
         uses: actions/download-artifact@v4
         with:
           pattern: browser-*
           path: browser-evidence
 
       - name: Check every partition produced a report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.BROWSER_RAN == 'true' }}
+        env:
+          BROWSER_MATRIX: ${{ needs.changes.outputs.browser-matrix }}
         run: |
-          for target in mobile-webkit chromium-1 chromium-2 chromium-3 chromium-4; do
+          set -euo pipefail
+          targets="$(echo "$BROWSER_MATRIX" | jq -r '.[].target')"
+          test -n "$targets"
+          for target in $targets; do
             test -s "browser-evidence/browser-$target/playwright-results.json"
             compgen -G "browser-evidence/browser-$target/blob-report/*.zip" > /dev/null
           done
 
       - name: Set up Node
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.BROWSER_RAN == 'true' }}
         uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -340,7 +546,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Merge browser reports
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.BROWSER_RAN == 'true' }}
         run: |
           npm ci --prefix web
           mkdir -p all-blob-reports
@@ -349,7 +555,7 @@ jobs:
           npx playwright merge-reports --reporter=html ../all-blob-reports
 
       - name: Preserve merged browser report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.BROWSER_RAN == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           # Named outside the browser-* download pattern; overwritten on reruns.

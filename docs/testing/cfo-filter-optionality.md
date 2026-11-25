@@ -1,0 +1,104 @@
+# CFO Filter and Optionality — round 5
+
+November 21, 2026. Branch `feat/cfo-filter-optionality`, base `add758793ff92dd16299583496088032a97e4bb7`. The lead supplied the prototype formulas in the implementation brief; the private, gitignored HTML is not required in the public repository.
+
+Participants compare purchases, income lifts, windfalls and business-transition runway without saving financial changes. Coaches control tool access. Sources: `SnapshotBuilder`, `IncomeTimeline`, `MethodSettings`, `DebtPortfolio`, `WindfallSplit`, and the shared Rails calculators. Mia reads those same request-local facts. Acceptance uses fictional Talun data and offline replay only.
+
+## Formulas and hand checks
+
+1. **One-time spend.** Base monthly surplus = recurring income excluding bonuses and one-time income − planned costs including required debt minimums. Annual surplus = 12 × base monthly surplus. Remaining annual surplus = annual surplus − purchase. Monthly EF allocation = max(remaining annual surplus, 0) / 12 × method EF share; debt extra uses the method debt share. No $800 cap. EF months = ceil(EF gap / allocation), or unknown/unreachable with no allocation; a zero gap takes zero months. Spending beyond the annual surplus is explicitly described as drawing from savings.
+
+   $1,000 monthly base surplus means $12,000 annual surplus. With a $12,000 EF gap, no purchase allocates $500 monthly and takes 24 months. A $500 purchase leaves $11,500; exact monthly allocation is `1,150,000 / 12 × 50/100 = 143750/3` cents ($479.1666…, displayed as $479.17 if rounded). `ceil(1,200,000 / (143750/3)) = ceil(576/23) = 26`. Rational cents avoid rounding before the month calculation. Talun: $5,400 income − $4,390 costs = $1,010 monthly; a $100 purchase leaves $12,020 annually.
+
+2. **Flip the light.** The lift is additional monthly income. For EF and debt, allocate `max(current base surplus + L, 0)` using the program shares. Find the smallest whole-cent lift ≥ 0 meeting each colour line; zero says “Already yellow/green.” Total income = current recurring income + L. Base surplus adds L directly for its own thresholds. With $1,000 base surplus and $12,000 EF gap, yellow needs no lift and green needs $1,000. Talun has $1,010 base surplus and a $9,970 EF gap: yellow already takes 20 months; green needs `ceil((997000 / 12 / 0.5) − 101000) = 65167` cents. At $651.66 the EF takes 13 months; at $651.67 it takes 12. A $500 lift improves Talun to 14 months, yellow. A $2,000 lift improves it to seven months, green. The displayed 50/25/25 lift split remains $1,000/$500/$500; the timing also includes the existing surplus. Missing inputs, a zero share, and a requirement above the input cap have separate explanations.
+
+   **Deliberate prototype difference (lead decision):** Mrs. Mel’s flip-light prototype allocates the lift alone. We include actual current base surplus (including a deficit), consistent with her purchase filter, so adding income cannot make the household’s EF/debt timing worse.
+
+3. **Debt amortization.** Only consumer debts, excluding mortgages. Known individual balances, APRs and minimums are required. Each month accrue `balance × APR/1200`, pay each minimum (capped at its balance), then allocate the extra and freed minimums in descending APR order. The aggregate minimum budget remains fixed. No fees or future rate changes are assumed. The loop includes month 1,200; later payoff and payments that never reduce the balance have separate plain-language outcomes. Target searches stop at their colour line rather than running 1,200 months. Integer numerators with a shared denominator preserve fractional cents exactly; request-local memoization avoids repeat amortization. No monthly cent rounding is introduced. Summary balances without rates/minimums and unknown individual inputs have unknown timing/colour. Confirmed zero debt takes zero months (green). At 12% APR, $1,000 balance and $100 monthly minimum with no lift: after ten payments $58.40 remains; month eleven clears it. At 0% APR, $6,000 balance, $500 minimum and a $1,000 lift (25% extra = $250) clear in eight months, green.
+
+4. **Optionality.** Continuing income combines business, filler/continuing work and passive income from approved sources. Before the draw, gap = max(monthly need − continuing income, 0). The savings draw defaults to that gap and follows edits until explicitly overridden, including $0. Remaining business funding gap = max(need − continuing income − explicit draw, 0); annual required business pay = 12 × that gap. The runway depletes savings by the entered savings draw, rather than subtracting it twice. Each month `balance = max(balance × (1 + 0.05/12) − draw, 0)` and count the month, including the final partial month. Only a positive balance remaining after 1,200 months is labelled indefinitely; exhaustion in month 1,200 remains finite. With a positive gap and $0 draw, show the business funding need from month one with no runway colour. Zero savings says “No savings to draw from.” Unknown income or balances remain unknown. $60,000 savings and $3,000 draw: $2,767.51 remains after month 20; month 21 exhausts savings, so approximately **21 months / 1yr 9mo**, yellow. Green is 36+, yellow 18–35, red below 18. When continuing sources cover need, say “All sources cover the need — business income is pure upside.” Returns remain uncertain.
+
+5. **Priority statuses.** EF uses method target lines (defaults ≤12 green, ≤36 yellow, otherwise red). Debt uses the same lines with interest-aware timing, including green. Wealth uses an explicit household wealth colour only; the current source model has no such colour, so it remains unknown, never inferred green from net worth. Experiences + Life preserves the prototype's ≤24 EF-month yellow line, otherwise red; the method's default yellow line is 36 and would materially loosen this rule, so it is deliberately not substituted.
+
+## Deliberate differences and retained fixes
+
+The sample-household $800 EF/debt caps are removed. Program method shares replace fixed 50/25 constants. Multiple consumer debts use avalanche ordering and freed minimums. Unknowns stay unknown rather than assuming $0, APR, minimums or a wealth status. Computation preserves fractional cents in annual allocations; lift requirements round upward to the smallest whole cent. Experiences keeps 24 months. Optionality distinguishes the pre-draw gap, savings withdrawal and remaining business need so the withdrawal is not deducted twice.
+
+All four bug fixes remain: debt may be green within the green line; bonuses/one-time income are excluded from base surplus; draw prefill is gap-derived and preserves explicit zero; Mia and tools share Rails facts with no scenario writes or missing-plan initialization. Program tool gates remain intact; persona YAML is unchanged.
+
+## Agent-executed affected-flow QA
+
+Ruby 3.3.14, isolated local test databases, production-build offline stack ports 3426/5426. Fictional Talun fixture with explicitly confirmed $0 business income. Chromium at 390×844 and 1440×900; no native-phone or WebKit claim.
+
+Required cases: (1) compare $100 spend and see $12,020 annual remaining; (2) enter $2,000 lift, inspect 50/25/25 allocation, months and colours; (3) split $1,000 windfall and preserve purchase output; (4) edit savings $60,000, need $4,000, continuing income $1,000, see draw follow $3,000 and 21-month yellow runway; override draw to zero and see the month-one business need with no runway colour, then reload to approved $3,200 savings; (5) both widths have no horizontal overflow or page errors. Run `node web/scripts/check-finance-scenarios.mjs`; screenshots under `docs/testing/evidence/cfo-filter-optionality/`.
+
+Initial browser attempt exposed a fixture omission: business income was unconfirmed, correctly rendering unknown rather than a $4,390 draw. Confirmed the fictional zero before rerunning; no application workaround was needed. T3 preview could not reach the local port (two connection refusals); repository Playwright is the fallback. Final execution counts and reviewer/CI states are recorded in the PR body.
+
+No paid services, live models, private data, deployment or merge. Full Rails suite runs in CI, not locally. Both scorecard modes require `RATCHET=1`; baselines are unchanged. Production frontend build is expected if merged; previews remain disabled. Cleanup removes only task-owned API/web/browser processes and test databases; retain the branch/checkout for lead review.
+
+## Round 2 validation record
+
+Affected Rails set: 132 tests / 1,832 assertions, zero failures/errors/skips; final wording additionally checked by the Talun test (1 / 20). Web component: 4 tests; TypeScript, ESLint and production build pass (existing bundle-size advisory). RuboCop: all 9 touched Ruby files clean. Impeccable advisory: empty findings. Five required browser cases passed at both sizes; screenshots refreshed with final wording and priority statuses. Scorecards: 9 fast documents and 79 full-year documents, both RATCHET=1 pass and both entire reports exactly equal their committed baselines. Corrected spending $6,406.23 / $44,242.95; full-year decisions remain 656 (existing product-target miss, no ratchet regression).
+
+Not run: full Rails suite locally (CI owns it), live models, real devices, Safari/WebKit, production. CodeRabbit was rate-limited on the previous head; round 2 independent/lead review remains pending. This implementation worker did not delegate review. No merge performed.
+
+## Round 3 acceptance additions
+
+The round-2 record above is historical. Round 3 adds regression coverage for base-plus-lift boundaries; independent spend/lift/windfall state; hidden program modules in Mia’s green, transition and purchase answers; no-purchase negative surplus; missing versus unreachable targets; no savings; explicit zero draw; and month 1,200. Transition-duration questions now take precedence over savings-goal coaching. Mia validates request-local monthly draws, including $0 and the input cap. CFO Filter details appear before the closing purchase question.
+
+CodeRabbit follow-ups also cover priority labels/order/statuses, financial-generation guards on both scenario endpoints, and cut-prompt navigation preserving unsent text, files, or both. Optionality shows specific missing-input reasons and retains applicable choices and levers alongside the calculator. The browser script checks the cut prompt with all three draft combinations at both widths. Only fictional local data is used; no scenario writes are made.
+
+## Round 3 validation record
+
+Affected Rails gate: 153 tests / 2,148 assertions, zero failures/errors/skips; the final Mia wording is also checked by the coach/Talun set. Web: 22 tests across scenario components and financial-generation boundaries; TypeScript, ESLint and production build pass (existing bundle-size advisory). Eight changed Ruby files pass RuboCop. Impeccable reports no findings.
+
+The browser run passed the five existing scenarios plus cut-prompt draft preservation (text, files, both) at 390×844 and 1440×900. Four screenshots are refreshed. No overflow or page errors. A build changed while an earlier browser run was active and reset the lift state; rerunning after build completion passed both widths. T3 preview returned ERR_CONNECTION_REFUSED twice; repository Chromium supplied the evidence. Real devices and Safari/WebKit were not run on this host.
+
+Both offline scorecards pass with RATCHET=1. Entire reports equal the committed baselines: nine-document corrected spending $6,406.23, full-year 79-document corrected spending $44,242.95. The existing full-year decision target still misses (656); no baseline changes or live model calls. Full-suite CI and fresh round-3 independent review belong to the lead; no merge or deployment is performed here. The stack and owned browsers are stopped and local task databases removed before handback; the checkout/branch and pre-existing handoff remain for the lead.
+
+## Round 4 corrections and acceptance
+
+November 21, 2026; continues head `a1b03827e6ddf0b0ed17c0847e85a731a6a0a7ee` on the same branch. `origin/main` remains `add758793ff92dd16299583496088032a97e4bb7`; no rebase required. The round-3 records above are historical. This round changes Rails answers/calculation only; frontend and persona YAML are unchanged.
+
+1. Both tool presenters receive the participant and runtime capabilities, including purchases reached through structured read-only plans. The gating regression now creates a real participant membership in a published program with CFO Filter and Optionality disabled, without replacing any settings lookup. Green targets, transition runway and purchase `CFO Filter:` details disappear. No financial records change.
+2. Transition duration requires job/business-transition intent. “How long to save $500 if I stop buying lunch at work?” keeps savings-goal coaching; quitting the job, going full-time on a business and replacing salary can request runway.
+3. “How long could we last if I quit my job and draw down our savings?” uses the default monthly gap and explicitly says so. Talun: $4,390 gap/draw, approximately one month. Explicit $500/month and $0/month remain request-local; the over-cap draw is rejected. Nothing is saved.
+4. Optionality gates the runway calculation. Ordinary “Should I quit my job?” still receives “Not yet as a full leap…” with the module off.
+5. A negative base must be covered before allocating a lift. Hand check: $4,000 income − $4,500 costs = −$500/month; three-month EF target with no savings = $13,500. Green in 12 months at 50% needs $1,125/month for EF, or $2,250 positive surplus. Required lift = $2,250 − (−$500) = **$2,750**. $2,749.99 takes 13 months; $2,750 takes 12. A $500 lift only closes the deficit and cannot fund EF. A $100 purchase leaves −$6,100 annual surplus. The existing “The plan already spends more than it brings in.” warning remains in the frontend and its test.
+6. A real resolver-enriched two-turn exchange starts with “draw $500 per month” then “What if I draw $0 monthly?”. Parsing the current follow-up first returns the month-one business funding need, rather than reusing $500. No model call or resolver stub is involved.
+7. The published-method filter test now checks all four `priority_stack` labels in configured order, as well as all four statuses; the separate coaching-method assertion remains.
+
+Agent-executed affected-flow coverage is Rails service/controller integration with synthetic local fixtures. Initial red tests reproduced natural-draw rejection and the $2,250 deficit error. Individually reverting module gating, purchase gating, savings routing, off-module advice, or follow-up parsing also made the regression fail. This is backend acceptance, not new browser/device acceptance. No UI/browser resources were started this round.
+
+## Round 4 validation record
+
+Ruby 3.3.14: the final combined affected service/controller set passes **182 tests / 2,525 assertions**, zero failures/errors/skips. RuboCop passes all eight changed Ruby files. The existing FinanceScenarios component suite passes all seven tests, including the negative-base warning. No web source changed this round, so frontend TypeScript/ESLint/build results above remain historical; Rails has no separate typecheck/build step. `git diff --check` passes.
+
+The final source was also checked against individual reversions of the relevant fixes; the gating, purchase, routing, advice and two-turn draw regressions all fail under those reversions. Full Rails suite, browser/device QA, new independent review, CI and production are not claimed for this round. No live models, paid services, merge or deployment.
+
+Guidance diagnostic: the read-only shared-context check cannot run on this host because `/Users/agent/.config/shimizu-technology/agent-context.json` is missing. Relevant installed/synced skills and the local machine lifecycle protection profile were read directly. Shared guidance and host configuration were not modified.
+
+Both offline scorecards pass with `RATCHET=1`: sample nine documents and full-year 79 documents. Both entire JSON reports equal their committed baselines; corrected spending remains $6,406.23 / $44,242.95. The existing full-year decisions target misses at 656, with no ratchet regression or baseline changes.
+
+Cleanup: both branch-specific test databases are removed after all synchronous tests/replays finish. The protected, pre-existing PostgreSQL service remains running. No servers, browsers, simulators, emulators or containers were started. Lifecycle records show no active owned resources. Checkout/branch retained for the lead; the pre-existing untracked `.codex/` directory is untouched.
+
+
+## Round 5 corrections and acceptance
+
+November 21, 2026; continues `11b3146b358bab46edfa5f5a11505dc49a384bc0`. Fetched `origin/main` is still `add758793ff92dd16299583496088032a97e4bb7`; no rebase required. Product context and formulas above remain applicable.
+
+- Tool routing now uses the current follow-up. Prior intent remains available for draw/runway/lift/“what if” continuations and “$300 more”. Unrelated credit-card questions after either a runway or green-target answer cannot repeat that tool answer. The real resolver-enriched $500 → $0 draw regression remains passing.
+- The controller passes request-selected experience capabilities through coaching and structured read-only answers into both presenters. A regression supplies capabilities with both tools off while the participant’s default enables them; green, runway and purchase details respect the selected capabilities. A full two-program HTTP fixture was not added.
+- The card explains that an income lift first covers a base shortfall, then the method splits the remaining positive surplus. Its component test rejects the old wording.
+
+Agent-executed acceptance uses fictional fixtures and Rails/controller integration, with no live models or paid services. Reverting routing separately reproduces stale runway and stale green answers; reverting selected capabilities reproduces the default-program leak. Reverting card wording fails one of eight component tests. All temporary reversions were restored. No new browser or device QA was performed for this text-only frontend change; historical browser evidence above remains historical.
+
+Final affected Rails gate (Ruby 3.3.14): 143 tests / 2,121 assertions, zero failures/errors/skips. RuboCop passes all five changed Ruby files. Web: eight component tests, ESLint and TypeScript/production build pass; existing bundle-size warning remains. Impeccable reports no findings; whitespace check passes. An intermediate 10-worker run exhausted PostgreSQL shared locks; the final one-worker run passes.
+
+Setup incident: an initial schema-load command omitted the branch-specific database environment and loaded the pre-existing default local development/test schemas. Their prior contents were not recorded and cannot be verified. Those databases are retained; only task-specific databases are removed. No remote or production database was used.
+
+Full Rails CI and fresh review belong to the lead. This worker pushes once, does not wait for CI, and does not merge. The frontend change would trigger a production frontend build if merged; previews remain disabled.
+
+Both offline scorecards pass with `RATCHET=1` (9 and 79 documents). Both complete JSON reports equal their committed baselines; corrected spending remains $6,406.23 / $44,242.95. The existing full-year decision-target miss remains 656; baselines are unchanged.
+
+Cleanup: all 11 task-specific test databases removed; no owned runtime resources remain. No servers or browsers were started. Protected PostgreSQL and pre-existing `.codex/` remain untouched. Checkout/branch retained for lead review.

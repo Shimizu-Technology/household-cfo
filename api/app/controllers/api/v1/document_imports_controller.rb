@@ -38,7 +38,7 @@ module Api
 
       def index
         imports = current_household.financial_document_imports
-          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: :budget_category)
+          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: [ :budget_category, :confirmed_transaction ])
           .recent_first.limit(50)
         render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import, include_details: false) } }
       end
@@ -772,6 +772,8 @@ module Api
       end
 
       def serialize_document_import(document_import, include_attempts: false, include_details: true)
+        drafts = ordered_transaction_drafts_for(document_import, include_details: include_details)
+        drawdowns = HouseholdFinance::CashDrawdowns.new(document_import.household).prepare(drafts.select { |draft| HouseholdFinance::CashPayment.paid_in_cash?(draft) }.map { |draft| draft.confirmed_transaction&.occurred_on || draft.occurred_on })
         {
           id: document_import.id,
           context_paused_by_restart: !document_import.current_financial_picture?,
@@ -800,7 +802,7 @@ module Api
           metadata: safe_import_metadata(document_import.metadata),
           statement_review: statement_review_progress(document_import),
           items: ordered_items_for(document_import).map { |item| serialize_item(item) },
-          transaction_drafts: ordered_transaction_drafts_for(document_import, include_details: include_details).map { |draft| serialize_transaction_draft(draft, include_details: include_details) },
+          transaction_drafts: drafts.map { |draft| serialize_transaction_draft(draft, include_details: include_details, drawdowns: drawdowns) },
           attempts: include_attempts ? document_import.attempts.recent_first.limit(5).map { |attempt| serialize_attempt(attempt) } : []
         }
       end
@@ -829,11 +831,11 @@ module Api
           # Linked projections belong to the paginated source review. Do not
           # also load hundreds of them into the legacy document-detail payload.
           document_import.transaction_drafts.where(financial_source_event_id: nil)
-            .includes(:budget_category, :matched_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
+            .includes(:budget_category, :matched_transaction, :confirmed_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         elsif document_import.association(:transaction_drafts).loaded?
           document_import.transaction_drafts
         elsif include_details
-          document_import.transaction_drafts.includes(:budget_category, :matched_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
+          document_import.transaction_drafts.includes(:budget_category, :matched_transaction, :confirmed_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         else
           document_import.transaction_drafts.includes(:budget_category)
         end
@@ -868,7 +870,7 @@ module Api
         }
       end
 
-      def serialize_transaction_draft(draft, include_details: true)
+      def serialize_transaction_draft(draft, include_details: true, drawdowns: nil)
         {
           id: draft.id,
           occurred_on: draft.occurred_on.iso8601,
@@ -888,7 +890,9 @@ module Api
           splits: include_details ? ordered_draft_splits_for(draft).map { |split| serialize_transaction_draft_split(split) } : [],
           matches: include_details ? ordered_draft_matches_for(draft).map { |match| serialize_transaction_draft_match(match) } : [],
           matched_transaction_id: draft.matched_transaction_id,
-          draft_payload: safe_draft_payload(draft.draft_payload)
+          draft_payload: safe_draft_payload(draft.draft_payload),
+          receipt_payment: HouseholdFinance::ReceiptTenders.presentation(draft),
+          cash_payment: HouseholdFinance::CashPayment.presentation(draft, drawdowns: drawdowns)
         }
       end
 
@@ -935,6 +939,7 @@ module Api
             id: transaction.id,
             occurred_on: transaction.occurred_on.iso8601,
             merchant: transaction.merchant,
+            store_name: HouseholdFinance::TransactionDraftConfirmer.store_name(transaction.merchant),
             amount: dollars_or_nil(transaction.total_amount_cents),
             source_type: transaction.source_type,
             categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }

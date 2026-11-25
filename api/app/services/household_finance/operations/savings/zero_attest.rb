@@ -24,7 +24,7 @@ module HouseholdFinance
           raise ArgumentError, "Zero attestation must cover an elapsed challenge date" unless (enrollment.starts_on..[ enrollment.ends_on, enrollment.local_today ].min).cover?(cutoff)
           scope = enrollment.savings_entry_versions.joins(:savings_entry)
             .where("savings_entry_versions.id = savings_entries.current_approved_version_id")
-            .where(effective_on: ..cutoff).where(funding_source: HouseholdFinance::SavingsProjection::ELIGIBLE_FUNDING_SOURCES + [ "withdrawal" ])
+            .where(effective_on: ..cutoff).where(funding_source: HouseholdFinance::SavingsProjection.counted_sources(count_debt_payments: enrollment.rules.counts_debt?) + [ "withdrawal" ])
           raise ArgumentError, "Approved savings entries already establish the reported result" if scope.exists?
           previous = enrollment.savings_zero_attestations.where(cutoff_on: cutoff).order(approval_sequence: :desc).first
           enrollment.savings_zero_attestations.create!(approved_by_user: user, cutoff_on: cutoff, previous_attestation: previous,

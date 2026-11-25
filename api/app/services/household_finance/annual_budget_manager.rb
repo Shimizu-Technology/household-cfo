@@ -12,9 +12,19 @@ module HouseholdFinance
 
     attr_reader :year
 
+    # Read lazily: most callers never show what came in, and every plan this manager builds shares one read.
+    def actual_income = @actual_income ||= ActualIncome.new(household).year(year)
+
+    def provisioned_categories = @provisioned_categories ||= {}
+
     def initialize(household, year: Date.current.year)
       @household = household
       @year = year.to_i
+    end
+
+    # The program's group names for rows that have no saved category yet.
+    def group_method
+      @group_method ||= CohortExperience::MethodSettings.for_household(household)
     end
 
     def ensure_plan!
@@ -79,12 +89,16 @@ module HouseholdFinance
         months: periods.map { |period| period_payload(period) },
         rows: rows,
         monthly_income: monthly_income,
+        actual_income: actual_income,
         monthly_debt_minimums: monthly_debt_minimums,
         monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,
         annual_outlook: annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums),
+        year_forecast: YearForecast.new(household, year: year, periods: periods, rows: rows, monthly_income: monthly_income, actual_income: actual_income, income_sources: scheduled_income_sources).call,
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
+        cash_purchase_questions: cash_purchase_questions_payload,
+        cash_purchase_questions_meta: { total_count: cash_drawdowns.open_question_count, limit: CashDrawdowns::MAX_OPEN_QUESTIONS },
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
@@ -302,7 +316,7 @@ module HouseholdFinance
       end
       category_names = categories.map { |category| category.name.downcase }
       row_sources.concat(expenses.reject { |expense| category_names.include?(expense.label.downcase) }.map do |expense|
-        [ 0, expense.label, expense.stack_key, SnapshotBuilder::STACK_LABELS.fetch(expense.stack_key), expense.active, expense ]
+        [ 0, expense.label, expense.stack_key, ExpenseGroups.label(expense.stack_key, group_method), expense.active, expense ]
       end)
       rows = row_sources.map do |id, name, stack_key, stack_label, active, expense|
         cells = months.map do |month|
@@ -349,12 +363,16 @@ module HouseholdFinance
         months: months,
         rows: rows,
         monthly_income: monthly_income,
+        actual_income: actual_income,
         monthly_debt_minimums: Money.dollars(debt_portfolio.monthly_minimum_cents),
         monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,
         annual_outlook: annual_outlook_payload(preview_periods, rows, monthly_income, Money.dollars(debt_portfolio.monthly_minimum_cents)),
+        year_forecast: YearForecast.new(household, year: year, periods: preview_periods, rows: rows, monthly_income: monthly_income, actual_income: actual_income, income_sources: scheduled_income_sources).call,
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
+        cash_purchase_questions: cash_purchase_questions_payload,
+        cash_purchase_questions_meta: { total_count: cash_drawdowns.open_question_count, limit: CashDrawdowns::MAX_OPEN_QUESTIONS },
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(read_only_periods),
         archived_categories: archived_categories_payload,
@@ -367,6 +385,7 @@ module HouseholdFinance
 
       budget_year = household.budget_years.find_by(year: year) ||
         create_plan_record!(household.budget_years, { year: year }, status: "active")
+      budget_year.budget_periods.load
       ensure_periods!(budget_year)
       ensure_categories_from_expenses!
       ensure_allocations_from_expenses!(budget_year)
@@ -397,6 +416,7 @@ module HouseholdFinance
           sort_order: category.sort_order.to_i.positive? ? category.sort_order : index + 1
         )
         category.save!
+        provisioned_categories[category.id] = category
       end
     end
 
@@ -418,8 +438,10 @@ module HouseholdFinance
 
     def ensure_allocations_for_active_categories!(budget_year)
       periods = budget_year.budget_periods.to_a
+      existing = BudgetAllocation.where(budget_period: periods).pluck(:budget_period_id, :budget_category_id).to_set
       household.budget_categories.active.find_each do |category|
         periods.each do |period|
+          next if existing.include?([ period.id, category.id ])
           BudgetAllocation.find_or_create_by!(budget_period: period, budget_category: category) do |allocation|
             allocation.planned_amount_cents = 0
             allocation.source = "manual"
@@ -441,21 +463,43 @@ module HouseholdFinance
     end
 
     def category_ids_with_actuals(periods)
-      TransactionSplit
+      spent = TransactionSplit
         .joins(:budget_category, :household_transaction)
         .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .distinct
         .pluck(:budget_category_id)
+      (spent + refund_credits(periods).keys.map(&:first) + cash_drawdowns.by_category_and_period(periods).keys.map(&:first)).uniq
     end
 
+    # Approved refunds give money back to the category of the purchase they refund, in the month they post.
+    # The month can end below zero; it is shown as it is, never clamped.
     def actuals_by_category_and_period(category_ids, periods)
-      TransactionSplit
+      sums = TransactionSplit
         .joins(:budget_category, :household_transaction)
         .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(budget_category_id: category_ids, household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .group(:budget_category_id, "household_transactions.budget_period_id")
         .sum(:amount_cents)
+      refund_credits(periods).each do |key, cents|
+        sums[key] = sums.fetch(key, 0) - cents if category_ids.include?(key.first)
+      end
+      # Cash counts when it is withdrawn: a purchase paid from that cash moves its amount out of the withdrawal's
+      # category into its own, in the month the cash was taken out, and adds nothing.
+      cash_drawdowns.by_category_and_period(periods).each do |key, cents|
+        sums[key] = sums.fetch(key, 0) + cents if category_ids.include?(key.first)
+      end
+      sums
+    end
+
+    def cash_drawdowns
+      @cash_drawdowns ||= CashDrawdowns.new(household)
+    end
+
+    def refund_credits(periods)
+      return {} if periods.empty?
+      @refund_credits ||= {}
+      @refund_credits[periods.map(&:id)] ||= RefundCredits.new(household, from: periods.map(&:starts_on).min, to: periods.map(&:ends_on).max).by_category_and_period(periods)
     end
 
     def plan_coverage
@@ -603,8 +647,15 @@ module HouseholdFinance
       pending_drafts_scope(budget_year)
         .includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         .order(created_at: :desc, id: :desc)
-        .limit(MAX_PENDING_TRANSACTION_DRAFTS)
+        .limit(MAX_PENDING_TRANSACTION_DRAFTS).to_a
+        .tap { |drafts| cash_drawdowns.prepare(drafts.select { |draft| CashPayment.paid_in_cash?(draft) }.map(&:occurred_on)) }
         .map { |draft| draft_payload(draft) }
+    end
+
+    # Confirmed cash purchases that need her answer about the cash she took out. Review asks the first
+    # CashDrawdowns::MAX_OPEN_QUESTIONS; cash_purchase_questions_meta counts them all, as Home does.
+    def cash_purchase_questions_payload
+      cash_drawdowns.open_questions.map { |question| CashPayment.open_question_payload(question) }
     end
 
     def pending_drafts_meta(budget_year)
@@ -672,7 +723,9 @@ module HouseholdFinance
         stack_label: draft.budget_category&.stack_label,
         summary: draft_summary(draft),
         splits: ordered_draft_splits_for(draft).map { |split| draft_split_payload(split) },
-        matches: ordered_draft_matches_for(draft).map { |match| draft_match_payload(match) }
+        matches: ordered_draft_matches_for(draft).map { |match| draft_match_payload(match) },
+        receipt_payment: ReceiptTenders.presentation(draft),
+        cash_payment: CashPayment.presentation(draft, drawdowns: cash_drawdowns)
       }
     end
 
@@ -719,6 +772,7 @@ module HouseholdFinance
           id: transaction.id,
           occurred_on: transaction.occurred_on.iso8601,
           merchant: transaction.merchant,
+          store_name: TransactionDraftConfirmer.store_name(transaction.merchant),
           amount: Money.dollars(transaction.total_amount_cents),
           source_type: transaction.source_type,
           categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }

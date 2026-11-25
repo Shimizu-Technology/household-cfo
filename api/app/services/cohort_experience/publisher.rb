@@ -14,7 +14,10 @@ module CohortExperience
     def preview!(expected_draft_revision:, upgrade_to_current: false)
       with_locked_editable_configuration(permission: :review) do
         validate_revision!(expected_draft_revision)
-        if upgrade_to_current
+        # Only a draft from before configurable tools (schema 4) is rewritten here. A schema 4
+        # draft moves to schema 5 when a coach edits it, so reviewing Go live never changes
+        # a draft that is open in the tools editor; it reads as the usual method meanwhile.
+        if upgrade_to_current && !Schema.configurable?(Schema.normalize(configuration.draft_config))
           configuration.update!(draft_config: Schema.upgrade(configuration.draft_config))
         end
         digest = preview_digest

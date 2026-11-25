@@ -28,6 +28,101 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert_not_includes answer, "Nothing from this message was saved"
   end
 
+  test "a receipt sent with how she paid gets a reply about its draft, never a missing row" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    [ "The Ross receipt, paid at Ross with a voucher $150 plus debit $34.88", "voucher $150 plus debit $34.88" ].each do |message|
+      answer = answer_for(message)
+      assert_includes answer, "Your receipt from Ross reads $184.88, dated Nov 14, 2026."
+      assert_includes answer, "isn’t new money"
+      assert_includes answer, "until you approve the card below"
+      refute_includes answer, "no attached transaction row"
+      refute_includes answer, "$34.88"
+    end
+    # A store she names the way she reads it still finds the receipt's row.
+    assert_includes answer_for("How much did I spend at Ross?"), "totaling $184.88"
+    # Another store's name: talk about this receipt, not a missing row.
+    other = answer_for("How much did I spend at Kmart?")
+    assert_includes other, "Your receipt from Ross reads $184.88"
+    refute_includes other, "no attached transaction row"
+  end
+
+  test "how she paid never hides a risk question or another question about the receipt" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    receipt_reply = "Your receipt from Ross reads $184.88"
+    [
+      "Is this charge fraudulent? I paid with my debit card",
+      "I paid cash. Does this fit in my Groceries budget?",
+      "Is this a duplicate? I paid by credit card",
+      "What category is this? paid with debit",
+      "What should I do about this receipt? Paid cash"
+    ].each do |message|
+      refute_includes answer_for(message), receipt_reply, message
+    end
+    assert_includes answer_for("Is this charge fraudulent? I paid with my debit card"), "I can’t answer that question from this file."
+    assert_includes answer_for("What should I do about this receipt? Paid cash"), "I can’t answer that question from this file."
+    assert_match(/\$184\.88/, answer_for("What category is this? paid with debit"))
+    # Only how she paid: the reply is about the draft.
+    [ "The Ross receipt, paid at Ross with a voucher $150 plus debit $34.88", "I paid cash", "Paid with my debit card. Does the voucher count?" ].each do |message|
+      assert_includes answer_for(message), receipt_reply, message
+    end
+  end
+
+  test "asking how much a receipt was after paying with points, a gift card or a voucher says it isn't new money" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    [ "Paid with points. How much was it?", "I used my rewards points, how much was it?", "Paid with a gift card. How much was it?",
+      "Paid with a voucher. What was the total?", "Store credit paid for it. How much did I spend at Ross?" ].each do |message|
+      answer = answer_for(message)
+      assert_includes answer, "Your receipt from Ross reads $184.88, dated Nov 14, 2026.", message
+      assert_includes answer, "A voucher, gift card, store credit, rewards or points isn’t new money", message
+      assert_includes answer, "until you approve the card below", message
+      refute_includes answer, "transaction row", message
+    end
+    # Card or cash is new money: the plain total, as before.
+    assert_includes answer_for("Paid with my debit card. How much was it?"), "1 transaction row totaling $184.88"
+    # Another question beside the points is still answered as that question.
+    refute_includes answer_for("Paid with points. When was it?"), "isn’t new money"
+    refute_includes answer_for("Paid with points. What category is this?"), "isn’t new money"
+  end
+
+  test "the receipt reply keeps the failed-file notice and leaves an unmatched category to the row answer" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "ROSS DRESS FOR LESS #0417", amount_cents: 18_488, occurred_on: Date.new(2026, 11, 14))
+    failed = @document_import.dup
+    failed.assign_attributes(s3_key: "test/unread-receipt.jpg", filename: "Second receipt.jpg", status: "failed", extraction_error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE)
+    failed.save!
+    answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(@household, message: "I paid cash", document_imports: [ @document_import, failed ]).call
+    assert_includes answer, "Your receipt from Ross reads $184.88"
+    assert_includes answer, "Second receipt.jpg: #{FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE}"
+
+    dining = answer_for("How much did I spend in the Dining category?")
+    assert_includes dining, "I found no attached transaction row matching the named merchant or category."
+    refute_includes dining, "Your receipt from Ross"
+  end
+
+  test "a receipt the reader saw a voucher on says what was read, what counts and how to count all" do
+    @document_import.update!(document_kind: "receipt", status: "processing")
+    HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, [ {
+      occurred_on: "2026-11-14", merchant: "ROSS DRESS FOR LESS #0417", total_amount: 184.88, source_type: "receipt", category_name: "Groceries",
+      evidence: "Kids shoes 129.99; Towels 54.89; TOTAL $184.88; Voucher $150.00; Debit card 7302 $34.88; Balance due $0.00"
+    } ]).call
+    @document_import.update!(status: "needs_review")
+    assert_equal 3_488, @document_import.transaction_drafts.sole.total_amount_cents
+
+    answer = answer_for("voucher $150 plus debit $34.88")
+    assert_includes answer, "I read your receipt from Ross, dated Nov 14, 2026."
+    assert_includes answer, "only the $34.88 on your card counts. The receipt total was $184.88."
+    assert_includes answer, "If all of it should count, choose Count all $184.88 on the card."
+    refute_includes answer, "reads $34.88"
+    refute_includes answer, "no attached transaction row"
+    read = answer_for("Here is my receipt.")
+    assert_includes read, "I read a receipt from Ross, on Nov 14, 2026."
+    assert_includes read, "The receipt total was $184.88."
+    refute_includes read, "for $34.88"
+  end
+
   test "structured lists take priority over receipt acknowledgements" do
     @document_import.update!(document_kind: "receipt")
     create_draft!(merchant: "Pay-Less", amount_cents: 6951, occurred_on: Date.new(2026, 11, 14))

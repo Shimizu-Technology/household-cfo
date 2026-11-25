@@ -87,6 +87,7 @@ module Api
         %i[@current_participant_runtime @current_persona @current_experience_capabilities @current_brand @savings_program_selected].each do |name|
           remove_instance_variable(name) if instance_variable_defined?(name)
         end
+        CohortExperience::MethodSettings.forget!
       end
 
       def financial_picture_request
@@ -134,7 +135,7 @@ module Api
       end
 
       def financial_picture_controller?
-        names = %w[workspaces households spending_reports income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines financial_restarts setup_help mia_messages household_memories mia_memory_settings]
+        names = %w[bills workspaces households spending_reports income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines financial_restarts setup_help mia_messages household_memories mia_memory_settings statement_balances]
         names.include?(controller_name) || controller_path.start_with?("api/v1/plaid/")
       end
 
@@ -148,7 +149,7 @@ module Api
         return action_name.in?(%w[restart_preview create_request]) if controller_name == "setup_help"
         return action_name != "destroy" if controller_path.start_with?("api/v1/plaid/")
         return !action_name.in?(%w[destroy reject]) if controller_name == "household_memories"
-        names = %w[workspaces income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines]
+        names = %w[bills workspaces income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines statement_balances]
         return true if names.include?(controller_name)
         return params[:picture] != "all" if controller_name == "mia_messages" && action_name == "destroy"
         return false unless controller_name == "mia_messages" && action_name == "create"
@@ -161,6 +162,8 @@ module Api
       def current_household
         @current_household ||= HouseholdFinance::WorkspaceResolver.new(current_user).household
         ChallengePrivacy::PrivateFinanceAccess.authorize!(@current_household, user: current_user)
+        # Every method lookup for this household in this request reads the caller's program, once.
+        CohortExperience::MethodSettings.use_viewer(@current_household.id) { current_experience_capabilities } if @current_household
         @current_household
       end
 
@@ -341,13 +344,14 @@ module Api
         current_data_presenter.app_data
       end
 
-      def current_data_presenter(household: current_household, annual_plan: nil, ensure_plan: !(request.get? || request.head?))
+      def current_data_presenter(household: current_household, annual_plan: nil, ensure_plan: !(request.get? || request.head?),
+        initialize_missing_plan: request.get? || request.head?)
         HouseholdFinance::DataPresenter.new(
           household,
           user: current_user,
           annual_plan: annual_plan,
           ensure_plan: ensure_plan,
-          initialize_missing_plan: annual_plan.nil? && (request.get? || request.head?),
+          initialize_missing_plan: annual_plan.nil? && initialize_missing_plan,
           persona: current_persona,
           cohort_membership: current_cohort_membership,
           experience_capabilities: current_experience_capabilities,

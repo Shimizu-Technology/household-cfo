@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_24_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -93,6 +93,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.index ["user_id", "provider", "issuer"], name: "index_auth_identities_on_user_provider", unique: true
     t.index ["user_id"], name: "index_authentication_identities_on_user_id"
     t.check_constraint "provider::text = ANY (ARRAY['clerk'::character varying::text, 'workos'::character varying::text])", name: "authentication_identities_provider_check"
+  end
+
+  create_table "bills", force: :cascade do |t|
+    t.bigint "household_id", null: false
+    t.bigint "budget_category_id"
+    t.integer "financial_generation", default: 0, null: false
+    t.string "name", null: false
+    t.bigint "amount_cents", null: false
+    t.date "due_on", null: false
+    t.integer "repeat_months"
+    t.boolean "must_pay", default: true, null: false
+    t.boolean "estimate", default: false, null: false
+    t.date "paid_on"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "idempotency_key", limit: 255
+    t.integer "past_due_cents"
+    t.index ["budget_category_id"], name: "index_bills_on_budget_category_id"
+    t.index ["household_id", "financial_generation", "idempotency_key"], name: "index_bills_on_household_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
+    t.index ["household_id"], name: "index_bills_on_household_id"
+    t.check_constraint "paid_on IS NULL OR repeat_months IS NULL", name: "bills_paid_only_one_time"
+    t.check_constraint "past_due_cents IS NULL OR past_due_cents >= 0", name: "bills_past_due_cents_non_negative"
   end
 
   create_table "budget_allocations", force: :cascade do |t|
@@ -288,7 +310,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.index ["approved_by_user_id"], name: "index_challenge_sponsor_exports_on_approved_by_user_id"
     t.index ["cohort_id", "checkpoint_day", "policy_version"], name: "challenge_sponsor_fixed_identity", unique: true
     t.index ["cohort_id"], name: "index_challenge_sponsor_exports_on_cohort_id"
-    t.check_constraint "checkpoint_day = ANY (ARRAY[30, 60, 90])", name: "challenge_sponsor_day"
+    t.check_constraint "checkpoint_day >= 1 AND checkpoint_day <= 180", name: "challenge_sponsor_day"
   end
 
   create_table "challenge_support_accesses", force: :cascade do |t|
@@ -1835,13 +1857,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.jsonb "source_metadata", default: {}, null: false
     t.string "source_type", default: "manual_ui", null: false
     t.datetime "updated_at", null: false
+    t.integer "due_day"
+    t.bigint "past_due_cents"
     t.index "household_id, financial_generation, debt_type, lower((label)::text)", name: "index_active_debts_on_household_type_label", unique: true, where: "(active = true)"
     t.index ["household_id", "active"], name: "index_debts_on_household_id_and_active"
     t.index ["household_id", "debt_type"], name: "index_debts_on_household_id_and_debt_type"
     t.index ["household_id"], name: "index_debts_on_household_id"
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "debts_archive_state_valid"
     t.check_constraint "balance_cents >= 0", name: "debts_balance_cents_non_negative"
+    t.check_constraint "due_day IS NULL OR due_day >= 1 AND due_day <= 31", name: "debts_due_day_valid"
     t.check_constraint "minimum_payment_cents >= 0", name: "debts_minimum_payment_cents_non_negative"
+    t.check_constraint "past_due_cents IS NULL OR past_due_cents >= 0", name: "debts_past_due_cents_non_negative"
     t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying::text, 'mia'::character varying::text, 'document_import'::character varying::text, 'setup'::character varying::text])", name: "debts_source_type_valid"
   end
 
@@ -2237,6 +2263,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.string "row_identity", null: false
     t.string "row_kind", null: false
     t.bigint "signed_amount_cents"
+    t.index ["household_id", "signed_amount_cents", "posted_on"], name: "index_source_events_overlap_amount_date"
     t.index ["financial_extraction_revision_id", "position"], name: "index_source_events_revision_position", unique: true
     t.index ["financial_extraction_revision_id", "row_identity"], name: "index_source_events_revision_row", unique: true
     t.index ["financial_extraction_revision_id"], name: "index_source_events_revision"
@@ -2344,11 +2371,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.string "role", default: "owner", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.string "home_view"
     t.index ["household_id", "user_id"], name: "index_household_memberships_on_household_id_and_user_id", unique: true
     t.index ["household_id"], name: "index_household_memberships_on_household_id"
     t.index ["role"], name: "index_household_memberships_on_role"
     t.index ["user_id"], name: "index_household_memberships_on_one_owner_per_user", unique: true, where: "((role)::text = 'owner'::text)"
     t.index ["user_id"], name: "index_household_memberships_on_user_id"
+    t.check_constraint "home_view IS NULL OR (home_view::text = ANY (ARRAY['month'::character varying, 'year'::character varying]::text[]))", name: "household_memberships_home_view_valid"
   end
 
   create_table "household_memories", force: :cascade do |t|
@@ -2860,7 +2889,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.index ["id", "savings_enrollment_id"], name: "savings_checkpoints_scope", unique: true
     t.index ["savings_enrollment_id", "milestone_day"], name: "idx_savings_checkpoint_day", unique: true
     t.index ["savings_enrollment_id"], name: "index_savings_checkpoints_on_savings_enrollment_id"
-    t.check_constraint "milestone_day = ANY (ARRAY[30, 60, 90])", name: "savings_checkpoint_day_valid"
+    t.check_constraint "milestone_day >= 1 AND milestone_day <= 180", name: "savings_checkpoint_day_valid"
   end
 
   create_table "savings_daily_check_in_versions", force: :cascade do |t|
@@ -3124,13 +3153,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.string "time_zone", default: "Pacific/Guam", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.integer "challenge_length_days", default: 90, null: false
+    t.integer "checkpoint_days", default: [30, 60, 90], null: false, array: true
+    t.integer "suggested_goal_cents", default: 50000, null: false
+    t.string "goal_counts", default: "savings", null: false
     t.index ["accepted_cohort_release_id"], name: "index_savings_enrollments_on_accepted_cohort_release_id"
     t.index ["cohort_id", "user_id"], name: "index_savings_enrollments_on_cohort_id_and_user_id", unique: true, where: "(NOT (staff_preview AND ((status)::text = 'withdrawn'::text)))"
     t.index ["cohort_id"], name: "index_savings_enrollments_on_cohort_id"
     t.index ["household_id"], name: "index_savings_enrollments_on_household_id"
     t.index ["user_id"], name: "index_savings_enrollments_on_user_id"
     t.check_constraint "(status::text = ANY (ARRAY['active'::character varying::text, 'withdrawn'::character varying::text, 'completed'::character varying::text])) AND approval_sequence >= 0", name: "savings_enrollment_state_valid"
-    t.check_constraint "ends_on = (starts_on + 89) AND time_zone::text = 'Pacific/Guam'::text AND starts_on >= accepted_local_on", name: "savings_enrollment_calendar_valid"
+    t.check_constraint "challenge_length_days >= 30 AND challenge_length_days <= 180 AND cardinality(checkpoint_days) >= 1 AND cardinality(checkpoint_days) <= 6 AND array_ndims(checkpoint_days) = 1 AND array_lower(checkpoint_days, 1) = 1 AND array_position(checkpoint_days, NULL::integer) IS NULL AND checkpoint_days[1] >= 1 AND (cardinality(checkpoint_days) < 2 OR checkpoint_days[2] > checkpoint_days[1]) AND (cardinality(checkpoint_days) < 3 OR checkpoint_days[3] > checkpoint_days[2]) AND (cardinality(checkpoint_days) < 4 OR checkpoint_days[4] > checkpoint_days[3]) AND (cardinality(checkpoint_days) < 5 OR checkpoint_days[5] > checkpoint_days[4]) AND (cardinality(checkpoint_days) < 6 OR checkpoint_days[6] > checkpoint_days[5]) AND checkpoint_days[cardinality(checkpoint_days)] = challenge_length_days AND suggested_goal_cents >= 10000 AND suggested_goal_cents <= 500000 AND (goal_counts::text = ANY (ARRAY['savings'::character varying, 'savings_and_debt'::character varying]::text[]))", name: "savings_enrollment_rules_valid"
+    t.check_constraint "ends_on = (starts_on + challenge_length_days - 1) AND time_zone::text = 'Pacific/Guam'::text AND starts_on >= accepted_local_on", name: "savings_enrollment_calendar_valid"
   end
 
   create_table "savings_entries", force: :cascade do |t|
@@ -3184,7 +3218,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.index ["savings_enrollment_id"], name: "index_savings_entry_versions_on_savings_enrollment_id"
     t.index ["savings_entry_id", "version_number"], name: "idx_savings_entry_version_number", unique: true
     t.index ["savings_entry_id"], name: "index_savings_entry_versions_on_savings_entry_id"
-    t.check_constraint "currency::text = 'USD'::text AND evidence_supported_cents = 0 AND version_number > 0 AND approval_sequence > 0 AND (funding_source::text = 'withdrawal'::text AND signed_cents <= 0 OR (funding_source::text = ANY (ARRAY['earned_income'::character varying::text, 'gift'::character varying::text, 'bonus'::character varying::text, 'new_money_reserved'::character varying::text, 'preexisting'::character varying::text, 'borrowed'::character varying::text, 'cash_advance'::character varying::text, 'existing_internal_money'::character varying::text])) AND signed_cents >= 0)", name: "savings_entry_version_values_valid"
+    t.check_constraint "currency::text = 'USD'::text AND evidence_supported_cents = 0 AND version_number > 0 AND approval_sequence > 0 AND (funding_source::text = 'withdrawal'::text AND signed_cents <= 0 OR (funding_source::text = ANY (ARRAY['earned_income'::character varying, 'gift'::character varying, 'bonus'::character varying, 'new_money_reserved'::character varying, 'preexisting'::character varying, 'borrowed'::character varying, 'cash_advance'::character varying, 'existing_internal_money'::character varying, 'extra_debt_payment'::character varying]::text[])) AND signed_cents >= 0)", name: "savings_entry_version_values_valid"
   end
 
   create_table "savings_evidence_allocations", force: :cascade do |t|
@@ -3630,17 +3664,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     t.bigint "source_review_head_id", null: false
     t.bigint "supersedes_id"
     t.integer "version_number", null: false
+    t.bigint "matched_transaction_id"
+    t.index ["household_id", "signed_amount_cents", "posted_on"], name: "index_source_versions_overlap_amount_date"
     t.index ["approved_by_user_id"], name: "index_source_review_versions_on_approved_by_user_id"
     t.index ["budget_category_id"], name: "index_source_review_versions_on_budget_category_id"
     t.index ["household_id"], name: "index_source_review_versions_on_household_id"
     t.index ["id", "household_id"], name: "source_review_versions_household_identity", unique: true
     t.index ["id", "source_review_head_id", "household_id"], name: "source_review_versions_head_identity", unique: true
+    t.index ["matched_transaction_id"], name: "index_source_review_versions_on_matched_transaction_id", where: "(matched_transaction_id IS NOT NULL)"
     t.index ["source_account_identity_version_id"], name: "idx_on_source_account_identity_version_id_48cebccb51"
     t.index ["source_review_head_id", "version_number"], name: "source_review_versions_sequence", unique: true
     t.index ["source_review_head_id"], name: "index_source_review_versions_on_source_review_head_id"
     t.check_constraint "(disposition::text <> ALL (ARRAY['include'::character varying::text, 'match'::character varying::text])) OR signed_amount_cents IS NOT NULL AND signed_amount_cents <> 0 AND posted_on IS NOT NULL AND event_type::text <> 'unknown'::text", name: "source_review_posted_facts"
     t.check_constraint "disposition::text = ANY (ARRAY['include'::character varying::text, 'match'::character varying::text, 'exclude'::character varying::text, 'informational'::character varying::text])", name: "source_review_disposition"
     t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'refund'::character varying::text, 'income'::character varying::text, 'transfer'::character varying::text, 'debt_payment'::character varying::text, 'cash_withdrawal'::character varying::text, 'interest'::character varying::text, 'adjustment'::character varying::text, 'unknown'::character varying::text])", name: "source_review_event_type"
+    t.check_constraint "matched_transaction_id IS NULL OR disposition::text = 'match'::text AND matched_version_id IS NULL", name: "source_review_matched_transaction"
   end
 
   create_table "source_revision_approvals", force: :cascade do |t|
@@ -3928,6 +3966,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
   add_foreign_key "accounts", "households"
   add_foreign_key "accounts", "plaid_accounts", on_delete: :nullify
   add_foreign_key "authentication_identities", "users"
+  add_foreign_key "bills", "budget_categories"
+  add_foreign_key "bills", "households"
   add_foreign_key "budget_allocations", "budget_categories"
   add_foreign_key "budget_allocations", "budget_periods"
   add_foreign_key "budget_categories", "households"
@@ -5110,7 +5150,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
         IF NEW.cutoff_on NOT BETWEEN enrollment.starts_on AND enrollment.ends_on OR EXISTS (
           SELECT 1 FROM savings_entries e JOIN savings_entry_versions v ON v.id = e.current_approved_version_id
           WHERE e.savings_enrollment_id = enrollment.id AND v.effective_on <= NEW.cutoff_on
-            AND v.funding_source IN ('earned_income','gift','bonus','new_money_reserved','withdrawal')
+            AND (v.funding_source IN ('earned_income','gift','bonus','new_money_reserved','withdrawal') OR (v.funding_source = 'extra_debt_payment' AND enrollment.goal_counts = 'savings_and_debt'))
         ) THEN RAISE EXCEPTION 'savings zero attestation conflicts with ledger' USING ERRCODE = 'integrity_constraint_violation'; END IF;
         IF NEW.previous_attestation_id IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM savings_zero_attestations z WHERE z.id = NEW.previous_attestation_id AND z.savings_enrollment_id = enrollment.id AND z.cutoff_on = NEW.cutoff_on
@@ -5127,8 +5167,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
     BEGIN
       IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'savings identity cannot be deleted'; END IF;
       IF TG_TABLE_NAME = 'savings_enrollments' THEN
-        IF ROW(NEW.user_id,NEW.household_id,NEW.cohort_id,NEW.accepted_cohort_membership_id,NEW.membership_started_at,NEW.accepted_at,NEW.accepted_local_on,NEW.starts_on,NEW.ends_on,NEW.time_zone,NEW.policy_version,NEW.late_start_accepted,NEW.staff_preview)
-          IS DISTINCT FROM ROW(OLD.user_id,OLD.household_id,OLD.cohort_id,OLD.accepted_cohort_membership_id,OLD.membership_started_at,OLD.accepted_at,OLD.accepted_local_on,OLD.starts_on,OLD.ends_on,OLD.time_zone,OLD.policy_version,OLD.late_start_accepted,OLD.staff_preview) THEN RAISE EXCEPTION 'savings enrollment identity is frozen'; END IF;
+        IF ROW(NEW.user_id,NEW.household_id,NEW.cohort_id,NEW.accepted_cohort_membership_id,NEW.membership_started_at,NEW.accepted_at,NEW.accepted_local_on,NEW.starts_on,NEW.ends_on,NEW.time_zone,NEW.policy_version,NEW.late_start_accepted,NEW.staff_preview,NEW.challenge_length_days,NEW.checkpoint_days,NEW.suggested_goal_cents,NEW.goal_counts)
+          IS DISTINCT FROM ROW(OLD.user_id,OLD.household_id,OLD.cohort_id,OLD.accepted_cohort_membership_id,OLD.membership_started_at,OLD.accepted_at,OLD.accepted_local_on,OLD.starts_on,OLD.ends_on,OLD.time_zone,OLD.policy_version,OLD.late_start_accepted,OLD.staff_preview,OLD.challenge_length_days,OLD.checkpoint_days,OLD.suggested_goal_cents,OLD.goal_counts) THEN RAISE EXCEPTION 'savings enrollment identity is frozen'; END IF;
         IF NEW.current_accepted_plan_version_id IS DISTINCT FROM OLD.current_accepted_plan_version_id AND NOT EXISTS (
           SELECT 1 FROM savings_plan_versions v WHERE v.id = NEW.current_accepted_plan_version_id AND v.previous_version_id IS NOT DISTINCT FROM OLD.current_accepted_plan_version_id
         ) THEN RAISE EXCEPTION 'savings plan head must advance'; END IF;
@@ -5326,6 +5366,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
   SQL
   execute <<~'SQL'
     CREATE TRIGGER accounts_financial_picture_guard BEFORE INSERT OR UPDATE ON public.accounts FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER bills_financial_picture_guard BEFORE INSERT OR UPDATE ON public.bills FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
   SQL
   execute <<~'SQL'
     CREATE TRIGGER budget_categories_financial_picture_guard BEFORE INSERT OR UPDATE ON public.budget_categories FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();

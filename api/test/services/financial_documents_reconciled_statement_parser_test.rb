@@ -16,6 +16,14 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     assert_equal "fee", parser.send(:event_type, "ATM Surcharge", -300)
   end
 
+  test "money into a card is never read as income" do
+    parser = FinancialDocuments::ReconciledStatementParser.allocate
+    parser.instance_variable_set(:@account, { account_basis: "liability" })
+    [ "ACH CREDIT TALUN DEMO", "MOBILE DEPOSIT", "Statement credit" ].each { |description| refute_equal "income", parser.send(:event_type, description, 12_500), description }
+    parser.instance_variable_set(:@account, { account_basis: "asset" })
+    assert_equal "income", parser.send(:event_type, "ACH CREDIT TALUN DEMO", 12_500)
+  end
+
   test "withdrawals and ATM fees keep their separate types through reconciled statements" do
     [ "Non-WF ATM Withdrawal authorized on 08/05 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee", "Non-WF ATM Withdrawal Fee", "Non-WF ATM Balance Inquiry Fee", "ATM Withdrawal Fee", "ATM Surcharge", "ATM Fees", "Branch Withdrawal Service Charge", "ATM/POS Purchase Walmart", "Purchase with Cash Back $20" ].each do |description|
       pages = pages_for("bank-descriptors.pdf")

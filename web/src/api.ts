@@ -1,3 +1,4 @@
+import type { FilterScenario, RunwayScenario } from './components/FinanceScenarios'
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import type { StatementProgress } from './lib/statementReview'
 import { checkedSavingsChallenge } from './lib/savingsChallenge'
@@ -85,6 +86,8 @@ export type WorkspaceData = {
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean
+  // Owners and partners save changes; others only read. Absent in demo data.
+  can_edit_household?: boolean
   setup_status: WorkspaceSetupStatus
   setup_values: WorkspaceSetupValues
   income_sources: IncomeTimelineSource[]
@@ -101,8 +104,13 @@ export type WorkspaceData = {
     status: AdminCohortStatus
   }
   capabilities: ExperienceCapabilities
+  /** What Home leads with: the program's method default, or this person's own saved choice. */
+  home_view?: HomeViewChoice
   brand: BrandRuntime
 }
+
+export type HomeView = 'month' | 'year'
+export type HomeViewChoice = { program: HomeView; chosen: HomeView | null; effective: HomeView }
 
 export type AccountType = 'checking' | 'savings' | 'emergency_fund' | 'retirement' | 'investment' | 'property' | 'other'
 export type AccountRecord = {
@@ -154,7 +162,8 @@ export type ExperienceCapability = {
 }
 
 export type ExperienceCapabilities = {
-  schema_version: 1 | 2 | 3 | 4
+  schema_version: 1 | 2 | 3 | 4 | 5
+  method?: MethodSettings
   experience_mode?: ExperienceMode
   module_order?: ExperienceModuleId[]
   cohort_release?: null | { id: number; number: number }
@@ -173,13 +182,17 @@ export type DebtRecord = {
   balance: number | null
   minimum_payment: number | null
   interest_rate_percent: number | null
+  /** Day of the month the payment is due (1–31); null when not entered. */
+  due_day?: number | null
+  /** How far behind she is, in dollars. null is not entered (unknown), never $0. */
+  past_due?: number | null
   active: boolean
   archived_at: string | null
   source_type: 'manual_ui' | 'mia' | 'document_import' | 'setup'
   source_metadata: Record<string, unknown>
 }
 
-export type DebtInput = Pick<DebtRecord, 'label' | 'debt_type' | 'balance' | 'minimum_payment' | 'interest_rate_percent'>
+export type DebtInput = Pick<DebtRecord, 'label' | 'debt_type' | 'balance' | 'minimum_payment' | 'interest_rate_percent' | 'due_day' | 'past_due'>
 
 export type DebtPortfolio = {
   mode: 'summary' | 'individual'
@@ -303,6 +316,8 @@ export type TransactionDraftMatch = {
     id: number
     occurred_on: string
     merchant: string
+    // The store without bank wording, for "Same purchase as …?".
+    store_name?: string
     amount: number
     source_type: string
     categories: string[]
@@ -438,13 +453,14 @@ export type ProfileData = {
   sections: ProfileSection[]
 }
 
-export type ReadinessMilestone = {
-  tone: 'yellow' | 'green'
-  runway_months: number
-  protected_liquid_target: number
-  protected_liquid_gap: number
-  cash_flow_requirement: string
-  reached: boolean
+export type StatusTone = 'red' | 'yellow' | 'green'
+
+/** The program's colour rule (Mrs. Mel's method): months to reach a target, and monthly surplus in cents. */
+export type MethodStatusRule = {
+  target_green_months: number
+  target_yellow_months: number
+  surplus_green_cents: number
+  surplus_yellow_cents: number
 }
 
 export type MiaMonthAnswer = {
@@ -459,6 +475,7 @@ export type MiaMonthAnswer = {
   main_income_missing?: boolean
   missing_plan_inputs?: Array<{ label: string; destination: 'profile' | 'budget' | 'debt' }>
   cushion_missing_inputs?: Array<{ label: string; destination: 'profile' | 'budget' | 'debt' | 'accounts' }>
+  actual_income?: ActualIncome
   money_in_cents: number | null
   planned_out_cents: number | null
   category_plan_cents?: number | null
@@ -468,10 +485,19 @@ export type MiaMonthAnswer = {
   pending_count: number | null
   pending_cents: number | null
   pending_list_truncated: boolean
-  readiness_tone: 'red' | 'yellow' | 'green' | null
+  readiness_tone: StatusTone | null
   readiness_guidance: string
   runway_months: number | null
+  target_runway_months?: number
+  emergency_fund_gap_cents?: number | null
+  /** Months this month's surplus needs to reach the emergency fund target; null when it can't. */
+  months_to_target?: number | null
+  /** The program's colour for this month's planned surplus; null when unknown. */
+  surplus_tone?: StatusTone | null
+  status_rule?: MethodStatusRule
 }
+
+export type ActualIncome = { actual_cents: number | null; partial: boolean; month_open: boolean; coverage_note: string }
 
 export type DashboardData = {
   month_answer?: MiaMonthAnswer
@@ -484,15 +510,20 @@ export type DashboardData = {
     runway_months: number | null
     next_safe_to_spend_amount: number | null
     readiness_available: boolean
-    readiness_tone: 'red' | 'yellow' | 'green'
+    readiness_tone: StatusTone
     readiness_label: string
   }
   action_center: {
+    /** Purchases waiting in Review, including confirmed cash purchases that need her answer about the cash she took out. */
     transaction_review_count: number
+    cash_question_count?: number
     mia_action_review_count: number
     total_review_count: number
     /** Statement files waiting for review; Home links to them without loading every import. */
     document_review_count?: number
+    /** Active debts she is behind on, largest first. */
+    /** balance_conflict: the past-due amount is above the debt's own recorded balance, so one of them is wrong. */
+    past_due_debts?: Array<{ id: number; label: string; past_due_cents: number; due_day: number | null; balance_conflict?: boolean }>
     current_month_label: string
     current_month_index: number
     current_year: number
@@ -509,8 +540,10 @@ export type DashboardData = {
     target_runway_months: number
     protected_liquid_amount: number
     monthly_surplus: number | null
-    yellow: ReadinessMilestone
-    green: ReadinessMilestone
+    target_runway_source?: 'household' | 'program'
+    emergency_fund?: null | { tone: StatusTone; label: string; target: number; gap: number; months_to_target: number | null }
+    surplus?: null | { tone: StatusTone; label: string }
+    status_rule?: { target_green_months: number; target_yellow_months: number; surplus_green: number; surplus_yellow: number }
   }
   accounts: Array<{ name: string; type: string; balance: number }>
   alerts: Array<{ tone: string; title: string; body: string; action?: 'open_debt' }>
@@ -563,6 +596,78 @@ export type TransactionDraft = {
   matches?: TransactionDraftMatch[]
   matched_transaction_id?: number | null
   draft_payload?: Record<string, unknown>
+  /** Part of the receipt was paid with a gift card, voucher, store credit or rewards, which is not new money. */
+  receipt_payment?: ReceiptPayment | null
+  /** She paid in cash. Cash counts when it is taken out, so the purchase asks which withdrawal paid for it. */
+  cash_payment?: CashPayment | null
+}
+
+export type CashWithdrawalCandidate = {
+  financial_source_event_id: number
+  withdrawn_on: string
+  amount: number
+  amount_cents: number
+  available: number
+  available_cents: number
+  covers_cents: number
+  label: string
+}
+
+export type CashPayment = {
+  source: 'receipt' | 'participant'
+  cash: number
+  cash_cents: number
+  answer?: 'elsewhere' | 'withdrawal' | null
+  /** Pending: withdrawals she can choose from, most recent first. Empty when none has cash left, or when she already chose. */
+  candidates?: CashWithdrawalCandidate[]
+  /** Pending: the withdrawal she already said paid for it, kept while the card asks "Same purchase?". */
+  chosen_event_id?: number
+  question?: string
+  message?: string
+  /** Confirmed: it was paid from cash she took out and adds nothing. */
+  linked?: boolean
+  withdrawn_on?: string
+  linked_cents?: number
+  /** Confirmed, but it needs her answer again (see CashPurchaseQuestion). */
+  open_question?: CashPurchaseQuestion
+}
+
+/**
+ * A cash purchase she already confirmed that needs her answer about the cash she took out. Until she answers, the part
+ * no withdrawal covers counts on its own. unanswered: confirmed before the withdrawal was approved. dropped: the
+ * withdrawal it named is gone. short: the withdrawal now covers less of it.
+ */
+export type CashPurchaseQuestion = {
+  transaction_draft_id: number
+  transaction_id: number
+  state: 'unanswered' | 'dropped' | 'short'
+  merchant: string
+  occurred_on: string
+  amount: number
+  amount_cents: number
+  cash_cents: number
+  covered_cents: number
+  counting_on_its_own_cents: number
+  /** What counts right now, in plain words. */
+  message: string
+  question: string | null
+  candidates: CashWithdrawalCandidate[]
+  /** "No, other cash", "Count it on its own" or "Count the rest on its own". */
+  decline_label: string
+}
+
+export type ReceiptPayment = {
+  receipt_total: number
+  receipt_total_cents: number
+  new_money: number
+  new_money_cents: number
+  /** Whether the draft counts only the new money, all of the receipt, or an amount she typed. */
+  counting: 'new_money' | 'all' | 'changed'
+  message: string
+  count_all_label?: string
+  count_new_money_label?: string
+  count_all_splits?: Array<{ id: number; amount: number }>
+  count_new_money_splits?: Array<{ id: number; amount: number }>
 }
 
 export type RecentTransaction = {
@@ -598,6 +703,8 @@ export type SpendingReportCategory = {
   pending: number
   remaining: number
   active?: boolean
+  /** A confirmed purchase or counted refund landed in this category this period, even when they net to $0. */
+  has_activity?: boolean
 }
 
 export type ArchivedBudgetCategory = {
@@ -607,6 +714,8 @@ export type ArchivedBudgetCategory = {
   stack_label: string
   active: boolean
 }
+
+export type SpendingReportRefund = { id: number; occurred_on: string; merchant: string; amount: number; counted: boolean; categories: string[] }
 
 export type SpendingReport = {
   period_label: string
@@ -618,8 +727,12 @@ export type SpendingReport = {
     pending: number
     remaining: number
   }
+  /** Whether any approved purchase or counted refund falls in the period; refunds can bring a known month to $0. */
+  actual_known?: boolean
   categories: SpendingReportCategory[]
   transactions: RecentTransaction[]
+  /** Refunds she approved in this period. A counted one lowers the categories it went back to; one not counted still needs a category. */
+  refunds?: SpendingReportRefund[]
   pending_drafts: Array<{
     id: number
     occurred_on: string
@@ -776,13 +889,17 @@ export type AnnualBudgetPlan = {
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
   plan_starts_on?: string
+  actual_income?: Record<number, ActualIncome>
   monthly_income: Record<number, number | null>
   monthly_debt_minimums: number
   monthly_debt_minimums_known?: boolean
   income_sources: IncomeTimelineSource[]
+  year_forecast?: YearForecast
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
   pending_transaction_drafts_meta?: { total_count: number; returned_count: number; limit: number; truncated: boolean }
+  cash_purchase_questions?: CashPurchaseQuestion[]
+  cash_purchase_questions_meta?: { total_count: number; limit: number }
   pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]
@@ -864,6 +981,7 @@ export type BudgetData = {
   total_monthly_outflow: number
   baseline_surplus: number
   stacks: Array<{
+    stack_key?: BudgetStackKey
     label: string
     color: string
     amount: number
@@ -899,6 +1017,7 @@ export type WealthData = {
 }
 
 export type OptionalityData = {
+  calculator?: RunwayScenario
   available?: boolean
   unavailable_reason?: string
   scenario: string
@@ -917,6 +1036,7 @@ export type OptionalityData = {
 }
 
 export type CfoFilterData = {
+  calculator?: FilterScenario
   framework: string
   prompt: string
   decisions: Array<{
@@ -929,6 +1049,8 @@ export type CfoFilterData = {
   }>
   targets: Array<{ label: string; current: number; target: number }>
   priority_stack: string[]
+  windfall_steps?: string[]
+  income_split?: string[]
 }
 
 export type MiaMessageAttachment = {
@@ -1895,6 +2017,8 @@ export type SavingsChallengeAccess = {
   can_change?: boolean
   participants_can_join: boolean
   blockers: string[]
+  /** Set when the group's challenge settings couldn't be read and the standard rules stand in. */
+  rules_notice?: string | null
   recent_events: Array<{
     id: number
     action: 'open' | 'pause'
@@ -1953,19 +2077,62 @@ export type ExperienceMode = 'household_cfo' | 'savings_challenge'
 
 export type ConfigurableExperienceModuleId = Exclude<ExperienceModuleId, 'home' | 'ask_mia'>
 
+export type MethodCoreProtectedCategory = 'housing' | 'utilities' | 'medical' | 'childcare_school' | 'debt_minimums' | 'family_support'
+export type MethodOptionalProtectedCategory = 'groceries' | 'giving' | 'community'
+export type MethodProtectedCategory = MethodCoreProtectedCategory | MethodOptionalProtectedCategory
+export type MethodPriority = 'emergency_fund' | 'debt' | 'wealth' | 'experiences'
+export type MethodWindfallStep = 'emergency_fund' | 'consumer_debt' | 'surplus'
+
+export type MethodGroupNames = 'plain' | 'method'
+export type MethodDebtOrder = 'both' | 'snowball' | 'avalanche'
+
+/** What counts toward a challenge goal: new money set aside, or that plus extra debt payments. */
+export type MethodChallengeCounts = 'savings' | 'savings_and_debt'
+/** The savings challenge: its length, check-in days (thirds of the length or explicit days ending on the last day), suggested goal and what counts. */
+export type MethodChallenge = {
+  length_days: number
+  checkpoints: 'thirds' | number[]
+  suggested_goal_cents: number
+  counts: MethodChallengeCounts
+}
+
+/** Display choices and challenge rules added later in schema 5; a stored block without them reads as their defaults. */
+export type MethodDisplayChoices = {
+  group_names: MethodGroupNames
+  home_view: HomeView
+  debt_order: MethodDebtOrder
+  challenge: MethodChallenge
+}
+
+/** Mrs. Mel's coaching method for a group (schema 5). Older schemas read as the defaults. */
+export type MethodSettings = MethodDisplayChoices & {
+  status: MethodStatusRule
+  emergency_fund_months: number
+  protected: MethodProtectedCategory[]
+  priorities: MethodPriority[]
+  windfall: MethodWindfallStep[]
+  income_split: { emergency_fund: number; debt: number; surplus: number }
+}
+
+/** A saved draft or release may predate the display choices. */
+export type StoredMethodSettings = Omit<MethodSettings, keyof MethodDisplayChoices> & Partial<MethodDisplayChoices>
+
 export type ConfigurableCohortExperienceDraft = {
-  schema_version: 4
+  schema_version: 4 | 5
   experience_mode: ExperienceMode
   /** Empty or absent retains the existing navigation order. Unlisted modules follow in default order. */
   module_order?: ExperienceModuleId[]
   optional_modules: Record<ConfigurableExperienceModuleId, boolean>
+  /** Schema 5 only. */
+  method?: StoredMethodSettings
 }
 
-/** Historical schemas retain their sealed meaning; schema 4 adds module visibility and order. */
+/** Historical schemas retain their sealed meaning; schema 4 adds module visibility and order; schema 5 adds the method. */
 export type CohortExperienceDraft = ConfigurableCohortExperienceDraft | {
   schema_version: 1 | 2 | 3
   experience_mode?: ExperienceMode
   module_order?: never
+  method?: never
   optional_modules: { cfo_filter: boolean; optionality: boolean }
 }
 
@@ -1998,6 +2165,8 @@ export type CohortExperienceConfiguration = {
 
 export type CohortExperiencePreview = {
   challenge_open?: boolean
+  /** Someone in this group is in a running challenge (and keeps the days she started with). */
+  challenge_running?: boolean
   upgrade_notice?: string | null
   module_order?: ExperienceModuleId[]
   digest: string
@@ -2406,7 +2575,7 @@ export function subscribeFinancialPictureChanges(listener: (generation: number) 
 class FinancialPictureChangedError extends Error {}
 function financialDataPath(path: string) {
   if (/^\/api\/v1\/setup_help(\/|\?|$)/.test(path)) return !path.startsWith('/api/v1/setup_help/restart/')
-  return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
+  return /^\/api\/v1\/(bills|cfo-filter|optionality|workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|statement_balances|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
 }
 function checkedFinancialReply(generation: number | null, expected: number | null) {
   if (generation === null || expected === null || generation === expected) return
@@ -3643,8 +3812,13 @@ export async function fetchAdminPlaidHealth(): Promise<AdminPlaidHealth> {
   return fetchJson<AdminPlaidHealth>('/api/v1/admin/plaid_health')
 }
 
-export async function createAdminCohort(values: AdminCohortInput): Promise<AdminCohort> {
-  const payload = await postJson<{ cohort: AdminCohort }>('/api/v1/admin/cohorts', { cohort: values })
+// workspaceId: the program the group belongs to, when an administrator is looking at all programs.
+export async function createAdminCohort(values: AdminCohortInput, workspaceId?: number): Promise<AdminCohort> {
+  const payload = await fetchJson<{ cohort: AdminCohort }>('/api/v1/admin/cohorts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(workspaceId ? { 'X-Coach-Workspace-Id': String(workspaceId) } : {}) },
+    body: JSON.stringify({ cohort: values }),
+  })
   return payload.cohort
 }
 
@@ -3966,11 +4140,15 @@ export async function createDebt(values: DebtInput, idempotencyKey: string): Pro
   return payload.debt
 }
 
-export async function updateDebt(id: number, values: DebtInput, idempotencyKey: string): Promise<DebtRecord> {
+/**
+ * Sends only the changed fields. `expected` holds what the form showed for each one; the
+ * server refuses the edit (409 changed_elsewhere) if any of them changed since.
+ */
+export async function updateDebt(id: number, values: Partial<DebtInput>, idempotencyKey: string, expected?: Partial<DebtInput>): Promise<DebtRecord> {
   const payload = await fetchJson<{ debt: DebtRecord }>(`/api/v1/debts/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ debt: values }),
+    body: JSON.stringify(expected && Object.keys(expected).length > 0 ? { debt: values, expected } : { debt: values }),
   })
   return payload.debt
 }
@@ -4016,6 +4194,48 @@ export function unlinkPlaidAccount(id: number, idempotencyKey: string) {
   return accountMutation(`/api/v1/accounts/${id}/plaid_link`, 'DELETE', idempotencyKey)
 }
 
+export type StatementBalanceTarget = {
+  kind: 'account' | 'debt'
+  id: number
+  label: string
+  type: string
+  balance: number | null
+  balance_cents: number | null
+  balance_as_of_on: string | null
+}
+
+// A balance offered from her latest approved statement. Nothing changes until she approves it.
+export type StatementBalanceOffer = {
+  key: string
+  tracked_account_id: number
+  kind: 'account' | 'debt'
+  statement_label: string
+  as_of_on: string
+  balance: number
+  balance_cents: number
+  target: StatementBalanceTarget | null
+  choices: StatementBalanceTarget[]
+  can_add_new: boolean
+  new_label: string | null
+  // The kind a new record would be saved as when the statement names it ("Checking", "Visa"); otherwise she chooses.
+  new_account_type: string | null
+  new_type_options: string[]
+}
+
+export async function fetchStatementBalanceOffers(): Promise<StatementBalanceOffer[]> {
+  const payload = await fetchJson<{ offers: StatementBalanceOffer[] }>('/api/v1/statement_balances')
+  return payload.offers
+}
+
+export async function applyStatementBalance(offer: StatementBalanceOffer, target: number | 'new', idempotencyKey: string, newType?: string | null): Promise<StatementBalanceOffer[]> {
+  const payload = await fetchJson<{ offers: StatementBalanceOffer[] }>(`/api/v1/statement_balances/${offer.tracked_account_id}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ kind: offer.kind, target: String(target), offer_key: offer.key, ...(target === 'new' && newType ? { new_type: newType } : {}) }),
+  })
+  return payload.offers
+}
+
 async function goalMutation(path: string, method: string, idempotencyKey: string, body?: Record<string, unknown>): Promise<GoalRecord> {
   const payload = await fetchJson<{ goal: GoalRecord }>(path, {
     method,
@@ -4043,9 +4263,117 @@ export async function updateDebtTracking(values: { mode: 'summary' | 'individual
   return payload.debt_portfolio
 }
 
+export type MonthlyCloseStatus = 'future' | 'open' | 'partial' | 'complete' | 'no_actuals'
+
+export type MonthlyCloseIncome = {
+  planned_cents: number | null
+  actual_cents: number | null
+  difference_cents: number | null
+  prior_month_actual_cents: number | null
+  prior_month_complete: boolean
+  change_from_prior_cents: number | null
+  complete: boolean
+  partial: boolean
+  month_open: boolean
+  waiting_deposits: number
+  coverage_note: string
+}
+
+export type MonthlyCloseTotals = {
+  planned_spending_cents: number | null
+  actual_spending_cents: number | null
+  spending_difference_cents: number | null
+  prior_actual_spending_cents: number | null
+  spending_change_from_prior_cents: number | null
+  has_spending_activity: boolean
+  prior_month_has_activity: boolean
+  debt_minimums_cents: number | null
+  debt_minimums_known: boolean
+}
+
+export type MonthlyCloseNet = {
+  planned_net_before_debt_cents: number | null
+  actual_net_before_debt_cents: number | null
+  net_before_debt_difference_cents: number | null
+  planned_net_after_debt_cents: number | null
+  actual_net_after_debt_cents: number | null
+  net_after_debt_difference_cents: number | null
+  estimated_net_after_planned_debt_cents: number | null
+}
+
+export type MonthlyCloseCategory = {
+  id: number
+  name: string
+  stack_key: BudgetStackKey
+  stack_label: string
+  active: boolean
+  planned_cents: number | null
+  actual_cents: number
+  difference_cents: number | null
+  prior_actual_cents: number | null
+  change_from_prior_cents: number | null
+  has_activity: boolean
+  prior_has_activity: boolean
+  refund_net_negative: boolean
+}
+
+export type MonthlyCloseMover = {
+  category_id: number
+  name: string
+  stack_key: BudgetStackKey
+  stack_label: string
+  active: boolean
+  actual_cents: number
+  prior_actual_cents: number | null
+  change_from_prior_cents: number
+}
+
+export type MonthlyCloseChanges = {
+  prior_month_has_activity: boolean
+  prior_period_label: string
+  increases: MonthlyCloseMover[]
+  decreases: MonthlyCloseMover[]
+  income_change: {
+    actual_cents: number
+    prior_actual_cents: number
+    change_from_prior_cents: number
+  } | null
+}
+
+export type MonthlyCloseData = {
+  year: number
+  month: number
+  period_id: number | string | null
+  period_label: string
+  starts_on: string
+  ends_on: string
+  prior_year: number
+  prior_month: number
+  prior_period_label: string
+  plan_available: boolean
+  plan_starts_on: string
+  before_plan_start: boolean
+  status: MonthlyCloseStatus
+  status_label: string
+  household_id: number
+  financial_generation: number
+  income: MonthlyCloseIncome
+  totals: MonthlyCloseTotals
+  net: MonthlyCloseNet
+  categories: MonthlyCloseCategory[]
+  changes: MonthlyCloseChanges
+  highlights: string[]
+}
+
 export async function fetchBudget(year?: number): Promise<BudgetData> {
   const query = year ? `?year=${encodeURIComponent(year)}` : ''
   return fetchJson<BudgetData>(`/api/v1/budget${query}`)
+}
+
+export async function fetchMonthlyClose(year: number, month: number, signal?: AbortSignal): Promise<MonthlyCloseData> {
+  const query = new URLSearchParams({ year: String(year), month: String(month) })
+  const payload = await fetchJson<{ monthly_close: MonthlyCloseData }>(`/api/v1/budget/monthly_close?${query}`, { signal })
+  return payload.monthly_close
 }
 
 export async function fetchSpendingReport(startOn: string, endOn: string): Promise<SpendingReport> {
@@ -4163,6 +4491,13 @@ export async function rejectHouseholdMemory(id: number): Promise<{ memory: House
 
 export async function forgetHouseholdMemory(id: number): Promise<void> {
   return fetchJson<void>(`/api/v1/household_memories/${id}`, { method: 'DELETE' })
+}
+
+/** Saves what Home leads with for the signed-in person; null goes back to the program's default. */
+export async function updateHomeView(chosen: HomeView | null): Promise<{ home_view: HomeViewChoice }> {
+  return fetchJson('/api/v1/home_view', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ home_view: { chosen } }),
+  })
 }
 
 export async function setMiaPersonalizationPaused(paused: boolean): Promise<{ personalization: MiaMemoryData['personalization'] }> {
@@ -4719,12 +5054,12 @@ export async function cancelMiaActionDraft(id: number, idempotencyKey: string): 
   return payload.workspace
 }
 
-export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
+export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null; paid_with_cash: boolean }> & {
   removed_split_ids?: number[]
   splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null }>>
 }
 
-export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null; splits?: TransactionDraftUpdateInput['splits'] }
+export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null; splits?: TransactionDraftUpdateInput['splits']; paid_with_cash?: boolean }
 
 export async function createTransactionDraft(values: TransactionDraftCreateInput, idempotencyKey: string): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
   return fetchJson<{ transaction_draft: TransactionDraft; workspace: AppData }>('/api/v1/transaction_drafts', {
@@ -4742,11 +5077,32 @@ export async function updateTransactionDraft(id: number, values: TransactionDraf
   })
 }
 
-export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string): Promise<AppData> {
+// differentPurchase: she answered "Different purchase" to the app's "Same purchase as …?" question.
+// Without it the server refuses to confirm a purchase that looks like one she already has.
+// cashWithdrawalEventId / cashFromElsewhere: her Yes or No to "Paid with the $100 you took out on Aug 3?".
+export type ConfirmTransactionOptions = { differentPurchase?: boolean; cashWithdrawalEventId?: number; cashFromElsewhere?: boolean }
+
+// Her answer to "Paid with the $100 you took out on Aug 3?" on a cash purchase she already confirmed.
+export type CashPurchaseAnswer = { cashWithdrawalEventId: number } | { cashFromElsewhere: true }
+
+export async function answerCashPurchaseQuestion(id: number, answer: CashPurchaseAnswer, idempotencyKey: string): Promise<{ message: string; workspace: AppData }> {
+  return fetchJson<{ message: string; workspace: AppData }>(`/api/v1/transaction_drafts/${id}/cash_answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ transaction_draft: 'cashWithdrawalEventId' in answer ? { cash_withdrawal_event_id: answer.cashWithdrawalEventId } : { cash_from_elsewhere: true } }),
+  })
+}
+
+export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string, options: ConfirmTransactionOptions = {}): Promise<AppData> {
+  const answers = {
+    ...(options.differentPurchase ? { different_purchase: true } : {}),
+    ...(options.cashWithdrawalEventId ? { cash_withdrawal_event_id: options.cashWithdrawalEventId } : {}),
+    ...(options.cashFromElsewhere ? { cash_from_elsewhere: true } : {}),
+  }
   const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ transaction_draft: values }),
+    body: JSON.stringify({ transaction_draft: { ...values, ...answers } }),
   })
   return payload.workspace
 }
@@ -4844,8 +5200,9 @@ export async function mutateStatementReview(importId: number, revisionId: number
   return fetchJson(`/api/v1/document_imports/${importId}/review/${action}`, { method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify({ revision_id: revisionId, input }) })
 }
-export async function answerSpreadsheetSign(importId: number, revisionId: number, negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual'): Promise<{ revision_id: number }> {
-  return postJson(`/api/v1/document_imports/${importId}/sign_answer`, { revision_id: revisionId, ...(negativeIsMoneyOut == null ? {} : { negative_is_money_out: negativeIsMoneyOut }) })
+/** sourceAccountId answers for one account of a multi-account file; without it the answer is for the whole file. */
+export async function answerSpreadsheetSign(importId: number, revisionId: number, negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual', sourceAccountId?: number): Promise<{ revision_id: number }> {
+  return postJson(`/api/v1/document_imports/${importId}/sign_answer`, { revision_id: revisionId, ...(negativeIsMoneyOut == null ? {} : { negative_is_money_out: negativeIsMoneyOut }), ...(sourceAccountId == null ? {} : { source_account_id: sourceAccountId }) })
 }
 
 export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {
@@ -5016,16 +5373,21 @@ export async function fetchSharedChallengeSource(enrollmentId: number, sourceId:
   })
 }
 
+/** A group's total by its key; the demo's sealed data names groups only by label. */
+function stackAmount(budget: BudgetData, key: BudgetStackKey, demoLabel: string) {
+  return budget.stacks.find((stack) => stack.stack_key ? stack.stack_key === key : stack.label === demoLabel)?.amount ?? 0
+}
+
 function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {
   return {
     household_name: profile.household.name,
     primary_goal: profile.household.primary_goal,
     primary_income: dashboard.summary.monthly_income,
     business_income: 0,
-    fixed_expenses: budget.stacks.find((stack) => stack.label === 'Non-discretionary')?.amount ?? 0,
-    flexible_spend: budget.stacks.find((stack) => stack.label === 'Discretionary')?.amount ?? 0,
-    expected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Expected')?.amount ?? 0,
-    unexpected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Unexpected')?.amount ?? 0,
+    fixed_expenses: stackAmount(budget, 'non_discretionary', 'Non-discretionary'),
+    flexible_spend: stackAmount(budget, 'discretionary', 'Discretionary'),
+    expected_sinking_fund: stackAmount(budget, 'sinking_expected', 'Sinking Fund — Expected'),
+    unexpected_sinking_fund: stackAmount(budget, 'sinking_unexpected', 'Sinking Fund — Unexpected'),
     emergency_fund: dashboard.accounts.find((account) => account.name === 'Emergency Fund')?.balance ?? 0,
     other_assets: wealth.summary.net_worth ?? 0,
     credit_card_debt: Math.abs(dashboard.accounts.find((account) => account.type === 'debt')?.balance ?? 0),
@@ -5355,4 +5717,27 @@ export function fetchChallengeChatCards(signal?: AbortSignal): Promise<import('.
 }
 export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true } | { action: 'request_leave'; expected_lock_version: number; accepted: true; intent: 'leave' | 'pause' } | { action: 'approve_savings'; expected_lock_version: number; accepted: true; new_money_confirmed?: boolean }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; assistant_message?: MiaMessage | null; challenge?: SavingsChallenge | null }> {
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+}
+
+/** past_due_cents: how far behind she is on this bill, owed now (null is not entered). past_due: this occurrence is
+ * that amount, counted once in the forecast's first month. */
+export type ScheduledBill = { id: number; name: string; amount_cents: number; due_on: string; repeat_months: number | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean; paid_on: string | null; was_this_paid: boolean; looks_like_debt: string | null; past_due_cents?: number | null; past_due?: boolean }
+/** A debt payment the forecast counts that month: a minimum (on its saved due day, or undated) or a past-due amount. */
+export type ForecastDebtPayment = { name: string; amount_cents: number; due_on: string | null; undated: boolean; past_due: boolean }
+export type ForecastDebtBill = { name: string; amount_cents: number | null; due_day?: number | null; past_due_cents?: number | null }
+export type ForecastIncomeBasis = 'planned' | 'approved_so_far' | 'approved' | 'after_balance' | 'estimated_after_balance'
+export type ForecastMonth = { label: string; starts_on: string; from_on: string | null; opening_cents: number | null; income_cents: number | null; income_basis: ForecastIncomeBasis; approved_so_far_cents: number | null; outflow_cents: number | null; spending_plan_known: boolean; ending_cents: number | null; bills: ScheduledBill[]; debts?: ForecastDebtPayment[]; reasons: string[]; includes_estimates: boolean; estimate_reasons?: string[]; higher_costs: boolean }
+export type YearForecast = { starting_cash_cents: number | null; starting_on: string | null; starting_note: string; months: ForecastMonth[]; first_short_month: ForecastMonth | null; status: 'short' | 'no_short_month' | 'unknown'; estimate_reasons?: string[]; missing: string[]; bills: ScheduledBill[]; debt_bills: ForecastDebtBill[] }
+/** past_due: blank clears it back to not entered; 0 means caught up. */
+export type BillInput = { name: string; amount: string; due_on: string; repeat_months: string | null; budget_category_id: number | null; must_pay: boolean; estimate: boolean; past_due?: string }
+// One key per new bill: a retried Save sends the same key, so the server returns the bill it already saved.
+export function newBillRequestKey() { return `bill-${clientRequestId()}` }
+export async function saveBill(id: number | null, bill: BillInput, idempotencyKey?: string) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (!id && idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+  return fetchJson(`/api/v1/bills${id ? `/${id}` : ''}`, { method: id ? 'PATCH' : 'POST', headers, body: JSON.stringify({ bill }) })
+}
+export async function removeBill(id: number) { return fetchJson(`/api/v1/bills/${id}`, { method: 'DELETE' }) }
+export async function markBillPaid(id: number, paid: boolean) {
+  return fetchJson(`/api/v1/bills/${id}/paid`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid }) })
 }

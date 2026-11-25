@@ -92,10 +92,13 @@ module HouseholdFinance
     def merchant_comparison_target
       return unless message.match?(/\b(more|less|compare|versus|vs\.?|or)\b/i)
 
-      matches = known_merchants.select { |merchant| normalized_message.include?(normalize(merchant)) }.first(4)
-      return if matches.length < 2
+      # Every stored name she named, grouped by how it reads: two bank spellings of Coral Market are one
+      # store, and each is still matched on its own stored name.
+      groups = known_merchants.select { |merchant| normalized_message.include?(normalize(merchant)) }
+        .group_by { |merchant| display_merchant(merchant).downcase }.values.first(4)
+      return if groups.length < 2
 
-      { type: :merchant_comparison, labels: matches }
+      { type: :merchant_comparison, labels: groups }
     end
 
     def merchant_target
@@ -103,7 +106,8 @@ module HouseholdFinance
         normalized_merchant = normalize(merchant)
         normalized_merchant.present? && normalized_message.include?(normalized_merchant)
       end
-      return { type: :merchant, label: known_merchant } if known_merchant.present?
+      # Matched on the stored name: the shorter "Ross" would also match "Crossroads Cafe".
+      return { type: :merchant, label: known_merchant, display: display_merchant(known_merchant) } if known_merchant.present?
 
       extracted = message.match(/\b(?:at|from)\s+([a-z0-9'&.\-\s]+?)(?:\s+(?:this|last|in|for|during|between|from|and how|how much|how many)|[?.!]|$)/i)&.[](1)&.squish
       extracted = extracted&.gsub(/\b(today|yesterday)\b/i, "")&.squish
@@ -133,14 +137,25 @@ module HouseholdFinance
       label = target.fetch(:label)
       category_line = category_breakdown(transactions, target)
       merchant_line = merchant_breakdown(transactions, target)
+      # Budget's own netting: refunds she approved come back to these categories in the month they posted.
+      refunded = refund_cents_for(target)
+      refund_line = "#{money(refunded)} in refunds came back to #{label}, so it comes to #{money(total_cents - refunded)}." if refunded.positive?
+      # Budget's cash rule: a purchase paid from cash she took out counts in the month the cash was withdrawn.
+      moved = cash_cents_for(target)
+      if moved.nonzero?
+        cash_line = "Counting cash purchases in the month the cash was taken out, as Budget does, #{label} comes to #{money(total_cents - refunded + moved)}."
+        refund_line = [ refund_line, cash_line ].compact.join(" ")
+      end
 
       if count.zero?
+        return "For #{period_label}, based on confirmed transactions, I don’t see confirmed #{label} purchases. #{refund_line}" if refund_line
         return "For #{period_label}, based on confirmed transactions, I do not see confirmed #{label} spending yet. Purchases waiting for review do not count until you confirm them."
       end
 
       noun = "transaction".pluralize(count)
       lines = [
         "For #{period_label}, based on confirmed transactions, I found #{count} confirmed #{label} #{noun} totaling #{money(total_cents)}.",
+        refund_line,
         category_line,
         merchant_line,
         "Purchases waiting for review do not count until you confirm them."
@@ -149,9 +164,10 @@ module HouseholdFinance
     end
 
     def build_merchant_answer(target, transactions)
-      label = target.fetch(:label)
-      observed = matching_bank_transactions(label, pending: false)
-      bank_pending = matching_bank_transactions(label, pending: true)
+      observed = matching_bank_transactions(target.fetch(:label), pending: false)
+      bank_pending = matching_bank_transactions(target.fetch(:label), pending: true)
+      # Named the way she reads it, never with the bank's wording ("Purchase authorized on …").
+      label = target.fetch(:display, target.fetch(:label))
       needs_review = observed.select { |transaction| needs_household_review?(transaction) }
       if observed.empty? && bank_pending.empty? && transactions.empty?
         return "I don’t see reviewed purchases or synced activity for #{label} in #{period_label}. That does not establish whether you spent anything. Which purchase or store do you mean?"
@@ -170,11 +186,12 @@ module HouseholdFinance
       lines.compact.join("\n\n")
     end
 
-    def build_merchant_comparison_answer(labels)
-      summaries = labels.map do |label|
-        transactions = base_transactions.select { |transaction| merchant_matches?(transaction.merchant, label) }
-        observed = matching_bank_transactions(label, pending: false)
-        { label: label, count: transactions.length, cents: transactions.sum(&:total_amount_cents), observed_count: observed.length, observed_cents: observed.sum(&:amount_cents) }
+    def build_merchant_comparison_answer(groups)
+      summaries = groups.map do |names|
+        # Each transaction once, however many of the store's names it matches.
+        transactions = base_transactions.select { |transaction| names.any? { |name| merchant_matches?(transaction.merchant, name) } }
+        observed = names.flat_map { |name| matching_bank_transactions(name, pending: false) }.uniq
+        { label: display_merchant(names.first), count: transactions.length, cents: transactions.sum(&:total_amount_cents), observed_count: observed.length, observed_cents: observed.sum(&:amount_cents) }
       end
       winner = if summaries.any? { |summary| summary.fetch(:observed_cents).positive? }
         summaries.max_by { |summary| summary.fetch(:observed_cents) }
@@ -281,6 +298,16 @@ module HouseholdFinance
       "Top merchants: #{top_merchants.to_sentence}."
     end
 
+    def refund_cents_for(target)
+      return 0 unless target.fetch(:type) == :category
+      RefundCredits.new(household, from: start_on, to: end_on).category_cents.slice(*target.fetch(:category_ids)).values.sum
+    end
+
+    def cash_cents_for(target)
+      return 0 unless target.fetch(:type) == :category
+      CashDrawdowns.new(household).category_cents(from: start_on, to: end_on).slice(*target.fetch(:category_ids)).values.sum
+    end
+
     def amount_cents_for(transaction, target)
       return transaction.total_amount_cents if target.fetch(:type) == :merchant
 
@@ -304,6 +331,8 @@ module HouseholdFinance
     def transaction_category_ids(transaction)
       lookup_splits(transaction).map(&:budget_category_id)
     end
+
+    def display_merchant(merchant) = SpendingPatterns::MerchantName.call(merchant).presence || merchant
 
     def known_merchants
       @known_merchants ||= (base_transactions.map(&:merchant) + base_bank_transactions.map { |transaction| transaction.merchant_name.presence || transaction.name }).compact.uniq

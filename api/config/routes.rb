@@ -23,6 +23,9 @@ Rails.application.routes.draw do
       resources :brand_logos, only: :show
     end
     namespace :v1 do
+      resources :bills, only: %i[create update destroy] do
+        post :paid, on: :member
+      end
       resources :enterprise_organizations, only: %i[index show create update] do
         member do
           post :portal
@@ -120,9 +123,11 @@ Rails.application.routes.draw do
       resource :workspace, only: :show do
         patch "setup", on: :collection
       end
+      resource :home_view, only: :update
       get "profile", to: "households#profile"
       get "dashboard", to: "households#dashboard"
       get "budget", to: "households#budget"
+      get "budget/monthly_close", to: "households#monthly_close"
       get "spending_report", to: "spending_reports#show"
       get "wealth", to: "households#wealth"
       get "optionality", to: "households#optionality"
@@ -151,6 +156,8 @@ Rails.application.routes.draw do
           delete :plaid_link, action: :plaid_unlink
         end
       end
+      get "statement_balances", to: "statement_balances#index"
+      post "statement_balances/:tracked_account_id/apply", to: "statement_balances#apply", as: :apply_statement_balance
       resources :goals, only: %i[create update destroy] do
         post :restore, on: :member
       end
@@ -183,6 +190,7 @@ Rails.application.routes.draw do
           post :ignore
           post :match
           post :reopen
+          post :cash_answer
         end
       end
       get "source_review_accounts", to: "source_reviews#accounts"

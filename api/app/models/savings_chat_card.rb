@@ -10,7 +10,9 @@ class SavingsChatCard < ApplicationRecord
 
   def as_api_json
     { id: id, kind: kind, input: input, state: state, status: status, lock_version: lock_version,
-      enrollment_id: savings_enrollment_id, message_id: chat_message_id }
+      enrollment_id: savings_enrollment_id, message_id: chat_message_id,
+      # Her challenge's length, so a goal card can say "over your 60 days".
+      challenge_length_days: savings_enrollment&.challenge_length_days }
   end
 
   private

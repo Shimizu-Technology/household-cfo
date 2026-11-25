@@ -35,7 +35,7 @@ module HouseholdFinance
             raw_input: bounded_text(input[:raw_input], ChatMessage::MAX_CONTENT_LENGTH).presence,
             splits: splits,
             year: occurred_on.year
-          }
+          }.merge(ActiveModel::Type::Boolean.new.cast(input[:paid_with_cash]) == true ? { paid_with_cash: true } : {})
         rescue TypeError, ArgumentError => e
           raise e unless e.message.match?(/invalid value for Integer|can't convert|base specified/)
 
@@ -80,7 +80,7 @@ module HouseholdFinance
             draft_payload: {
               parser: input.fetch(:source_type) == "manual_chat" ? "mia_structured_transaction_v1" : "manual_transaction_form_v1",
               source: input.fetch(:source_type)
-            }
+            }.merge(input[:paid_with_cash] ? { CashPayment::PAYLOAD_KEY => CashPayment.participant_payload } : {})
           )
           splits.each do |split|
             draft.transaction_draft_splits.create!(split.except(:budget_category_id).merge(budget_category_id: split[:budget_category_id], confidence: draft.confidence))

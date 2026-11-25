@@ -9,13 +9,18 @@ module CohortExperience
     CONFIGURABLE_MODULES = %w[review budget profile statements wealth cfo_filter optionality].freeze
     MODULE_IDS = %w[home review ask_mia budget profile wealth cfo_filter optionality statements].freeze
     MODULE_DEFAULTS = CONFIGURABLE_MODULES.index_with { |key| !OPTIONAL_MODULES.include?(key) }.freeze
-    SUPPORTED_SCHEMA_VERSIONS = [ 1, 2, 3, 4 ].freeze
+    SUPPORTED_SCHEMA_VERSIONS = [ 1, 2, 3, 4, 5 ].freeze
+    CURRENT_SCHEMA_VERSION = 5
+    MODE_SCHEMA_VERSIONS = [ 2, 3, 4, 5 ].freeze
+    # Schema 4 added configurable tools and their order; schema 5 adds the coaching method.
+    CONFIGURABLE_SCHEMA_VERSIONS = [ 4, 5 ].freeze
     EXPERIENCE_MODES = %w[household_cfo savings_challenge].freeze
     DEFAULT_CONFIG = {
-      "schema_version" => 4,
+      "schema_version" => 5,
       "experience_mode" => "household_cfo",
       "optional_modules" => MODULE_DEFAULTS,
-      "module_order" => [].freeze
+      "module_order" => [].freeze,
+      "method" => MethodSettings::DEFAULTS
     }.freeze
     # A corrupt published choice must never grant tools the coach may have disabled.
     RESTRICTED_CONFIG = DEFAULT_CONFIG.merge(
@@ -47,7 +52,10 @@ module CohortExperience
 
     def mode_payload(value)
       mode = mode_for(value)
-      { mode: mode, label: MODE_LABELS.fetch(mode) }
+      label = MODE_LABELS.fetch(mode)
+      # The challenge's own length: "60-day Savings Challenge".
+      label = label.sub("90-day", "#{method_for(value).dig('challenge', 'length_days')}-day") if mode == "savings_challenge"
+      { mode: mode, label: label }
     end
 
     def normalize(value)
@@ -57,8 +65,9 @@ module CohortExperience
         "schema_version" => Integer(input.fetch("schema_version", 1), exception: false),
         "optional_modules" => module_keys(input).index_with { |key| modules.fetch(key, false) }
       }
-      normalized["experience_mode"] = input["experience_mode"] if [ 2, 3, 4 ].include?(normalized["schema_version"])
-      normalized["module_order"] = input.fetch("module_order", []).dup if normalized["schema_version"] == 4
+      normalized["experience_mode"] = input["experience_mode"] if MODE_SCHEMA_VERSIONS.include?(normalized["schema_version"])
+      normalized["module_order"] = input.fetch("module_order", []).dup if configurable?(normalized)
+      normalized["method"] = MethodSettings.normalize(input.fetch("method", {})) if normalized["schema_version"] == 5
       normalized
     end
 
@@ -68,11 +77,13 @@ module CohortExperience
       input = value.to_h.deep_stringify_keys
       result = []
       allowed_keys = %w[schema_version optional_modules]
-      allowed_keys += %w[experience_mode] if [ 2, 3, 4 ].include?(input["schema_version"])
-      allowed_keys += %w[module_order] if input["schema_version"] == 4
+      allowed_keys += %w[experience_mode] if MODE_SCHEMA_VERSIONS.include?(input["schema_version"])
+      allowed_keys += %w[module_order] if configurable?(input)
+      allowed_keys += %w[method] if input["schema_version"] == 5
       result << "contains unsupported configuration fields" if (input.keys - allowed_keys).any?
-      result << "schema_version must be 1, 2, 3 or 4" unless SUPPORTED_SCHEMA_VERSIONS.include?(input["schema_version"])
-      if [ 2, 3, 4 ].include?(input["schema_version"]) && !EXPERIENCE_MODES.include?(input["experience_mode"])
+      result << "schema_version must be 1, 2, 3, 4 or 5" unless SUPPORTED_SCHEMA_VERSIONS.include?(input["schema_version"])
+      result.concat(MethodSettings.errors(input["method"])) if input["schema_version"] == 5
+      if MODE_SCHEMA_VERSIONS.include?(input["schema_version"]) && !EXPERIENCE_MODES.include?(input["experience_mode"])
         result << "experience_mode must be household_cfo or savings_challenge"
       end
       modules = input["optional_modules"]
@@ -85,7 +96,7 @@ module CohortExperience
       module_keys(input).each do |key|
         result << "optional_modules.#{key} must be true or false" unless [ true, false ].include?(modules[key])
       end
-      if input["schema_version"] == 4
+      if configurable?(input)
         order = input.fetch("module_order", [])
         unless order.is_a?(Array) && order.all? { |id| MODULE_IDS.include?(id) } && order.uniq == order
           result << "module_order must contain unique supported module IDs"
@@ -95,19 +106,32 @@ module CohortExperience
     end
 
     def module_keys(input)
-      input["schema_version"] == 4 ? CONFIGURABLE_MODULES : OPTIONAL_MODULES
+      configurable?(input) ? CONFIGURABLE_MODULES : OPTIONAL_MODULES
+    end
+
+    def configurable?(input)
+      CONFIGURABLE_SCHEMA_VERSIONS.include?(input["schema_version"])
+    end
+
+    # The coaching method a config gives participants. Schemas before 5 read as the defaults.
+    def method_for(value)
+      input = value.respond_to?(:to_h) ? value.to_h.deep_stringify_keys : {}
+      return MethodSettings.defaults unless input["schema_version"] == 5 && MethodSettings.errors(input["method"]).empty?
+
+      MethodSettings.resolve(input["method"])
     end
 
     # Upgrading a draft is explicit; historical config bytes and digests stay unchanged.
     def upgrade(value)
       input = normalize(value)
-      return input if input["schema_version"] == 4
+      return input if input["schema_version"] == CURRENT_SCHEMA_VERSION
 
       {
-        "schema_version" => 4,
+        "schema_version" => CURRENT_SCHEMA_VERSION,
         "experience_mode" => mode_for(input),
-        "optional_modules" => MODULE_DEFAULTS.merge(input.fetch("optional_modules")),
-        "module_order" => []
+        "optional_modules" => configurable?(input) ? input.fetch("optional_modules") : MODULE_DEFAULTS.merge(input.fetch("optional_modules")),
+        "module_order" => input.fetch("module_order", []),
+        "method" => MethodSettings.defaults
       }
     end
 

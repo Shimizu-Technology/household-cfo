@@ -10,6 +10,7 @@ module FinancialDocuments
     MAX_EVENTS = 2_000
     CENT_LIMIT = 99_999_999_999
     EXTRACTION_LIMITATIONS = %w[legacy_expense_only_contract signed_account_movement_unknown conflicting_debit_credit amount_missing_or_invalid transaction_direction_unclear merchant_missing].freeze
+    ACCOUNT_LIMITATIONS = (EXTRACTION_LIMITATIONS + %w[account_label_ambiguous]).freeze
     # Free-text row notes that only describe the row ("This is a utility
     # bill payment.") stay with the evidence and must not hold a row back.
     # Any note that doubts what was read -- amount, date, merchant, digits,
@@ -182,7 +183,7 @@ module FinancialDocuments
     end
 
     def limitation_codes(values)
-      Array(values).map { |value| EXTRACTION_LIMITATIONS.include?(value.to_s) ? value.to_s : "extractor_reported_limitation" }.uniq
+      Array(values).map { |value| ACCOUNT_LIMITATIONS.include?(value.to_s) ? value.to_s : "extractor_reported_limitation" }.uniq
     end
 
     # Notes stay in evidence[:extraction_limitations] for the reviewer.
@@ -227,8 +228,10 @@ module FinancialDocuments
       nil
     end
 
-    def text(value, limit)
+    def self.normalized_text(value, limit)
       value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish.truncate(limit).presence
     end
+
+    def text(value, limit) = self.class.normalized_text(value, limit)
   end
 end

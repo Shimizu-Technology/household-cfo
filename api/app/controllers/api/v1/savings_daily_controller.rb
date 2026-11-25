@@ -30,7 +30,7 @@ module Api
           { **actor_context, calendar: SavingsChallenge::ParticipantSerializer.calendar(@enrollment),
             day: context_day,
             categories: current_household.budget_categories.active.order(:sort_order, :id).map { |category| category.attributes.slice("id", "name", "stack_key") },
-            category_options: BudgetCategory::STACK_KEYS.map { |key| { stack_key: key, label: HouseholdFinance::SnapshotBuilder::STACK_LABELS.fetch(key) } } }
+            category_options: BudgetCategory::STACK_KEYS.map { |key| { stack_key: key, label: HouseholdFinance::ExpenseGroups.for_household(current_household).fetch(key) } } }
         }
       end
 

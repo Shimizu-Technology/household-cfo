@@ -203,13 +203,14 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
   // Calendar dates come from this group's existing start date; no new series or money is read.
   const start = detail?.starts_on
   const day = start ? Math.round((Date.parse(guamTodayIso()) - Date.parse(start)) / 86_400_000) + 1 : NaN
-  const challengeDay = savings && detail?.savings_challenge?.state === 'open' && day >= 1 && day <= 90 ? day : null
+  const groupLength = overview.challenge?.length_days ?? 90
+  const challengeDay = savings && detail?.savings_challenge?.state === 'open' && day >= 1 && day <= groupLength ? day : null
   return <div className="admin-daily">
     <dl className="ui-card admin-metrics">
       <div><dt>Joined</dt><dd>{counts.joined}</dd></div>
       {savings && <div><dt>Checked in today</dt><dd>{counts.checked_in}</dd></div>}
       <div><dt>Need you</dt><dd>{counts.needs_help}</dd></div>
-      {challengeDay !== null && <div><dt>Challenge day</dt><dd>{challengeDay}<small> of 90</small></dd></div>}
+      {challengeDay !== null && <div><dt>Challenge day</dt><dd>{challengeDay}<small> of {groupLength}</small></dd></div>}
     </dl>
     <h3 className="admin-subhead">{group.name}</h3>
     {detail && <p className="admin-muted">{groupLine(detail, counts.joined ?? 0).replace(`${group.name} · `, '')}</p>}

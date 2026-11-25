@@ -1,0 +1,372 @@
+/* Monthly close: Look A card, hairlines inside, tabular numerals, phone-first. */
+.monthly-close-panel {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.monthly-close-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.monthly-close-heading {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.monthly-close-heading h4 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--ink);
+}
+
+.monthly-close-subtitle {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.monthly-close-state,
+.monthly-close-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.monthly-close-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.monthly-close-error p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.monthly-close-body {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.monthly-close-highlights {
+  margin: 0;
+  padding: var(--space-3) 0 0 18px;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.monthly-close-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+}
+
+.monthly-close-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-inline-start: var(--space-3);
+  border-inline-start: 1px solid var(--rule);
+}
+
+.monthly-close-summary-item:first-child {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+
+.monthly-close-figure {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.monthly-close-meta {
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.monthly-close-variance {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.monthly-close-panel .is-attention {
+  color: var(--accent-warm);
+}
+
+.monthly-close-panel .is-good {
+  color: var(--positive);
+}
+
+.monthly-close-net {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+}
+
+.monthly-close-net-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.monthly-close-net-values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.monthly-close-net-values strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+.monthly-close-section {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+  min-width: 0;
+}
+
+.monthly-close-section-head {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.monthly-close-section-title {
+  margin: 0;
+  font: var(--weight-semibold) var(--text-sm)/1.4 var(--font-body);
+  color: var(--ink);
+}
+
+.monthly-close-changes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.monthly-close-income-change {
+  grid-column: 1 / -1;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.monthly-close-income-change strong {
+  font-weight: var(--weight-semibold);
+}
+
+.monthly-close-mover-group {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.monthly-close-mover-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.monthly-close-mover-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.monthly-close-mover-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.monthly-close-mover-amount {
+  flex: 0 0 auto;
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.monthly-close-tag {
+  display: inline-block;
+  margin-inline-start: var(--space-2);
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-style: normal;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+}
+
+.monthly-close-groups {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.monthly-close-group {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.monthly-close-group-title {
+  margin: 0;
+  font: var(--weight-semibold) var(--text-xs)/1.4 var(--font-body);
+  color: var(--muted);
+  text-transform: none;
+}
+
+.monthly-close-category-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.monthly-close-category-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.3fr) minmax(0, 2.2fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--rule);
+  min-height: 56px;
+}
+
+.monthly-close-category-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.monthly-close-category-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.monthly-close-category-name strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.monthly-close-category-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.monthly-close-category-metrics > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.monthly-close-category-metrics dt {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+}
+
+.monthly-close-category-metrics dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.monthly-close-category-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 620px) {
+  .monthly-close-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .monthly-close-summary-item {
+    padding: var(--space-3) 0;
+    border-inline-start: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .monthly-close-summary-item:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .monthly-close-changes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monthly-close-category-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .monthly-close-category-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .monthly-close-category-action {
+    justify-content: stretch;
+  }
+
+  .monthly-close-category-action .monthly-close-adjust-btn {
+    width: 100%;
+  }
+}

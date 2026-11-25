@@ -223,6 +223,73 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, response.parsed_body.dig("document_import", "statement_review", "without_category")
   end
 
+  test "a category-only change keeps a saved purchase total that differs from the money that moved" do
+    document = @source[:import]
+    document.update!(metadata: document.metadata.merge("source_accounting_contract_version" => FinancialDocuments::AccountingContract::VERSION))
+    mutate("account_link", account_input)
+    input = stage_input(response.parsed_body.fetch("record").fetch("id"))
+    # A $20.00 purchase of which $10.00 left this account; no category yet.
+    input[:facts].merge!(purchase_amount_cents: 2_000, budget_category_id: nil, merchant: "Synthetic transfer 4111222233334444")
+    mutate("stage", input)
+    assert_response :success, response.body
+    mutate("approve", approval_input(response.parsed_body.fetch("record")))
+    assert_response :success, response.body
+    review_get
+    row = response.parsed_body.dig("source_review", "participant_review", "plan", "attention").sole
+    assert_equal [ "no_category", -1_000 ], row.values_at("kind", "signed_amount_cents")
+    refute_includes row.fetch("merchant"), "4111222233334444", "A saved name shows long numbers masked, as See all does"
+
+    post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [ { event_id: row.fetch("event_id"),
+      expected_head: row.fetch("expected_head"), decision: "edited", edit: { kind: "spending", merchant: row["merchant"], posted_on: row["posted_on"], amount_cents: 1_000, category_id: @category.id } } ] } },
+      headers: auth_headers(@user).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    assert_response :success, response.body
+    version = SourceReviewHead.find_by!(financial_source_event: @source[:events].sole).approved_version
+    assert_equal [ -1_000, 2_000, @category.id ], [ version.signed_amount_cents, version.purchase_amount_cents, version.budget_category_id ], "Only the category changed"
+  end
+
+  test "unchanged pending corrections preserve every staged answer on an approved purchase" do
+    document = @source[:import]
+    document.update!(metadata: document.metadata.merge("source_accounting_contract_version" => FinancialDocuments::AccountingContract::VERSION))
+    mutate("account_link", account_input)
+    input = stage_input(response.parsed_body.fetch("record").fetch("id"))
+    mutate("stage", input)
+    mutate("approve", approval_input(response.parsed_body.fetch("record")))
+    assert_response :success
+    head = SourceReviewHead.find_by!(financial_source_event: @source[:events].sole)
+    [
+      { disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded" },
+      { event_type: "transfer", purchase_amount_cents: nil, budget_category_id: nil, external_reference: "own-account:demo" },
+      { event_type: "purchase", external_reference: "sent-to-someone:demo", overlap_disposition: "distinct" },
+      { event_type: "cash_withdrawal", purchase_amount_cents: 2_000 }
+    ].each do |changes|
+      facts = input[:facts].merge(changes)
+      mutate("stage", input.merge(base_version_id: head.reload.approved_version_id, base_lock_version: head.lock_version, facts: facts))
+      assert_response :success, response.body
+      review_get
+      row = response.parsed_body.dig("source_review", "participant_review", "plan", "attention").sole
+      assert_equal "correction", row["kind"]
+      assert_equal facts[:disposition], row["disposition"]
+      assert_equal facts[:event_type], row["event_type"]
+      assert_equal [ facts[:purchase_amount_cents] ], [ row["purchase_amount_cents"] ]
+      assert_equal false, row["recipient_question"]
+      # A changed field must fail atomically rather than erase hidden proposal answers.
+      post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [ {
+        event_id: row["event_id"], expected_head: row["expected_head"], decision: "edited",
+        edit: { kind: "spending", merchant: "Changed store", posted_on: row["posted_on"], amount_cents: 999, category_id: row["category_id"] }
+      } ] } }, headers: auth_headers(@user).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+      assert_response :conflict, response.body
+      assert_includes response.body, "Nothing was saved"
+      assert_equal facts.stringify_keys, head.source_review_drafts.find_by!(status: "pending").facts.slice(*facts.stringify_keys.keys)
+      kind = { "purchase" => "spending", "transfer" => "moved", "cash_withdrawal" => "cash" }.fetch(row["event_type"])
+      post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [ {
+        event_id: row["event_id"], expected_head: row["expected_head"], decision: "edited",
+        edit: { kind: kind, merchant: row["editable_merchant"], posted_on: row["posted_on"], amount_cents: row["signed_amount_cents"].abs, category_id: row["category_id"] }
+      } ] } }, headers: auth_headers(@user).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+      assert_response :success, response.body
+      assert_equal facts.stringify_keys, head.reload.approved_version.reviewed_facts.stringify_keys.slice(*facts.stringify_keys.keys)
+    end
+  end
+
   def approval_input(draft)
     { draft_id: draft.fetch("id"), draft_lock_version: draft.fetch("lock_version"), draft_digest: draft.fetch("digest") }
   end
@@ -260,6 +327,46 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     changed = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
     assert_equal [ -260_000, 145_000 ], changed.financial_source_events.pluck(:signed_amount_cents).sort
     assert_equal 3, document.reload.metadata["signed_amount_answers"].length
+  ensure
+    file&.close!
+  end
+
+  test "a multi-account file takes one sign answer per account and a repeated answer saves nothing new" do
+    document = @source[:import]
+    document.update!(filename: "accounts.csv", content_type: "text/csv")
+    file = Tempfile.new([ "accounts", ".csv" ])
+    file.write("Date,Account,Description,Amount\n2026-10-01,Talun checking,Pay,2600\n2026-10-02,Talun checking,Rent,-1450\n2026-10-03,Talun card,Store,30\n2026-10-04,Talun card,Payment received,-100\n")
+    file.flush
+    extraction = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "accounts.csv", document_kind: "statement").call
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extraction.data[:source_accounting], structured_spreadsheet: true).call[:revision]
+    accounts = revision.financial_source_accounts.order(:id).to_a
+    post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: revision.id, input: { lines: [], accounts: accounts.map { |account| { source_account_id: account.id, account_basis: account == accounts.last ? "liability" : "asset" } } } }, headers: auth_headers(@user).merge("Idempotency-Key" => "c5-bases"), as: :json
+    assert_response :success, response.body
+    get "/api/v1/document_imports/#{document.id}/source_review", params: { revision_id: revision.id }, headers: auth_headers(@user)
+    plan = response.parsed_body.dig("source_review", "participant_review", "plan")
+    assert plan.fetch("signed_amount_question")
+    assert_equal [ [ "Talun checking", "asset", nil ], [ "Talun card", "liability", nil ] ], plan.fetch("account_sign_questions").map { |row| row.values_at("label", "account_basis", "choice") }
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: revision.id, negative_is_money_out: true, source_account_id: accounts.first.id }, headers: auth_headers(@user), as: :json
+    assert_response :success, response.body
+    first = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: revision.id, negative_is_money_out: true, source_account_id: accounts.first.id }, headers: auth_headers(@user), as: :json
+    assert_response :success
+    assert_equal first.id, response.parsed_body.fetch("revision_id")
+    assert_equal 1, document.reload.metadata["signed_amount_answers"].length
+    # A stale request for the other account is refused instead of answering on top of a revision she has not seen.
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: revision.id, negative_is_money_out: false, source_account_id: accounts.last.id }, headers: auth_headers(@user), as: :json
+    assert_response :conflict
+    card = first.financial_source_accounts.find_by!(source_key: accounts.last.source_key)
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: first.id, negative_is_money_out: false, source_account_id: card.id }, headers: auth_headers(@user), as: :json
+    assert_response :success, response.body
+    last = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
+    assert_equal [ 260_000, -145_000, -3_000, 10_000 ], last.financial_source_events.order(:position).pluck(:signed_amount_cents)
+    get "/api/v1/document_imports/#{document.id}/source_review", params: { revision_id: last.id }, headers: auth_headers(@user)
+    plan = response.parsed_body.dig("source_review", "participant_review", "plan")
+    assert_not plan.fetch("signed_amount_question")
+    assert_equal [ true, false ], plan.fetch("account_sign_questions").pluck("choice")
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+    assert_empty @household.household_transactions
   ensure
     file&.close!
   end
